@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from services.engine.plans.evidence import build_trade_evidence
 from services.engine.risk.profiles import DEFAULT_RISK_PROFILE, RiskProfile
 from services.engine.risk.trade_parameters import build_trade_parameters
 from services.engine.rules.evaluator import evaluate_group
@@ -86,6 +87,7 @@ def _build_plan_from_context(
         entry_condition={
             "rule": rule.model_dump(mode="json"),
             "snapshot": context,
+            "evidence": build_trade_evidence(context),
             "trade_parameters": params.to_dict(),
             "invalid_conditions": params.invalid_conditions,
         },
@@ -119,5 +121,13 @@ def generate_trade_plans(
                 selected_profile = (
                     risk_profile_selector(rule, context) if risk_profile_selector else risk_profile
                 )
-                plans.append(_build_plan_from_context(plan_date, trade_date, rule, context, selected_profile))
+                plans.append(
+                    _build_plan_from_context(
+                        plan_date,
+                        trade_date,
+                        rule,
+                        context,
+                        selected_profile,
+                    )
+                )
     return sorted(plans, key=lambda item: item.confidence_score, reverse=True)

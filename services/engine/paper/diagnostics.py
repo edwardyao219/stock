@@ -321,18 +321,30 @@ def _load_closed_positions(db: Session, report_date: date) -> list[PaperPosition
     return list(db.execute(stmt).scalars())
 
 
-def _trade_plan_snapshots(db: Session, positions: list[PaperPosition]) -> dict[int, dict]:
+def _trade_plan_payloads(db: Session, positions: list[PaperPosition]) -> dict[int, dict]:
     plan_ids = {item.trade_plan_id for item in positions if item.trade_plan_id is not None}
     if not plan_ids:
         return {}
     rows = db.execute(select(TradePlan).where(TradePlan.id.in_(plan_ids))).scalars()
-    snapshots: dict[int, dict] = {}
+    payloads: dict[int, dict] = {}
     for plan in rows:
         payload = plan.entry_condition_json or {}
-        snapshot = payload.get("snapshot") or {}
-        if isinstance(snapshot, dict):
-            snapshots[plan.id] = snapshot
-    return snapshots
+        if isinstance(payload, dict):
+            payloads[plan.id] = payload
+    return payloads
+
+
+def _signal_tags(position: PaperPosition, plan_payloads: dict[int, dict]) -> list[str]:
+    if position.trade_plan_id is None:
+        return []
+    payload = plan_payloads.get(position.trade_plan_id, {})
+    evidence = payload.get("evidence") or {}
+    tags = evidence.get("tags") or []
+    names = []
+    for tag in tags:
+        if isinstance(tag, dict) and tag.get("name"):
+            names.append(str(tag["name"]))
+    return names
 
 
 def _snapshot_float(snapshot: dict, key: str) -> float | None:
@@ -365,7 +377,12 @@ def diagnose_paper_trading(
 ) -> list[PaperTradeMetrics]:
     parsed_report_date = date.fromisoformat(report_date)
     positions = _load_closed_positions(db, parsed_report_date)
-    plan_snapshots = _trade_plan_snapshots(db, positions)
+    plan_payloads = _trade_plan_payloads(db, positions)
+    plan_snapshots = {
+        plan_id: payload.get("snapshot")
+        for plan_id, payload in plan_payloads.items()
+        if isinstance(payload.get("snapshot"), dict)
+    }
     diagnostics: list[PaperTradeMetrics] = []
 
     by_rule: dict[str, list[PaperPosition]] = {}
@@ -396,6 +413,20 @@ def diagnose_paper_trading(
             _diagnose_group(
                 scope_type="sector",
                 scope_value=sector,
+                positions=items,
+                plan_snapshots=plan_snapshots,
+            )
+        )
+
+    by_signal: dict[str, list[PaperPosition]] = {}
+    for position in positions:
+        for tag in _signal_tags(position, plan_payloads):
+            by_signal.setdefault(tag, []).append(position)
+    for tag, items in by_signal.items():
+        diagnostics.append(
+            _diagnose_group(
+                scope_type="signal",
+                scope_value=tag,
                 positions=items,
                 plan_snapshots=plan_snapshots,
             )

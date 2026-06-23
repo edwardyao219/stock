@@ -77,7 +77,20 @@ def test_diagnose_paper_trading_detects_profit_giveback() -> None:
                         "amount_percentile_60d": 95,
                         "distance_to_20d_high": -0.01,
                         "return_5d": 0.10,
-                    }
+                    },
+                    "evidence": {
+                        "tags": [
+                            {
+                                "name": "high_position_volume_spike",
+                                "direction": "risk",
+                                "severity": "high",
+                                "rationale": "高位放量风险",
+                                "values": {"amount_percentile_60d": 95},
+                            }
+                        ],
+                        "risk_flags": ["high_position_volume_spike"],
+                        "support_flags": [],
+                    },
                 },
                 position_size=Decimal("0.10"),
                 status="executed",
@@ -106,6 +119,10 @@ def test_diagnose_paper_trading_detects_profit_giveback() -> None:
     assert any(item.target_name == "profit_giveback" for item in rule.parameter_suggestions)
     assert any(item.target_name == "high_volume_chase" for item in rule.parameter_suggestions)
     assert any(item.scope_type == "sector" and item.scope_value == "银行" for item in diagnostics)
+    assert any(
+        item.scope_type == "signal" and item.scope_value == "high_position_volume_spike"
+        for item in diagnostics
+    )
 
 
 def test_persist_paper_trading_review_writes_report_and_recommendations() -> None:

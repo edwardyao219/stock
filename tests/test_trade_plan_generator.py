@@ -43,6 +43,9 @@ def test_generate_trade_plans_from_feature_context() -> None:
     assert plans[0].take_profit_2 == pytest.approx(11.1)
     assert plans[0].position_size == pytest.approx(0.10)
     assert "trade_parameters" in plans[0].entry_condition
+    evidence = plans[0].entry_condition["evidence"]
+    assert "high_position_volume_spike" in evidence["risk_flags"]
+    assert "trend_alignment" in evidence["support_flags"]
     assert plans[0].confidence_score > 75
 
 

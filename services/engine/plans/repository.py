@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from services.engine.plans.context import build_strategy_context, load_sector_feature_map
@@ -61,6 +61,16 @@ def load_feature_contexts(
 
 
 def upsert_trade_plans(db: Session, plans: list[TradePlanCandidate]) -> int:
+    plan_dates = [
+        (
+            _date(plan.plan_date),
+            _date(plan.trade_date),
+            plan.symbol,
+            plan.rule_id,
+        )
+        for plan in plans
+    ]
+    existing_statuses = _existing_plan_statuses(db, plan_dates)
     rows = [
         {
             "plan_date": _date(plan.plan_date),
@@ -80,7 +90,11 @@ def upsert_trade_plans(db: Session, plans: list[TradePlanCandidate]) -> int:
             "position_size": _decimal(plan.position_size) or Decimal("0"),
             "confidence_score": _decimal(plan.confidence_score),
             "risk_notes": plan.risk_notes,
-            "status": "planned",
+            "status": _next_status(
+                existing_statuses.get(
+                    (_date(plan.plan_date), _date(plan.trade_date), plan.symbol, plan.rule_id)
+                )
+            ),
         }
         for plan in plans
     ]
@@ -109,3 +123,35 @@ def upsert_trade_plans(db: Session, plans: list[TradePlanCandidate]) -> int:
         ],
         constraint="uq_trade_plans_daily_rule",
     )
+
+
+def _existing_plan_statuses(
+    db: Session,
+    keys: list[tuple[date, date, str, str]],
+) -> dict[tuple[date, date, str, str], str]:
+    if not keys:
+        return {}
+    stmt = select(
+        TradePlan.plan_date,
+        TradePlan.trade_date,
+        TradePlan.symbol,
+        TradePlan.rule_id,
+        TradePlan.status,
+    ).where(
+        tuple_(
+            TradePlan.plan_date,
+            TradePlan.trade_date,
+            TradePlan.symbol,
+            TradePlan.rule_id,
+        ).in_(keys)
+    )
+    return {
+        (plan_date, trade_date, symbol, rule_id): status
+        for plan_date, trade_date, symbol, rule_id, status in db.execute(stmt)
+    }
+
+
+def _next_status(existing_status: str | None) -> str:
+    if existing_status in {"executed", "skipped", "cancelled"}:
+        return existing_status
+    return "planned"
