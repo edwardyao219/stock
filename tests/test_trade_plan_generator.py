@@ -64,6 +64,7 @@ def test_compound_rule_requires_banking_fundamental_context() -> None:
             "distance_to_20d_low": 0.08,
             "analysis_framework": "consumer_quality",
             "fundamental_verdict": "supportive",
+            "pb": 3.5,
             "sector_sample_confidence": 0.5,
             "is_st": False,
             "is_suspended": False,

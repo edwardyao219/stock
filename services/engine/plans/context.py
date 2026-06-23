@@ -6,10 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from services.engine.fundamental.repository import (
-    load_latest_fundamental_snapshot,
-    snapshot_to_context,
-)
+from services.engine.fundamental.repository import load_fundamental_context
 from services.engine.fundamental.scoring import assess_fundamentals
 from services.shared.models import DailyBar, SectorFeatureDaily, Security, StockFeatureDaily
 
@@ -32,9 +29,7 @@ def build_strategy_context(
 ) -> dict[str, Any]:
     context = dict(feature_row.features or {})
     sector_features = dict((sector_feature_map or {}).get(security.industry, {}))
-    fundamental_context = snapshot_to_context(
-        load_latest_fundamental_snapshot(db, feature_row.symbol, feature_row.trade_date)
-    )
+    fundamental_context = load_fundamental_context(db, feature_row.symbol, feature_row.trade_date)
     context.update(
         {
             "symbol": feature_row.symbol,

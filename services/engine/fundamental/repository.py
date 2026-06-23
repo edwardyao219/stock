@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from services.shared.models import FundamentalSnapshot
 from services.shared.upsert import upsert_rows
 
-
 FUNDAMENTAL_FIELDS = [
     "revenue_growth",
     "profit_growth",
@@ -22,6 +21,7 @@ FUNDAMENTAL_FIELDS = [
     "net_margin",
     "debt_ratio",
 ]
+VALUATION_FIELDS = ["pe_ttm", "pb"]
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -54,6 +54,30 @@ def upsert_fundamental_snapshots(db: Session, rows: list[dict[str, Any]]) -> int
     )
 
 
+def upsert_valuation_snapshots(db: Session, rows: list[dict[str, Any]]) -> int:
+    payload = []
+    for row in rows:
+        extra = dict(row.get("extra_json") or {})
+        report_date = date.fromisoformat(str(row["report_date"]))
+        raw_available_date = row.get("available_date") or report_date
+        payload.append(
+            {
+                "symbol": str(row["symbol"]),
+                "report_date": report_date,
+                "available_date": date.fromisoformat(str(raw_available_date)),
+                **{field: _decimal(row.get(field)) for field in VALUATION_FIELDS},
+                "extra_json": extra,
+            }
+        )
+    return upsert_rows(
+        db,
+        FundamentalSnapshot,
+        payload,
+        update_columns=["available_date", *VALUATION_FIELDS, "extra_json"],
+        constraint="uq_fundamental_symbol_report",
+    )
+
+
 def load_latest_fundamental_snapshot(
     db: Session,
     symbol: str,
@@ -63,6 +87,31 @@ def load_latest_fundamental_snapshot(
         select(FundamentalSnapshot)
         .where(FundamentalSnapshot.symbol == symbol)
         .where(FundamentalSnapshot.available_date <= as_of_date)
+        .where(
+            (FundamentalSnapshot.revenue_growth.is_not(None))
+            | (FundamentalSnapshot.profit_growth.is_not(None))
+            | (FundamentalSnapshot.roe.is_not(None))
+            | (FundamentalSnapshot.dividend_yield.is_not(None))
+            | (FundamentalSnapshot.gross_margin.is_not(None))
+            | (FundamentalSnapshot.net_margin.is_not(None))
+            | (FundamentalSnapshot.debt_ratio.is_not(None))
+        )
+        .order_by(desc(FundamentalSnapshot.available_date), desc(FundamentalSnapshot.report_date))
+        .limit(1)
+    )
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def load_latest_valuation_snapshot(
+    db: Session,
+    symbol: str,
+    as_of_date: date,
+) -> FundamentalSnapshot | None:
+    stmt = (
+        select(FundamentalSnapshot)
+        .where(FundamentalSnapshot.symbol == symbol)
+        .where(FundamentalSnapshot.available_date <= as_of_date)
+        .where((FundamentalSnapshot.pb.is_not(None)) | (FundamentalSnapshot.pe_ttm.is_not(None)))
         .order_by(desc(FundamentalSnapshot.available_date), desc(FundamentalSnapshot.report_date))
         .limit(1)
     )
@@ -83,3 +132,18 @@ def snapshot_to_context(snapshot: FundamentalSnapshot | None) -> dict[str, float
         },
         "fundamental_extra": snapshot.extra_json or {},
     }
+
+
+def load_fundamental_context(db: Session, symbol: str, as_of_date: date) -> dict[str, Any]:
+    context = snapshot_to_context(load_latest_fundamental_snapshot(db, symbol, as_of_date))
+    valuation_snapshot = load_latest_valuation_snapshot(db, symbol, as_of_date)
+    if valuation_snapshot is None:
+        return context
+
+    valuation_context = snapshot_to_context(valuation_snapshot)
+    for field in VALUATION_FIELDS:
+        if valuation_context.get(field) is not None:
+            context[field] = valuation_context[field]
+    context["valuation_date"] = valuation_snapshot.available_date.isoformat()
+    context["valuation_extra"] = valuation_snapshot.extra_json or {}
+    return context

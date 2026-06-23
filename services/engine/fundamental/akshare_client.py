@@ -6,7 +6,6 @@ from typing import Any
 
 import pandas as pd
 
-
 PERCENT_FIELDS = {
     "TOTALOPERATEREVETZ": "revenue_growth",
     "PARENTNETPROFITTZ": "profit_growth",
@@ -21,6 +20,11 @@ BANK_EXTRA_FIELDS = {
     "NET_INTEREST_MARGIN": "net_interest_margin",
     "NONPERLOAN": "nonperforming_loan_ratio",
     "LOAN_PROVISION_RATIO": "loan_provision_ratio",
+}
+
+VALUATION_FIELDS = {
+    "PE(TTM)": "pe_ttm",
+    "市净率": "pb",
 }
 
 
@@ -115,6 +119,30 @@ def snapshot_from_indicator_row(symbol: str, raw: dict[str, Any]) -> dict[str, A
     return row
 
 
+def snapshot_from_valuation_row(symbol: str, raw: dict[str, Any]) -> dict[str, Any] | None:
+    trade_date = _parse_date(raw.get("数据日期"))
+    if trade_date is None:
+        return None
+
+    row: dict[str, Any] = {
+        "symbol": symbol,
+        "report_date": trade_date.isoformat(),
+        "available_date": trade_date.isoformat(),
+        "extra_json": {
+            "source": "akshare.stock_value_em",
+            "valuation_date": trade_date.isoformat(),
+            "close": str(_decimal(raw.get("当日收盘价")) or ""),
+            "market_cap": str(_decimal(raw.get("总市值")) or ""),
+            "float_market_cap": str(_decimal(raw.get("流通市值")) or ""),
+        },
+    }
+
+    for source_field, target_field in VALUATION_FIELDS.items():
+        row[target_field] = _decimal(raw.get(source_field))
+
+    return row
+
+
 def fetch_financial_indicator_snapshots(symbol: str) -> list[dict[str, Any]]:
     ak = _akshare()
     df = ak.stock_financial_analysis_indicator_em(
@@ -124,6 +152,17 @@ def fetch_financial_indicator_snapshots(symbol: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for raw in df.to_dict("records"):
         snapshot = snapshot_from_indicator_row(symbol, raw)
+        if snapshot is not None:
+            rows.append(snapshot)
+    return rows
+
+
+def fetch_valuation_snapshots(symbol: str) -> list[dict[str, Any]]:
+    ak = _akshare()
+    df = ak.stock_value_em(symbol=symbol)
+    rows: list[dict[str, Any]] = []
+    for raw in df.to_dict("records"):
+        snapshot = snapshot_from_valuation_row(symbol, raw)
         if snapshot is not None:
             rows.append(snapshot)
     return rows
