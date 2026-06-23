@@ -53,6 +53,10 @@ export interface WorkspacePlan {
   take_profit_1: number | null;
   take_profit_2: number | null;
   status: string;
+  can_buy_now: boolean;
+  execution_status: string;
+  execution_label: string;
+  execution_note: string;
 }
 
 export interface PaperTradeSummary {

@@ -27,6 +27,10 @@ class WorkspacePlanResponse(BaseModel):
     take_profit_1: float | None
     take_profit_2: float | None
     status: str
+    can_buy_now: bool
+    execution_status: str
+    execution_label: str
+    execution_note: str
 
 
 class PaperTradeSummaryResponse(BaseModel):
@@ -115,6 +119,10 @@ def _to_response(item) -> WorkspaceStockResponse:
                 take_profit_1=plan.take_profit_1,
                 take_profit_2=plan.take_profit_2,
                 status=plan.status,
+                can_buy_now=plan.can_buy_now,
+                execution_status=plan.execution_status,
+                execution_label=plan.execution_label,
+                execution_note=plan.execution_note,
             )
             for plan in item.plans
         ],

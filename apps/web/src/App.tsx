@@ -80,6 +80,7 @@ export function App() {
   const [manualNote, setManualNote] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"all" | "auto" | "manual">("all");
   const [candles, setCandles] = useState<Candle[]>([]);
+  const [tradeDialogOpen, setTradeDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -145,6 +146,7 @@ export function App() {
 
   useEffect(() => {
     if (selected?.symbol) loadCandles(selected.symbol);
+    setTradeDialogOpen(false);
   }, [selected?.symbol]);
 
   const autoCount = stocks.filter((item) => item.source.includes("auto")).length;
@@ -364,9 +366,15 @@ export function App() {
                     <div className="plan-card" key={plan.id}>
                       <div>
                         <strong>{plan.rule_id} / {strategyLabels[plan.strategy_type] ?? plan.strategy_type}</strong>
-                        <span>计划交易日 {plan.trade_date} / 置信分 {price(plan.confidence_score)}</span>
+                        <span>
+                          计划交易日 {plan.trade_date} / {plan.execution_label} /
+                          置信分 {price(plan.confidence_score)}
+                        </span>
                       </div>
                       <p>{riskText(plan)}</p>
+                      <p className={plan.can_buy_now ? "execution-note tradable" : "execution-note blocked"}>
+                        {plan.execution_note}
+                      </p>
                     </div>
                   ))
                 ) : (
@@ -403,26 +411,22 @@ export function App() {
               <section className="detail-section">
                 <div className="section-title">
                   <ClipboardList size={16} />
-                  <h3>最近实盘模拟交易明细</h3>
+                  <h3>实盘模拟交易</h3>
                 </div>
                 {selected.recent_paper_trades.length ? (
-                  selected.recent_paper_trades.map((trade) => (
-                    <div className="recommendation-card" key={trade.id}>
-                      <div>
-                        <strong>{trade.rule_id} / {tradeStatusText(trade.status)} / {pct(trade.pnl_pct)}</strong>
-                        <span>
-                          买入 {trade.entry_date} @ {price(trade.entry_price)}，
-                          卖出 {trade.exit_date ?? "未卖出"} @ {price(trade.exit_price)}
-                        </span>
-                      </div>
-                      <p>
-                        数量 {trade.quantity} / 持有 {trade.holding_days}天 /
-                        最高 {price(trade.highest_price)} / 最低 {price(trade.lowest_price)} /
-                        顶峰浮盈 {pct(trade.mfe_pct)} / 最大浮亏 {pct(trade.mae_pct)} /
-                        退出原因 {exitReasonText(trade.exit_reason)}
-                      </p>
+                  <div className="trade-summary-row">
+                    <div>
+                      <strong>{selected.recent_paper_trades.length} 条记录</strong>
+                      <span>
+                        最近一笔 {tradeStatusText(selected.recent_paper_trades[0].status)} /
+                        买入 {selected.recent_paper_trades[0].entry_date} @{" "}
+                        {price(selected.recent_paper_trades[0].entry_price)}
+                      </span>
                     </div>
-                  ))
+                    <button type="button" onClick={() => setTradeDialogOpen(true)}>
+                      查看明细
+                    </button>
+                  </div>
                 ) : (
                   <div className="empty compact">暂无模拟交易明细</div>
                 )}
@@ -451,6 +455,41 @@ export function App() {
         </aside>
       </section>
         </>
+      ) : null}
+
+      {tradeDialogOpen && selected ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="trade-dialog" role="dialog" aria-modal="true" aria-label="实盘模拟交易明细">
+            <div className="dialog-head">
+              <div>
+                <span>{selected.symbol} {selected.name ?? ""}</span>
+                <h3>实盘模拟交易明细</h3>
+              </div>
+              <button type="button" onClick={() => setTradeDialogOpen(false)}>
+                关闭
+              </button>
+            </div>
+            <div className="trade-record-list">
+              {selected.recent_paper_trades.map((trade) => (
+                <div className="trade-record" key={trade.id}>
+                  <div>
+                    <strong>{trade.rule_id} / {tradeStatusText(trade.status)} / {pct(trade.pnl_pct)}</strong>
+                    <span>
+                      买入 {trade.entry_date} @ {price(trade.entry_price)}，
+                      卖出 {trade.exit_date ?? "未卖出"} @ {price(trade.exit_price)}
+                    </span>
+                  </div>
+                  <p>
+                    数量 {trade.quantity} / 持有 {trade.holding_days}天 /
+                    最高 {price(trade.highest_price)} / 最低 {price(trade.lowest_price)} /
+                    顶峰浮盈 {pct(trade.mfe_pct)} / 最大浮亏 {pct(trade.mae_pct)} /
+                    退出原因 {exitReasonText(trade.exit_reason)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
       ) : null}
 
       {activePage === "sectors" ? (

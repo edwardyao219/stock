@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, time
 from decimal import Decimal
 
 from sqlalchemy import desc, func, select
@@ -13,7 +14,9 @@ from services.shared.models import (
     ResearchPoolItem,
     Security,
     TradePlan,
+    TradingCalendar,
 )
+from services.shared.time import now_local
 
 ACTIVE_RULE_IDS = tuple(rule.id for rule in MVP_RULES)
 
@@ -31,6 +34,10 @@ class WorkspacePlan:
     take_profit_1: float | None
     take_profit_2: float | None
     status: str
+    can_buy_now: bool
+    execution_status: str
+    execution_label: str
+    execution_note: str
 
 
 @dataclass(frozen=True)
@@ -111,6 +118,52 @@ def _load_recent_bars(db: Session, symbol: str, limit: int = 61) -> list[DailyBa
         .limit(limit)
     )
     return list(reversed(db.execute(stmt).scalars().all()))
+
+
+def _is_open_trade_date(db: Session, trade_date: date) -> bool:
+    calendar_item = db.execute(
+        select(TradingCalendar).where(TradingCalendar.trade_date == trade_date)
+    ).scalar_one_or_none()
+    if calendar_item is not None:
+        return calendar_item.is_open
+    return trade_date.weekday() < 5
+
+
+def _plan_execution_state(db: Session, plan: TradePlan) -> tuple[bool, str, str, str]:
+    current = now_local()
+    today = current.date()
+    current_time = current.time()
+    trade_date = plan.trade_date
+    session_text = "A股交易时段 09:30-11:30 / 13:00-15:00"
+
+    if not _is_open_trade_date(db, trade_date):
+        return False, "non_trading_day", "非交易日", f"{trade_date.isoformat()} 不是交易日。"
+    if trade_date > today:
+        label = "明日开盘观察" if (trade_date - today).days == 1 else "等待交易日"
+        return (
+            False,
+            "future_trade_date",
+            label,
+            f"计划交易日 {trade_date.isoformat()}，当前还不能买；到交易日开盘后再观察触发价。",
+        )
+    if trade_date < today:
+        return False, "expired", "计划已过期", f"计划交易日 {trade_date.isoformat()} 已经过了。"
+    if not _is_open_trade_date(db, today):
+        return False, "market_closed", "今日休市", f"今天不是交易日，不能买入；{session_text}。"
+    if current_time < time(9, 30):
+        return False, "pre_market", "开盘前等待", f"当前未开盘，9:30 后再观察；{session_text}。"
+    if time(9, 30) <= current_time <= time(11, 30):
+        return True, "tradable", "交易时段可观察", "当前在早盘交易时段，可按触发价观察。"
+    if time(11, 30) < current_time < time(13, 0):
+        return (
+            False,
+            "lunch_break",
+            "午间休市",
+            f"午间休市不能买入，13:00 后再观察；{session_text}。",
+        )
+    if time(13, 0) <= current_time <= time(15, 0):
+        return True, "tradable", "交易时段可观察", "当前在午后交易时段，可按触发价观察。"
+    return False, "market_closed", "已收盘", f"当前已收盘，今天不能买入；{session_text}。"
 
 
 def _load_recent_paper_positions(
@@ -246,6 +299,30 @@ def _load_manual_pool_items(db: Session, pool_name: str = "manual") -> dict[str,
     return {item.symbol: item for item in db.execute(stmt).scalars()}
 
 
+def _to_workspace_plan(db: Session, plan: TradePlan) -> WorkspacePlan:
+    can_buy_now, execution_status, execution_label, execution_note = _plan_execution_state(
+        db,
+        plan,
+    )
+    return WorkspacePlan(
+        id=plan.id,
+        rule_id=plan.rule_id,
+        strategy_type=plan.strategy_type,
+        plan_date=plan.plan_date.isoformat(),
+        trade_date=plan.trade_date.isoformat(),
+        position_size=float(plan.position_size),
+        confidence_score=_float(plan.confidence_score),
+        initial_stop=_float(plan.initial_stop),
+        take_profit_1=_float(plan.take_profit_1),
+        take_profit_2=_float(plan.take_profit_2),
+        status=plan.status,
+        can_buy_now=can_buy_now,
+        execution_status=execution_status,
+        execution_label=execution_label,
+        execution_note=execution_note,
+    )
+
+
 def _build_workspace_item(
     db: Session,
     *,
@@ -275,22 +352,7 @@ def _build_workspace_item(
         latest_close=_float(latest_bar.close) if latest_bar else None,
         return_5d=_return_from_bars(recent_bars, 5),
         return_20d=_return_from_bars(recent_bars, 20),
-        plans=[
-            WorkspacePlan(
-                id=plan.id,
-                rule_id=plan.rule_id,
-                strategy_type=plan.strategy_type,
-                plan_date=plan.plan_date.isoformat(),
-                trade_date=plan.trade_date.isoformat(),
-                position_size=float(plan.position_size),
-                confidence_score=_float(plan.confidence_score),
-                initial_stop=_float(plan.initial_stop),
-                take_profit_1=_float(plan.take_profit_1),
-                take_profit_2=_float(plan.take_profit_2),
-                status=plan.status,
-            )
-            for plan in plans
-        ],
+        plans=[_to_workspace_plan(db, plan) for plan in plans],
         paper_trade_summaries=_summarize_paper_trades(paper_positions),
         recent_paper_trades=[
             _to_paper_trade_item(item, latest_bar) for item in paper_positions[:10]
