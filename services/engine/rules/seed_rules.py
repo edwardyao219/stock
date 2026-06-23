@@ -93,4 +93,36 @@ MVP_RULES: list[StrategyRule] = [
         position=PositionRule(base_position_pct=0.0, max_position_pct=0.0),
         tags=["risk", "market-filter"],
     ),
+    StrategyRule(
+        id="R004",
+        name="稳定复利趋势",
+        strategy_type=StrategyType.LONG_TERM,
+        status=RuleStatus.TESTING,
+        description="面向银行等低波动稳定资产，强调趋势、回撤控制和更长持有，不使用短线追突破逻辑。",
+        entry=ConditionGroup(
+            all=[
+                Condition(feature="trend_score", op=">=", value=75),
+                Condition(feature="volatility_score", op="<=", value=60),
+                Condition(feature="risk_score", op="<=", value=35),
+                Condition(feature="max_drawdown_20d", op=">=", value=-0.12),
+                Condition(feature="distance_to_ma20", op=">=", value=-0.03),
+                Condition(feature="distance_to_20d_low", op=">=", value=0.03),
+                Condition(feature="is_st", op="==", value=False),
+                Condition(feature="is_suspended", op="==", value=False),
+            ]
+        ),
+        trigger=ConditionGroup(
+            all=[
+                Condition(field="price", op=">=", ref="entry_trigger_price"),
+            ]
+        ),
+        stop=StopRule(type="composite", params={"atr_multiple": 2.5, "structure_ref": "support_level"}),
+        take_profit=TakeProfitRule(
+            type="target_then_trailing",
+            params={"take_profit_1_r": 2.0, "take_profit_2_r": 4.0, "drawdown_from_high_pct": 0.10},
+        ),
+        time_exit=TimeExitRule(max_holding_days=None),
+        position=PositionRule(base_position_pct=0.12, max_position_pct=0.18),
+        tags=["compound", "low-volatility", "long-term"],
+    ),
 ]

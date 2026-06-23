@@ -82,6 +82,12 @@ python -m services.collector.run_sync indexes --start-date 20240101
 python -m services.collector.run_sync stocks 000001 600519 --start-date 20240101
 ```
 
+维护行业/板块映射：
+
+```bash
+python -m services.collector.run_industry_mapping 000001=银行 600519=白酒
+```
+
 计算日线特征：
 
 ```bash

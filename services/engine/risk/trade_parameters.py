@@ -68,7 +68,16 @@ def build_trade_parameters(
     support = _float(context, "support_level")
     breakout = _float(context, "breakout_level") or _float(context, "recent_high_20d") or close
 
-    entry_reference_price = breakout if rule.id == "R001" else close
+    if rule.id == "R001":
+        entry_reference_price = breakout
+        entry_reason = "breakout_level"
+    elif rule.id == "R004":
+        ma20 = _float(context, "ma20", close) or close
+        entry_reference_price = min(close, ma20 * 1.02)
+        entry_reason = "compound_trend_reference"
+    else:
+        entry_reference_price = close
+        entry_reason = "close_reference"
     entry_trigger_price = entry_reference_price * (1 + profile.breakout_buffer_pct)
 
     atr_stop = entry_trigger_price - atr * profile.atr_stop_multiple if atr else entry_trigger_price * 0.95
@@ -93,7 +102,7 @@ def build_trade_parameters(
 
     evidence = {
         "profile": profile.to_dict(),
-        "entry_reason": "breakout_level" if rule.id == "R001" else "close_reference",
+        "entry_reason": entry_reason,
         "entry_reference_price": entry_reference_price,
         "atr_stop": atr_stop,
         "structure_stop": structure_stop,
