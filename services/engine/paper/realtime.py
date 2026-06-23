@@ -12,6 +12,7 @@ from services.engine.paper.repository import (
     load_open_positions,
     load_trade_plans_for_trade_date,
 )
+from services.notifications.dispatcher import dispatch_paper_alerts
 from services.shared.database import SessionLocal
 from services.shared.models import PaperAlert, PaperPosition
 from services.shared.time import now_local
@@ -44,6 +45,7 @@ class RealtimePaperMonitorResult:
     quotes: int
     updated_positions: int
     alerts: list[RealtimePaperAlert]
+    notifications: list[dict[str, str]]
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -244,6 +246,7 @@ def monitor_paper_positions_realtime(
                     quotes=0,
                     updated_positions=0,
                     alerts=[],
+                    notifications=[],
                 )
         quote_rows = quote_rows or []
         if quote_rows:
@@ -264,6 +267,8 @@ def monitor_paper_positions_realtime(
         _persist_alerts(db, alerts)
         db.commit()
 
+    notifications = dispatch_paper_alerts([alert.to_dict() for alert in alerts])
+
     return RealtimePaperMonitorResult(
         status="ok",
         message="realtime paper monitor completed",
@@ -272,6 +277,7 @@ def monitor_paper_positions_realtime(
         quotes=len(quote_rows),
         updated_positions=updated_positions,
         alerts=alerts,
+        notifications=[item.to_dict() for item in notifications],
     )
 
 

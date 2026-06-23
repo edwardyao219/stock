@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     timezone: str = "Asia/Shanghai"
     enable_ai: bool = False
     data_start_date: str = "20240101"
+    notification_channels: str = ""
+    dingtalk_webhook_url: str | None = None
+    dingtalk_secret: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
