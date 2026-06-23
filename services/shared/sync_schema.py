@@ -15,6 +15,11 @@ def _add_mysql_column_if_missing(table: str, column: str, ddl: str) -> None:
         conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
 
 
+def _execute_mysql(sql: str) -> None:
+    with engine.begin() as conn:
+        conn.execute(text(sql))
+
+
 def main() -> None:
     Base.metadata.create_all(bind=engine)
     if engine.dialect.name == "mysql":
@@ -28,6 +33,12 @@ def main() -> None:
         _add_mysql_column_if_missing("risk_profiles", "scope_value", "VARCHAR(64) NULL")
         _add_mysql_column_if_missing("risk_profiles", "strategy_type", "VARCHAR(32) NULL")
         _add_mysql_column_if_missing("risk_profiles", "priority", "INTEGER NOT NULL DEFAULT 0")
+        _add_mysql_column_if_missing("fundamental_snapshots", "available_date", "DATE NULL")
+        _execute_mysql(
+            "UPDATE fundamental_snapshots "
+            "SET available_date = report_date "
+            "WHERE available_date IS NULL"
+        )
 
 
 if __name__ == "__main__":

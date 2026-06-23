@@ -18,6 +18,16 @@ def _value(context: dict[str, Any], key: str) -> float | None:
     return float(value)
 
 
+def _extra_value(context: dict[str, Any], key: str) -> float | None:
+    extra = context.get("fundamental_extra") or {}
+    if not isinstance(extra, dict):
+        return None
+    value = extra.get(key)
+    if value is None:
+        return None
+    return float(value)
+
+
 def assess_fundamentals(context: dict[str, Any]) -> FundamentalAssessment:
     framework = context.get("analysis_framework")
     reasons: list[str] = []
@@ -26,7 +36,7 @@ def assess_fundamentals(context: dict[str, Any]) -> FundamentalAssessment:
     if framework == "banking_compound":
         dividend_yield = _value(context, "dividend_yield")
         pb = _value(context, "pb")
-        roe = _value(context, "roe")
+        roe = _extra_value(context, "roe_annualized") or _value(context, "roe")
 
         if dividend_yield is not None:
             if dividend_yield >= 0.04:
@@ -45,10 +55,10 @@ def assess_fundamentals(context: dict[str, Any]) -> FundamentalAssessment:
         if roe is not None:
             if roe >= 0.10:
                 score += 10
-                reasons.append("ROE 支撑长期持有逻辑")
+                reasons.append("年化 ROE 支撑长期持有逻辑")
             else:
                 score -= 10
-                reasons.append("ROE 偏弱，长期持有质量不足")
+                reasons.append("年化 ROE 偏弱，长期持有质量不足")
 
     elif framework == "consumer_quality":
         profit_growth = _value(context, "profit_growth")

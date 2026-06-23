@@ -151,6 +151,7 @@ class FundamentalSnapshot(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     symbol: Mapped[str] = mapped_column(String(16), index=True)
     report_date: Mapped[date] = mapped_column(Date, index=True)
+    available_date: Mapped[Optional[date]] = mapped_column(Date, index=True)
     revenue_growth: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
     profit_growth: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
     roe: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))

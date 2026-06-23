@@ -34,10 +34,13 @@ def upsert_fundamental_snapshots(db: Session, rows: list[dict[str, Any]]) -> int
     payload = []
     for row in rows:
         extra = dict(row.get("extra_json") or {})
+        report_date = date.fromisoformat(str(row["report_date"]))
+        raw_available_date = row.get("available_date") or row.get("notice_date") or report_date
         payload.append(
             {
                 "symbol": str(row["symbol"]),
-                "report_date": date.fromisoformat(str(row["report_date"])),
+                "report_date": report_date,
+                "available_date": date.fromisoformat(str(raw_available_date)),
                 **{field: _decimal(row.get(field)) for field in FUNDAMENTAL_FIELDS},
                 "extra_json": extra,
             }
@@ -46,7 +49,7 @@ def upsert_fundamental_snapshots(db: Session, rows: list[dict[str, Any]]) -> int
         db,
         FundamentalSnapshot,
         payload,
-        update_columns=[*FUNDAMENTAL_FIELDS, "extra_json"],
+        update_columns=["available_date", *FUNDAMENTAL_FIELDS, "extra_json"],
         constraint="uq_fundamental_symbol_report",
     )
 
@@ -59,8 +62,8 @@ def load_latest_fundamental_snapshot(
     stmt = (
         select(FundamentalSnapshot)
         .where(FundamentalSnapshot.symbol == symbol)
-        .where(FundamentalSnapshot.report_date <= as_of_date)
-        .order_by(desc(FundamentalSnapshot.report_date))
+        .where(FundamentalSnapshot.available_date <= as_of_date)
+        .order_by(desc(FundamentalSnapshot.available_date), desc(FundamentalSnapshot.report_date))
         .limit(1)
     )
     return db.execute(stmt).scalar_one_or_none()
@@ -71,6 +74,9 @@ def snapshot_to_context(snapshot: FundamentalSnapshot | None) -> dict[str, float
         return {}
     return {
         "fundamental_report_date": snapshot.report_date.isoformat(),
+        "fundamental_available_date": snapshot.available_date.isoformat()
+        if snapshot.available_date is not None
+        else snapshot.report_date.isoformat(),
         **{
             field: float(getattr(snapshot, field)) if getattr(snapshot, field) is not None else None
             for field in FUNDAMENTAL_FIELDS

@@ -16,6 +16,19 @@ def test_banking_fundamental_assessment_supportive() -> None:
     assert any("股息率" in reason for reason in assessment.reasons)
 
 
+def test_banking_fundamental_assessment_uses_annualized_quarterly_roe() -> None:
+    assessment = assess_fundamentals(
+        {
+            "analysis_framework": "banking_compound",
+            "roe": 0.0283,
+            "fundamental_extra": {"roe_annualized": "0.1132"},
+        }
+    )
+
+    assert assessment.score > 50
+    assert any("年化 ROE" in reason for reason in assessment.reasons)
+
+
 def test_missing_fundamentals_remain_neutral() -> None:
     assessment = assess_fundamentals({"analysis_framework": "banking_compound"})
 
