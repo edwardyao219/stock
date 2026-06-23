@@ -22,6 +22,15 @@ ACTIVE_RULE_IDS = tuple(rule.id for rule in MVP_RULES)
 
 
 @dataclass(frozen=True)
+class PlanEvidence:
+    category: str
+    label: str
+    value: str
+    verdict: str
+    note: str
+
+
+@dataclass(frozen=True)
 class WorkspacePlan:
     id: int
     rule_id: str
@@ -38,6 +47,7 @@ class WorkspacePlan:
     execution_status: str
     execution_label: str
     execution_note: str
+    evidence: list[PlanEvidence]
 
 
 @dataclass(frozen=True)
@@ -164,6 +174,114 @@ def _plan_execution_state(db: Session, plan: TradePlan) -> tuple[bool, str, str,
     if time(13, 0) <= current_time <= time(15, 0):
         return True, "tradable", "交易时段可观察", "当前在午后交易时段，可按触发价观察。"
     return False, "market_closed", "已收盘", f"当前已收盘，今天不能买入；{session_text}。"
+
+
+def _score_verdict(score: float | None, *, reverse: bool = False) -> str:
+    if score is None:
+        return "neutral"
+    value = 100 - score if reverse else score
+    if value >= 70:
+        return "support"
+    if value <= 40:
+        return "risk"
+    return "neutral"
+
+
+def _pct_text(value: object) -> str:
+    if value is None:
+        return "-"
+    return f"{float(value) * 100:.2f}%"
+
+
+def _score_text(value: object) -> str:
+    if value is None:
+        return "-"
+    return f"{float(value):.1f}"
+
+
+def _snapshot(plan: TradePlan) -> dict:
+    data = plan.entry_condition_json or {}
+    snapshot = data.get("snapshot") or {}
+    return snapshot if isinstance(snapshot, dict) else {}
+
+
+def _plan_evidence(plan: TradePlan) -> list[PlanEvidence]:
+    snapshot = _snapshot(plan)
+    trend_score = snapshot.get("trend_score")
+    volume_score = snapshot.get("volume_score")
+    sector_strength = snapshot.get("sector_strength_score")
+    fundamental_score = snapshot.get("fundamental_score")
+    risk_score = snapshot.get("risk_score")
+    return_5d = snapshot.get("return_5d")
+    return_20d = snapshot.get("return_20d")
+    amount_percentile = snapshot.get("amount_percentile_60d")
+    distance_to_high = snapshot.get("distance_to_20d_high")
+
+    evidence = [
+        PlanEvidence(
+            category="技术面",
+            label="趋势强度",
+            value=_score_text(trend_score),
+            verdict=_score_verdict(float(trend_score) if trend_score is not None else None),
+            note=f"20日涨跌 {_pct_text(return_20d)}，距离20日高点 {_pct_text(distance_to_high)}",
+        ),
+        PlanEvidence(
+            category="资金/量能",
+            label="成交额分位",
+            value=_score_text(amount_percentile or volume_score),
+            verdict=_score_verdict(float(volume_score) if volume_score is not None else None),
+            note=f"量能分数 {_score_text(volume_score)}，放量只作为确认，不单独构成买点。",
+        ),
+        PlanEvidence(
+            category="板块",
+            label="板块强度",
+            value=_score_text(sector_strength),
+            verdict=_score_verdict(float(sector_strength) if sector_strength is not None else None),
+            note=f"行业 {snapshot.get('industry') or '-'}，板块表现决定参数不能一刀切。",
+        ),
+        PlanEvidence(
+            category="基本面",
+            label="基本面评分",
+            value=_score_text(fundamental_score),
+            verdict=snapshot.get("fundamental_verdict") or "neutral",
+            note="；".join(snapshot.get("fundamental_reasons") or ["暂无足够基本面数据"]),
+        ),
+        PlanEvidence(
+            category="情绪/风险",
+            label="风险分数",
+            value=_score_text(risk_score),
+            verdict=_score_verdict(
+                float(risk_score) if risk_score is not None else None,
+                reverse=True,
+            ),
+            note="风险越高越要降低仓位或等待确认，避免利好兑现后的追高。",
+        ),
+    ]
+
+    if (
+        (return_5d is not None and float(return_5d) > 0.08)
+        or (return_20d is not None and float(return_20d) > 0.20)
+    ) and amount_percentile is not None and float(amount_percentile) >= 80:
+        evidence.append(
+            PlanEvidence(
+                category="情绪/风险",
+                label="利好兑现风险",
+                value="偏高",
+                verdict="risk",
+                note="短期涨幅和成交分位同时偏高，A股里要防止利好兑现或消息落地即回落。",
+            )
+        )
+    else:
+        evidence.append(
+            PlanEvidence(
+                category="情绪/风险",
+                label="利好兑现风险",
+                value="观察",
+                verdict="neutral",
+                note="暂未识别到明显短期过热，但新闻/政策数据源接入前不能下确定结论。",
+            )
+        )
+    return evidence
 
 
 def _load_recent_paper_positions(
@@ -320,6 +438,7 @@ def _to_workspace_plan(db: Session, plan: TradePlan) -> WorkspacePlan:
         execution_status=execution_status,
         execution_label=execution_label,
         execution_note=execution_note,
+        evidence=_plan_evidence(plan),
     )
 
 

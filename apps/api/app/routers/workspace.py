@@ -15,6 +15,14 @@ router = APIRouter()
 DbSession = Annotated[Session, Depends(get_db)]
 
 
+class PlanEvidenceResponse(BaseModel):
+    category: str
+    label: str
+    value: str
+    verdict: str
+    note: str
+
+
 class WorkspacePlanResponse(BaseModel):
     id: int
     rule_id: str
@@ -31,6 +39,7 @@ class WorkspacePlanResponse(BaseModel):
     execution_status: str
     execution_label: str
     execution_note: str
+    evidence: list[PlanEvidenceResponse]
 
 
 class PaperTradeSummaryResponse(BaseModel):
@@ -123,6 +132,16 @@ def _to_response(item) -> WorkspaceStockResponse:
                 execution_status=plan.execution_status,
                 execution_label=plan.execution_label,
                 execution_note=plan.execution_note,
+                evidence=[
+                    PlanEvidenceResponse(
+                        category=item.category,
+                        label=item.label,
+                        value=item.value,
+                        verdict=item.verdict,
+                        note=item.note,
+                    )
+                    for item in plan.evidence
+                ],
             )
             for plan in item.plans
         ],

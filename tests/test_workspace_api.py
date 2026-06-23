@@ -57,7 +57,22 @@ def test_list_workspace_stocks_merges_auto_plans_and_manual_pool() -> None:
                 rule_id="R001",
                 strategy_type="short_term",
                 sector_code=None,
-                entry_condition_json={},
+                entry_condition_json={
+                    "snapshot": {
+                        "industry": "银行",
+                        "trend_score": 80,
+                        "volume_score": 75,
+                        "amount_percentile_60d": 82,
+                        "sector_strength_score": 70,
+                        "fundamental_score": 72,
+                        "fundamental_verdict": "supportive",
+                        "fundamental_reasons": ["股息率较高"],
+                        "risk_score": 30,
+                        "return_5d": 0.02,
+                        "return_20d": 0.05,
+                        "distance_to_20d_high": -0.03,
+                    }
+                },
                 position_size=Decimal("0.10"),
                 confidence_score=Decimal("80"),
                 status="planned",
@@ -103,6 +118,8 @@ def test_list_workspace_stocks_merges_auto_plans_and_manual_pool() -> None:
     assert [item.symbol for item in payload] == ["000001", "600519"]
     assert payload[0].source == "auto"
     assert payload[0].plans[0].rule_id == "R001"
+    assert payload[0].plans[0].evidence[0].category == "技术面"
+    assert payload[0].plans[0].evidence[3].verdict == "supportive"
     assert payload[0].paper_trade_summaries[0].win_rate == 1
     assert payload[0].paper_trade_summaries[0].closed_count == 1
     assert payload[0].recent_paper_trades[0].entry_date == "2026-01-11"

@@ -461,6 +461,42 @@ button {
   color: #64748b;
 }
 
+.evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.evidence-item {
+  border: 1px solid #e1e8ef;
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.evidence-item span,
+.evidence-item small {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.evidence-item strong {
+  display: block;
+  margin: 3px 0;
+  font-size: 13px;
+}
+
+.evidence-item.support {
+  border-color: #bde4ca;
+  background: #f3fbf5;
+}
+
+.evidence-item.risk {
+  border-color: #f5c2bd;
+  background: #fff5f3;
+}
+
 .trade-summary-row {
   justify-content: space-between;
   gap: 12px;

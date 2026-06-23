@@ -375,6 +375,17 @@ export function App() {
                       <p className={plan.can_buy_now ? "execution-note tradable" : "execution-note blocked"}>
                         {plan.execution_note}
                       </p>
+                      {plan.evidence.length ? (
+                        <div className="evidence-grid">
+                          {plan.evidence.map((item) => (
+                            <div className={`evidence-item ${item.verdict}`} key={`${item.category}-${item.label}`}>
+                              <span>{item.category}</span>
+                              <strong>{item.label}: {item.value}</strong>
+                              <small>{item.note}</small>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   ))
                 ) : (

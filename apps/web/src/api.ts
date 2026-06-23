@@ -57,6 +57,15 @@ export interface WorkspacePlan {
   execution_status: string;
   execution_label: string;
   execution_note: string;
+  evidence: PlanEvidence[];
+}
+
+export interface PlanEvidence {
+  category: string;
+  label: string;
+  value: string;
+  verdict: string;
+  note: string;
 }
 
 export interface PaperTradeSummary {
@@ -116,7 +125,7 @@ function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
   return {
     ...item,
     manual_tags: item.manual_tags ?? [],
-    plans: item.plans ?? [],
+    plans: (item.plans ?? []).map((plan) => ({ ...plan, evidence: plan.evidence ?? [] })),
     paper_trade_summaries: item.paper_trade_summaries ?? [],
     recent_paper_trades: item.recent_paper_trades ?? [],
   };
