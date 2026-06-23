@@ -8,13 +8,14 @@ from time import sleep
 from services.collector.akshare_client import RealtimeQuoteRow, fetch_sina_realtime_quotes
 from services.collector.repository import upsert_realtime_quotes
 from services.engine.paper.repository import (
+    create_trade,
     get_or_create_account,
     load_open_positions,
     load_trade_plans_for_trade_date,
 )
 from services.notifications.dispatcher import dispatch_paper_alerts
 from services.shared.database import SessionLocal
-from services.shared.models import PaperAlert, PaperPosition
+from services.shared.models import PaperAlert, PaperOrder, PaperPosition
 from services.shared.time import now_local
 from services.shared.upsert import upsert_rows
 
@@ -44,6 +45,7 @@ class RealtimePaperMonitorResult:
     target_symbols: int
     quotes: int
     updated_positions: int
+    executed_exits: int
     alerts: list[RealtimePaperAlert]
     notifications: list[dict[str, str]]
 
@@ -217,11 +219,68 @@ def _persist_alerts(db, alerts: list[RealtimePaperAlert]) -> int:
     )
 
 
+def _realtime_exit_signal(
+    position: PaperPosition,
+    quote: RealtimeQuoteRow,
+) -> tuple[bool, Decimal | None, str]:
+    low = _decimal(quote.low) or _decimal(quote.price)
+    if position.current_stop is None or low is None or low > position.current_stop:
+        return False, None, ""
+    if position.take_profit_1 is not None and position.highest_price >= position.take_profit_1:
+        return True, position.current_stop, "trailing_take_profit"
+    return True, position.current_stop, "stop_loss"
+
+
+def _execute_realtime_exit(
+    db,
+    account,
+    position: PaperPosition,
+    exit_price: Decimal,
+    reason: str,
+    trade_date: date,
+) -> None:
+    order = PaperOrder(
+        account_id=account.id,
+        trade_plan_id=position.trade_plan_id,
+        symbol=position.symbol,
+        side="sell",
+        order_date=trade_date,
+        planned_price=exit_price,
+        quantity=position.quantity,
+        status="filled",
+        reason=reason,
+    )
+    db.add(order)
+    db.flush()
+    trade = create_trade(
+        db,
+        account_id=account.id,
+        order_id=order.id,
+        position_id=position.id,
+        symbol=position.symbol,
+        side="sell",
+        trade_date=trade_date,
+        price=exit_price,
+        quantity=position.quantity,
+        reason=f"realtime:{reason}",
+    )
+    account.cash += trade.amount - trade.fee
+    position.status = "closed"
+    position.exit_date = trade_date
+    position.exit_price = exit_price
+    position.exit_reason = reason
+    position.pnl = (exit_price - position.entry_price) * Decimal(position.quantity) - trade.fee
+    position.pnl_pct = (exit_price / position.entry_price - Decimal("1")).quantize(
+        Decimal("0.000001")
+    )
+
+
 def monitor_paper_positions_realtime(
     trade_date: str | None = None,
     account_name: str = "default",
     quotes: list[RealtimeQuoteRow] | None = None,
     quote_time: datetime | None = None,
+    execute_exits: bool = False,
 ) -> RealtimePaperMonitorResult:
     current_time = (quote_time or now_local()).replace(tzinfo=None)
     current_date = date.fromisoformat(trade_date) if trade_date else current_time.date()
@@ -245,6 +304,7 @@ def monitor_paper_positions_realtime(
                     target_symbols=len(target_symbols),
                     quotes=0,
                     updated_positions=0,
+                    executed_exits=0,
                     alerts=[],
                     notifications=[],
                 )
@@ -254,6 +314,7 @@ def monitor_paper_positions_realtime(
 
         by_symbol = _quote_map(quote_rows)
         updated_positions = 0
+        executed_exits = 0
         alerts: list[RealtimePaperAlert] = []
         for position in load_open_positions(db, account.id):
             quote = by_symbol.get(position.symbol)
@@ -263,6 +324,11 @@ def monitor_paper_positions_realtime(
             if changed:
                 updated_positions += 1
             alerts.extend(position_alerts)
+            if execute_exits:
+                should_exit, exit_price, reason = _realtime_exit_signal(position, quote)
+                if should_exit and exit_price is not None:
+                    _execute_realtime_exit(db, account, position, exit_price, reason, current_date)
+                    executed_exits += 1
 
         _persist_alerts(db, alerts)
         db.commit()
@@ -276,6 +342,7 @@ def monitor_paper_positions_realtime(
         target_symbols=len(target_symbols),
         quotes=len(quote_rows),
         updated_positions=updated_positions,
+        executed_exits=executed_exits,
         alerts=alerts,
         notifications=[item.to_dict() for item in notifications],
     )
@@ -287,6 +354,7 @@ def run_realtime_monitor_loop(
     max_ticks: int | None = None,
     trade_date: str | None = None,
     account_name: str = "default",
+    execute_exits: bool = False,
 ) -> list[RealtimePaperMonitorResult]:
     results: list[RealtimePaperMonitorResult] = []
     tick = 0
@@ -295,6 +363,7 @@ def run_realtime_monitor_loop(
             monitor_paper_positions_realtime(
                 trade_date=trade_date,
                 account_name=account_name,
+                execute_exits=execute_exits,
             )
         )
         tick += 1

@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from services.collector.akshare_client import RealtimeQuoteRow, fetch_sina_realtime_quotes
 from services.collector.repository import upsert_realtime_quotes
-from services.engine.paper.realtime import _update_position_from_quote
+from services.engine.paper.realtime import _realtime_exit_signal, _update_position_from_quote
 from services.shared.database import Base
 from services.shared.models import PaperPosition, RealtimeQuote
 
@@ -107,3 +107,30 @@ def test_update_position_from_quote_raises_trailing_stop_and_alerts() -> None:
         "limit_up_touched",
     ]
     assert alerts[0].alert_time == "2026-06-24T10:05:00"
+
+
+def test_realtime_exit_signal_uses_trailing_take_profit_after_profit_touch() -> None:
+    position = PaperPosition(
+        account_id=1,
+        trade_plan_id=1,
+        symbol="000001",
+        rule_id="R001",
+        strategy_type="short_term",
+        entry_date=date(2026, 6, 24),
+        entry_price=Decimal("10.0000"),
+        quantity=1000,
+        initial_stop=Decimal("9.5000"),
+        current_stop=Decimal("10.3400"),
+        take_profit_1=Decimal("10.5000"),
+        take_profit_2=None,
+        highest_price=Decimal("11.0000"),
+        lowest_price=Decimal("10.0000"),
+        max_holding_days=5,
+        status="open",
+    )
+
+    should_exit, exit_price, reason = _realtime_exit_signal(position, _quote())
+
+    assert should_exit is True
+    assert exit_price == Decimal("10.3400")
+    assert reason == "trailing_take_profit"
