@@ -87,7 +87,7 @@ def _build_plan_from_context(
         entry_condition={
             "rule": rule.model_dump(mode="json"),
             "snapshot": context,
-            "evidence": build_trade_evidence(context),
+            "evidence": build_trade_evidence(context, risk_profile.evidence_thresholds),
             "trade_parameters": params.to_dict(),
             "invalid_conditions": params.invalid_conditions,
         },

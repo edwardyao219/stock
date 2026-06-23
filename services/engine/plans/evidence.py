@@ -26,14 +26,27 @@ def _score(value: Any, default: float = 50.0) -> float:
     return _float(value) if value is not None else default
 
 
-def _near_recent_high(context: dict[str, Any]) -> bool:
+def _threshold(thresholds: dict[str, float], key: str, default: float) -> float:
+    return float(thresholds.get(key, default))
+
+
+def _near_recent_high(context: dict[str, Any], thresholds: dict[str, float]) -> bool:
     distance_to_high = _float(context.get("distance_to_20d_high"))
     return_5d = _float(context.get("return_5d"))
     return_20d = _float(context.get("return_20d"))
     return (
-        (distance_to_high is not None and distance_to_high >= -0.03)
-        or (return_5d is not None and return_5d >= 0.08)
-        or (return_20d is not None and return_20d >= 0.15)
+        (
+            distance_to_high is not None
+            and distance_to_high >= _threshold(thresholds, "near_high_distance_pct", -0.03)
+        )
+        or (
+            return_5d is not None
+            and return_5d >= _threshold(thresholds, "strong_return_5d_pct", 0.08)
+        )
+        or (
+            return_20d is not None
+            and return_20d >= _threshold(thresholds, "strong_return_20d_pct", 0.15)
+        )
     )
 
 
@@ -41,7 +54,11 @@ def _amount_percentile(context: dict[str, Any]) -> float:
     return _score(context.get("amount_percentile_60d"), _score(context.get("volume_score")))
 
 
-def build_trade_evidence(context: dict[str, Any]) -> dict[str, Any]:
+def build_trade_evidence(
+    context: dict[str, Any],
+    thresholds: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    active_thresholds = thresholds or {}
     amount_percentile = _amount_percentile(context)
     trend_score = _score(context.get("trend_score"))
     sector_strength = _score(context.get("sector_strength_score"))
@@ -50,11 +67,14 @@ def build_trade_evidence(context: dict[str, Any]) -> dict[str, Any]:
     atr_percentile = _score(context.get("atr_pct_percentile_60d"))
     fundamental_score = _score(context.get("fundamental_score"))
     fundamental_verdict = context.get("fundamental_verdict")
-    near_high = _near_recent_high(context)
+    near_high = _near_recent_high(context, active_thresholds)
 
     tags: list[EvidenceTag] = []
 
-    if amount_percentile >= 80 and near_high:
+    if (
+        amount_percentile >= _threshold(active_thresholds, "high_volume_percentile", 80.0)
+        and near_high
+    ):
         tags.append(
             EvidenceTag(
                 name="high_position_volume_spike",
@@ -70,7 +90,12 @@ def build_trade_evidence(context: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
-    if 55 <= amount_percentile < 80 and trend_score >= 65:
+    if (
+        _threshold(active_thresholds, "moderate_volume_min_percentile", 55.0)
+        <= amount_percentile
+        < _threshold(active_thresholds, "high_volume_percentile", 80.0)
+        and trend_score >= _threshold(active_thresholds, "trend_volume_confirm_score", 65.0)
+    ):
         tags.append(
             EvidenceTag(
                 name="moderate_volume_confirmation",
@@ -84,7 +109,10 @@ def build_trade_evidence(context: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
-    if sector_strength >= 70 and sector_confidence >= 0.2:
+    if (
+        sector_strength >= _threshold(active_thresholds, "strong_sector_score", 70.0)
+        and sector_confidence >= _threshold(active_thresholds, "sector_confidence_min", 0.2)
+    ):
         tags.append(
             EvidenceTag(
                 name="strong_sector_confirmation",
@@ -97,7 +125,7 @@ def build_trade_evidence(context: dict[str, Any]) -> dict[str, Any]:
                 },
             )
         )
-    elif sector_strength < 50:
+    elif sector_strength < _threshold(active_thresholds, "weak_sector_score", 50.0):
         tags.append(
             EvidenceTag(
                 name="weak_sector_confirmation",
@@ -108,7 +136,10 @@ def build_trade_evidence(context: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
-    if trend_score >= 75 and risk_score <= 35:
+    if (
+        trend_score >= _threshold(active_thresholds, "trend_alignment_score", 75.0)
+        and risk_score <= _threshold(active_thresholds, "trend_alignment_max_risk", 35.0)
+    ):
         tags.append(
             EvidenceTag(
                 name="trend_alignment",
@@ -119,7 +150,7 @@ def build_trade_evidence(context: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
-    if atr_percentile >= 80:
+    if atr_percentile >= _threshold(active_thresholds, "high_volatility_percentile", 80.0):
         tags.append(
             EvidenceTag(
                 name="volatility_overheat",
@@ -130,7 +161,11 @@ def build_trade_evidence(context: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
-    if fundamental_verdict == "weak" and amount_percentile >= 70:
+    if (
+        fundamental_verdict == "weak"
+        and amount_percentile
+        >= _threshold(active_thresholds, "weak_quality_hot_money_volume", 70.0)
+    ):
         tags.append(
             EvidenceTag(
                 name="weak_quality_hot_money",
@@ -181,4 +216,5 @@ def build_trade_evidence(context: dict[str, Any]) -> dict[str, Any]:
             "atr_pct_percentile_60d": atr_percentile,
             "fundamental_score": fundamental_score,
         },
+        "thresholds": active_thresholds,
     }

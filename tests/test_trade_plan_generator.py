@@ -1,6 +1,7 @@
 import pytest
 
 from services.engine.plans.generator import generate_trade_plans
+from services.engine.risk.profiles import RiskProfile
 from services.engine.rules.seed_rules import MVP_RULES
 
 
@@ -83,3 +84,43 @@ def test_compound_rule_requires_banking_fundamental_context() -> None:
     )
 
     assert plans == []
+
+
+def test_trade_evidence_uses_profile_thresholds() -> None:
+    contexts = [
+        {
+            "symbol": "000001",
+            "trade_date": "2026-06-23",
+            "close": 10.0,
+            "atr_14": 0.3,
+            "breakout_level": 10.2,
+            "support_level": 9.4,
+            "sector_strength_score": 80,
+            "relative_strength_score": 75,
+            "amount_percentile_60d": 90,
+            "distance_to_20d_high": -0.01,
+            "trend_score": 80,
+            "volume_score": 90,
+            "risk_score": 20,
+            "is_st": False,
+            "is_suspended": False,
+        }
+    ]
+    profile = RiskProfile(
+        evidence_thresholds={
+            "high_volume_percentile": 95.0,
+            "near_high_distance_pct": -0.03,
+        }
+    )
+
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=MVP_RULES,
+        feature_contexts=contexts,
+        risk_profile=profile,
+    )
+
+    evidence = plans[0].entry_condition["evidence"]
+    assert "high_position_volume_spike" not in evidence["risk_flags"]
+    assert evidence["thresholds"]["high_volume_percentile"] == 95.0

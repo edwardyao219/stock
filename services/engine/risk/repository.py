@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
-
-from sqlalchemy import or_
 
 from services.engine.risk.profiles import (
     BANKING_COMPOUND_PROFILE,
@@ -29,7 +27,9 @@ def _profile_from_record(record: RiskProfileRecord) -> RiskProfile:
 
 
 def load_risk_profile(db: Session, name: str = "default") -> RiskProfile:
-    record = db.execute(select(RiskProfileRecord).where(RiskProfileRecord.name == name)).scalar_one_or_none()
+    record = db.execute(
+        select(RiskProfileRecord).where(RiskProfileRecord.name == name)
+    ).scalar_one_or_none()
     if record is None:
         return DEFAULT_RISK_PROFILE
     return _profile_from_record(record)
@@ -77,7 +77,8 @@ def seed_default_risk_profile(db: Session) -> RiskProfileRecord:
         ),
         (
             BANKING_COMPOUND_PROFILE,
-            "Banking and stable dividend sectors: wider stops, longer holding, compound-oriented exits.",
+            "Banking and stable dividend sectors: wider stops, longer holding, "
+            "compound-oriented exits.",
         ),
         (
             COMPOUND_STYLE_PROFILE,
@@ -105,5 +106,12 @@ def seed_default_risk_profile(db: Session) -> RiskProfileRecord:
             )
             db.add(record)
             db.flush()
+        elif profile.evidence_thresholds and not (record.config_json or {}).get(
+            "evidence_thresholds"
+        ):
+            record.config_json = {
+                **(record.config_json or {}),
+                "evidence_thresholds": profile.evidence_thresholds,
+            }
         seeded = seeded or record
     return seeded

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -25,8 +26,9 @@ class RiskProfile:
     max_gap_up_pct: float = 0.06
     breakout_buffer_pct: float = 0.0
     default_max_holding_days: int = 5
+    evidence_thresholds: dict[str, float] | None = None
 
-    def to_dict(self) -> dict[str, float | int | str]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -50,6 +52,12 @@ BANKING_COMPOUND_PROFILE = RiskProfile(
     trailing_drawdown_pct=0.10,
     max_gap_up_pct=0.035,
     default_max_holding_days=60,
+    evidence_thresholds={
+        "high_volume_percentile": 90.0,
+        "near_high_distance_pct": -0.02,
+        "strong_return_5d_pct": 0.06,
+        "strong_return_20d_pct": 0.12,
+    },
 )
 
 COMPOUND_STYLE_PROFILE = RiskProfile(
@@ -70,6 +78,12 @@ COMPOUND_STYLE_PROFILE = RiskProfile(
     trailing_drawdown_pct=0.10,
     max_gap_up_pct=0.035,
     default_max_holding_days=60,
+    evidence_thresholds={
+        "high_volume_percentile": 90.0,
+        "near_high_distance_pct": -0.02,
+        "strong_return_5d_pct": 0.06,
+        "strong_return_20d_pct": 0.12,
+    },
 )
 
 THEME_SHORT_PROFILE = RiskProfile(
@@ -90,4 +104,10 @@ THEME_SHORT_PROFILE = RiskProfile(
     trailing_drawdown_pct=0.055,
     max_gap_up_pct=0.06,
     default_max_holding_days=5,
+    evidence_thresholds={
+        "high_volume_percentile": 75.0,
+        "near_high_distance_pct": -0.04,
+        "strong_return_5d_pct": 0.10,
+        "strong_return_20d_pct": 0.18,
+    },
 )
