@@ -4,7 +4,14 @@ from datetime import date
 from typing import Iterable
 
 from services.engine.features.daily import compute_stock_daily_features
-from services.engine.features.repository import list_active_symbols, load_daily_bars, upsert_stock_features
+from services.engine.features.repository import (
+    list_active_symbols,
+    load_daily_bars,
+    load_stock_feature_contexts,
+    upsert_sector_features,
+    upsert_stock_features,
+)
+from services.engine.features.sector import compute_sector_features
 from services.shared.database import SessionLocal
 
 
@@ -27,3 +34,17 @@ def compute_and_store_stock_features(
         db.commit()
 
     return {"symbols": processed_symbols, "rows": written_rows}
+
+
+def compute_and_store_sector_features(
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict[str, int]:
+    with SessionLocal() as db:
+        stock_contexts = load_stock_feature_contexts(db, start_date=start_date, end_date=end_date)
+        sector_rows = compute_sector_features(stock_contexts)
+        written_rows = upsert_sector_features(db, sector_rows)
+        db.commit()
+
+    sectors = {row.sector_code for row in sector_rows}
+    return {"sectors": len(sectors), "rows": written_rows}

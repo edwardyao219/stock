@@ -37,6 +37,16 @@ def _safe_float(value: Any, default: float | None = None) -> float | None:
     return float(value)
 
 
+def _fundamental_adjustment(context: dict[str, Any]) -> float:
+    verdict = context.get("fundamental_verdict")
+    score = _safe_float(context.get("fundamental_score"), 50.0) or 50.0
+    if verdict == "supportive":
+        return min(8.0, max(2.0, (score - 50.0) * 0.18))
+    if verdict == "weak":
+        return -min(12.0, max(4.0, (50.0 - score) * 0.25))
+    return 0.0
+
+
 def _build_plan_from_context(
     plan_date: str,
     trade_date: str,
@@ -47,6 +57,7 @@ def _build_plan_from_context(
     params = build_trade_parameters(rule=rule, context=context, profile=risk_profile)
     distance_to_20d_high = abs(_safe_float(context.get("distance_to_20d_high"), 0.0) or 0.0)
     risk_score = _safe_float(context.get("risk_score"), 50.0) or 50.0
+    sector_strength_score = _safe_float(context.get("sector_strength_score"), 50.0) or 50.0
 
     confidence_score = max(
         0.0,
@@ -54,10 +65,12 @@ def _build_plan_from_context(
             100.0,
             (
                 (_safe_float(context.get("trend_score"), 50.0) or 50.0) * 0.30
-                + (_safe_float(context.get("volume_score"), 50.0) or 50.0) * 0.25
-                + (_safe_float(context.get("relative_strength_score"), 50.0) or 50.0) * 0.25
+                + (_safe_float(context.get("volume_score"), 50.0) or 50.0) * 0.20
+                + (_safe_float(context.get("relative_strength_score"), 50.0) or 50.0) * 0.20
+                + sector_strength_score * 0.15
                 + (100.0 - min(distance_to_20d_high * 500, 100.0)) * 0.10
-                + (100.0 - risk_score) * 0.10
+                + (100.0 - risk_score) * 0.05
+                + _fundamental_adjustment(context)
             ),
         ),
     )

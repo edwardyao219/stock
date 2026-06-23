@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 
 from services.collector.daily import sync_daily_market_data
 from services.engine.review.mechanical import generate_daily_mechanical_review
@@ -44,7 +45,10 @@ def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyP
         )
 
     try:
-        from services.engine.features.sync import compute_and_store_stock_features
+        from services.engine.features.sync import (
+            compute_and_store_sector_features,
+            compute_and_store_stock_features,
+        )
 
         feature_result = compute_and_store_stock_features(limit=200)
         steps.append(
@@ -52,6 +56,21 @@ def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyP
                 name="compute_daily_features",
                 status="ok",
                 detail=f"{feature_result['rows']} feature rows written for {feature_result['symbols']} symbols",
+            )
+        )
+        pipeline_date = date.fromisoformat(trade_date)
+        sector_feature_result = compute_and_store_sector_features(
+            start_date=pipeline_date,
+            end_date=pipeline_date,
+        )
+        steps.append(
+            PipelineStepResult(
+                name="compute_sector_features",
+                status="ok",
+                detail=(
+                    f"{sector_feature_result['rows']} sector feature rows written "
+                    f"for {sector_feature_result['sectors']} sectors"
+                ),
             )
         )
     except Exception as exc:

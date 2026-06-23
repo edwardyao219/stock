@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from services.engine.plans.generator import TradePlanCandidate
 from services.engine.fundamental.repository import load_latest_fundamental_snapshot, snapshot_to_context
 from services.engine.fundamental.scoring import assess_fundamentals
-from services.shared.models import DailyBar, Security, StockFeatureDaily, TradePlan
+from services.shared.models import DailyBar, SectorFeatureDaily, Security, StockFeatureDaily, TradePlan
 from services.shared.upsert import upsert_rows
 
 
@@ -29,6 +29,7 @@ def load_feature_contexts(
     feature_date: str,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
+    target_date = _date(feature_date)
     stmt = (
         select(StockFeatureDaily, Security, DailyBar)
         .join(Security, Security.symbol == StockFeatureDaily.symbol)
@@ -37,16 +38,24 @@ def load_feature_contexts(
             (DailyBar.symbol == StockFeatureDaily.symbol)
             & (DailyBar.trade_date == StockFeatureDaily.trade_date),
         )
-        .where(StockFeatureDaily.trade_date == _date(feature_date))
+        .where(StockFeatureDaily.trade_date == target_date)
         .where(Security.is_active.is_(True))
         .order_by(StockFeatureDaily.symbol)
     )
     if limit:
         stmt = stmt.limit(limit)
 
+    sector_feature_map = {
+        row.sector_code: row.features or {}
+        for row in db.execute(
+            select(SectorFeatureDaily).where(SectorFeatureDaily.trade_date == target_date)
+        ).scalars()
+    }
+
     contexts: list[dict[str, Any]] = []
     for feature_row, security, bar in db.execute(stmt):
         context = dict(feature_row.features or {})
+        sector_features = dict(sector_feature_map.get(security.industry, {}))
         fundamental_context = snapshot_to_context(
             load_latest_fundamental_snapshot(db, feature_row.symbol, feature_row.trade_date)
         )
@@ -70,6 +79,7 @@ def load_feature_contexts(
                 "amount": float(bar.amount) if bar.amount is not None else None,
                 "volume": float(bar.volume) if bar.volume is not None else None,
                 "turnover_rate": float(bar.turnover_rate) if bar.turnover_rate is not None else None,
+                **sector_features,
                 **fundamental_context,
             }
         )

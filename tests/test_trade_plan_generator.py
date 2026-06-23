@@ -14,6 +14,8 @@ def test_generate_trade_plans_from_feature_context() -> None:
             "breakout_level": 10.2,
             "support_level": 9.4,
             "sector_strength_score": 80,
+            "fundamental_score": 70,
+            "fundamental_verdict": "supportive",
             "relative_strength_score": 75,
             "amount_percentile_60d": 90,
             "distance_to_20d_high": -0.01,
@@ -41,4 +43,4 @@ def test_generate_trade_plans_from_feature_context() -> None:
     assert plans[0].take_profit_2 == pytest.approx(11.1)
     assert plans[0].position_size == pytest.approx(0.10)
     assert "trade_parameters" in plans[0].entry_condition
-    assert plans[0].confidence_score > 70
+    assert plans[0].confidence_score > 75

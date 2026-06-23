@@ -120,6 +120,9 @@ def build_trade_parameters(
             "fundamental_score": context.get("fundamental_score"),
             "fundamental_verdict": context.get("fundamental_verdict"),
             "fundamental_reasons": context.get("fundamental_reasons"),
+            "sector_strength_score": context.get("sector_strength_score"),
+            "sector_sample_confidence": context.get("sector_sample_confidence"),
+            "sector_stock_count": context.get("sector_stock_count"),
         },
     }
 

@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from services.engine.features.daily import BarInput, StockFeatureRow
-from services.shared.models import DailyBar, Security, StockFeatureDaily
+from services.engine.features.sector import SectorFeatureRow
+from services.shared.models import DailyBar, SectorFeatureDaily, Security, StockFeatureDaily
 from services.shared.upsert import upsert_rows
 
 
@@ -71,4 +72,54 @@ def upsert_stock_features(db: Session, feature_rows: Iterable[StockFeatureRow]) 
         rows,
         update_columns=["features"],
         constraint="uq_stock_features_symbol_date",
+    )
+
+
+def load_stock_feature_contexts(
+    db: Session,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[dict[str, object]]:
+    stmt = (
+        select(StockFeatureDaily, Security)
+        .join(Security, Security.symbol == StockFeatureDaily.symbol)
+        .where(Security.is_active.is_(True))
+        .order_by(StockFeatureDaily.trade_date, StockFeatureDaily.symbol)
+    )
+    if start_date:
+        stmt = stmt.where(StockFeatureDaily.trade_date >= start_date)
+    if end_date:
+        stmt = stmt.where(StockFeatureDaily.trade_date <= end_date)
+
+    contexts: list[dict[str, object]] = []
+    for feature_row, security in db.execute(stmt):
+        contexts.append(
+            {
+                **(feature_row.features or {}),
+                "symbol": feature_row.symbol,
+                "trade_date": feature_row.trade_date.isoformat(),
+                "sector_code": security.industry,
+                "industry": security.industry,
+            }
+        )
+    return contexts
+
+
+def upsert_sector_features(db: Session, feature_rows: Iterable[SectorFeatureRow]) -> int:
+    rows = [
+        {
+            "sector_code": item.sector_code,
+            "trade_date": date.fromisoformat(item.trade_date),
+            "features": item.features,
+        }
+        for item in feature_rows
+    ]
+    if not rows:
+        return 0
+    return upsert_rows(
+        db,
+        SectorFeatureDaily,
+        rows,
+        update_columns=["features"],
+        constraint="uq_sector_features_code_date",
     )
