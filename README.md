@@ -82,6 +82,12 @@ python -m services.engine.features.run_compute --limit 200
 python -m services.engine.plans.run_generate --plan-date 2026-06-23 --trade-date 2026-06-24
 ```
 
+运行第一版日线回测：
+
+```bash
+python -m services.engine.backtest.run_backtest --symbols 000001 600519 --rules R001
+```
+
 查看 API：
 
 ```text

@@ -2,6 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from services.engine.features.daily import BarInput
+
+
+@dataclass(frozen=True)
+class FeatureSnapshot:
+    symbol: str
+    trade_date: str
+    context: dict[str, object]
+
+
+@dataclass(frozen=True)
+class DailyBacktestInput:
+    symbol: str
+    bars: list[BarInput]
+    features: list[FeatureSnapshot]
+
 
 @dataclass(frozen=True)
 class BacktestTrade:
