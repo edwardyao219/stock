@@ -116,6 +116,10 @@ def build_trade_parameters(
             "breakout_level": breakout,
             "atr_pct": context.get("atr_pct"),
             "max_drawdown_20d": context.get("max_drawdown_20d"),
+            "analysis_framework": context.get("analysis_framework"),
+            "fundamental_score": context.get("fundamental_score"),
+            "fundamental_verdict": context.get("fundamental_verdict"),
+            "fundamental_reasons": context.get("fundamental_reasons"),
         },
     }
 

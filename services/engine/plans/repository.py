@@ -8,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from services.engine.plans.generator import TradePlanCandidate
+from services.engine.fundamental.repository import load_latest_fundamental_snapshot, snapshot_to_context
+from services.engine.fundamental.scoring import assess_fundamentals
 from services.shared.models import DailyBar, Security, StockFeatureDaily, TradePlan
 from services.shared.upsert import upsert_rows
 
@@ -45,6 +47,9 @@ def load_feature_contexts(
     contexts: list[dict[str, Any]] = []
     for feature_row, security, bar in db.execute(stmt):
         context = dict(feature_row.features or {})
+        fundamental_context = snapshot_to_context(
+            load_latest_fundamental_snapshot(db, feature_row.symbol, feature_row.trade_date)
+        )
         context.update(
             {
                 "symbol": feature_row.symbol,
@@ -65,6 +70,15 @@ def load_feature_contexts(
                 "amount": float(bar.amount) if bar.amount is not None else None,
                 "volume": float(bar.volume) if bar.volume is not None else None,
                 "turnover_rate": float(bar.turnover_rate) if bar.turnover_rate is not None else None,
+                **fundamental_context,
+            }
+        )
+        assessment = assess_fundamentals(context)
+        context.update(
+            {
+                "fundamental_score": assessment.score,
+                "fundamental_verdict": assessment.verdict,
+                "fundamental_reasons": assessment.reasons,
             }
         )
         contexts.append(context)

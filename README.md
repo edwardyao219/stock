@@ -109,6 +109,19 @@ python -m services.engine.backtest.run_backtest --symbols 000001 600519 --rules 
 python -m services.engine.backtest.run_backtest --limit 200 --persist --run-date 2026-06-23
 ```
 
+导入基本面快照 CSV：
+
+```bash
+python -m services.engine.fundamental.run_import data/fundamentals.csv
+```
+
+CSV 字段示例：
+
+```text
+symbol,report_date,revenue_growth,profit_growth,roe,dividend_yield,pe_ttm,pb,gross_margin,net_margin,debt_ratio
+000001,2026-03-31,0.03,0.02,0.11,0.055,5.2,0.58,,, 
+```
+
 生成机械复盘：
 
 ```bash
