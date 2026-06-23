@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
-from typing import Iterable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from services.engine.backtest.models import DailyBacktestInput, FeatureSnapshot
 from services.engine.features.repository import load_daily_bars
-from services.shared.models import DailyBar, StockFeatureDaily
+from services.engine.plans.context import build_strategy_context, load_sector_feature_map
+from services.shared.models import DailyBar, Security, StockFeatureDaily
 
 
 def load_backtest_input(
@@ -19,12 +20,13 @@ def load_backtest_input(
 ) -> DailyBacktestInput:
     bars = load_daily_bars(db, symbol=symbol, start_date=start_date, end_date=end_date)
     stmt = (
-        select(StockFeatureDaily, DailyBar)
+        select(StockFeatureDaily, DailyBar, Security)
         .join(
             DailyBar,
             (DailyBar.symbol == StockFeatureDaily.symbol)
             & (DailyBar.trade_date == StockFeatureDaily.trade_date),
         )
+        .join(Security, Security.symbol == StockFeatureDaily.symbol)
         .where(StockFeatureDaily.symbol == symbol)
         .order_by(StockFeatureDaily.trade_date)
     )
@@ -33,24 +35,25 @@ def load_backtest_input(
     if end_date:
         stmt = stmt.where(StockFeatureDaily.trade_date <= end_date)
 
+    sector_feature_maps: dict[date, dict[str, dict[str, object]]] = {}
     snapshots = []
-    for feature_row, bar in db.execute(stmt):
+    for feature_row, bar, security in db.execute(stmt):
+        if feature_row.trade_date not in sector_feature_maps:
+            sector_feature_maps[feature_row.trade_date] = load_sector_feature_map(
+                db,
+                feature_row.trade_date,
+            )
         snapshots.append(
             FeatureSnapshot(
                 symbol=feature_row.symbol,
                 trade_date=feature_row.trade_date.isoformat(),
-                context={
-                    "symbol": feature_row.symbol,
-                    "trade_date": feature_row.trade_date.isoformat(),
-                    **(feature_row.features or {}),
-                    "open": float(bar.open),
-                    "high": float(bar.high),
-                    "low": float(bar.low),
-                    "close": float(bar.close),
-                    "amount": float(bar.amount) if bar.amount is not None else None,
-                    "volume": float(bar.volume) if bar.volume is not None else None,
-                    "turnover_rate": float(bar.turnover_rate) if bar.turnover_rate is not None else None,
-                },
+                context=build_strategy_context(
+                    db,
+                    feature_row=feature_row,
+                    security=security,
+                    bar=bar,
+                    sector_feature_map=sector_feature_maps[feature_row.trade_date],
+                ),
             )
         )
     return DailyBacktestInput(symbol=symbol, bars=bars, features=snapshots)

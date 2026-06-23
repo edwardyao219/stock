@@ -7,10 +7,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from services.engine.plans.context import build_strategy_context, load_sector_feature_map
 from services.engine.plans.generator import TradePlanCandidate
-from services.engine.fundamental.repository import load_latest_fundamental_snapshot, snapshot_to_context
-from services.engine.fundamental.scoring import assess_fundamentals
-from services.shared.models import DailyBar, SectorFeatureDaily, Security, StockFeatureDaily, TradePlan
+from services.shared.models import DailyBar, Security, StockFeatureDaily, TradePlan
 from services.shared.upsert import upsert_rows
 
 
@@ -45,53 +44,19 @@ def load_feature_contexts(
     if limit:
         stmt = stmt.limit(limit)
 
-    sector_feature_map = {
-        row.sector_code: row.features or {}
-        for row in db.execute(
-            select(SectorFeatureDaily).where(SectorFeatureDaily.trade_date == target_date)
-        ).scalars()
-    }
+    sector_feature_map = load_sector_feature_map(db, target_date)
 
     contexts: list[dict[str, Any]] = []
     for feature_row, security, bar in db.execute(stmt):
-        context = dict(feature_row.features or {})
-        sector_features = dict(sector_feature_map.get(security.industry, {}))
-        fundamental_context = snapshot_to_context(
-            load_latest_fundamental_snapshot(db, feature_row.symbol, feature_row.trade_date)
+        contexts.append(
+            build_strategy_context(
+                db,
+                feature_row,
+                security,
+                bar,
+                sector_feature_map,
+            )
         )
-        context.update(
-            {
-                "symbol": feature_row.symbol,
-                "trade_date": feature_row.trade_date.isoformat(),
-                "name": security.name,
-                "sector_code": security.industry,
-                "industry": security.industry,
-                "style": security.sector_style,
-                "sector_style": security.sector_style,
-                "analysis_framework": security.analysis_framework,
-                "holding_style": security.holding_style,
-                "is_st": security.is_st,
-                "is_suspended": bar.is_suspended,
-                "open": float(bar.open),
-                "high": float(bar.high),
-                "low": float(bar.low),
-                "close": float(bar.close),
-                "amount": float(bar.amount) if bar.amount is not None else None,
-                "volume": float(bar.volume) if bar.volume is not None else None,
-                "turnover_rate": float(bar.turnover_rate) if bar.turnover_rate is not None else None,
-                **sector_features,
-                **fundamental_context,
-            }
-        )
-        assessment = assess_fundamentals(context)
-        context.update(
-            {
-                "fundamental_score": assessment.score,
-                "fundamental_verdict": assessment.verdict,
-                "fundamental_reasons": assessment.reasons,
-            }
-        )
-        contexts.append(context)
     return contexts
 
 

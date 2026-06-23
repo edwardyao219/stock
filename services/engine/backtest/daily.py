@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from services.engine.backtest.models import BacktestTrade, DailyBacktestInput
+from services.engine.features.daily import BarInput
 from services.engine.plans.generator import generate_trade_plans
 from services.engine.rules.models import StrategyRule
 
 
-def _index_by_date(items: list[object]) -> dict[str, object]:
-    return {getattr(item, "trade_date"): item for item in items}
+def _index_by_date(items: list[BarInput]) -> dict[str, BarInput]:
+    return {item.trade_date: item for item in items}
 
 
 def _next_trade_date(dates: list[str], current: str) -> str | None:
@@ -21,7 +22,7 @@ def _next_trade_date(dates: list[str], current: str) -> str | None:
 
 def _exit_trade(
     rule: StrategyRule,
-    bars_by_date: dict[str, object],
+    bars_by_date: dict[str, BarInput],
     dates: list[str],
     entry_index: int,
     entry_price: float,
@@ -42,9 +43,9 @@ def _exit_trade(
 
         date = dates[bar_index]
         bar = bars_by_date[date]
-        high = float(getattr(bar, "high"))
-        low = float(getattr(bar, "low"))
-        close = float(getattr(bar, "close"))
+        high = float(bar.high)
+        low = float(bar.low)
+        close = float(bar.close)
 
         highest = max(highest, high)
         lowest = min(lowest, low)
@@ -86,9 +87,15 @@ def run_daily_rule_backtest(
     dates = [bar.trade_date for bar in bars]
     bars_by_date = _index_by_date(bars)
     trades: list[BacktestTrade] = []
+    next_available_index = 0
 
     for snapshot in features:
         signal_date = snapshot.trade_date
+        if signal_date not in dates:
+            continue
+        signal_index = dates.index(signal_date)
+        if signal_index < next_available_index:
+            continue
         entry_date = _next_trade_date(dates, signal_date)
         if entry_date is None:
             continue
@@ -106,7 +113,7 @@ def run_daily_rule_backtest(
 
         entry_index = dates.index(entry_date)
         entry_bar = bars_by_date[entry_date]
-        entry_open = float(getattr(entry_bar, "open"))
+        entry_open = float(entry_bar.open)
         entry_price = entry_open * (1 + slippage_rate)
 
         plan = plans[0]
@@ -121,6 +128,7 @@ def run_daily_rule_backtest(
         )
         exit_price = exit_price * (1 - slippage_rate)
         pnl_pct = exit_price / entry_price - 1 - fee_rate * 2
+        next_available_index = dates.index(exit_date) + 1
 
         trades.append(
             BacktestTrade(

@@ -44,3 +44,37 @@ def test_generate_trade_plans_from_feature_context() -> None:
     assert plans[0].position_size == pytest.approx(0.10)
     assert "trade_parameters" in plans[0].entry_condition
     assert plans[0].confidence_score > 75
+
+
+def test_compound_rule_requires_banking_fundamental_context() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R004")
+    contexts = [
+        {
+            "symbol": "600519",
+            "trade_date": "2026-06-23",
+            "close": 1500.0,
+            "ma20": 1480.0,
+            "atr_14": 30.0,
+            "support_level": 1450.0,
+            "trend_score": 100,
+            "volatility_score": 40,
+            "risk_score": 0,
+            "max_drawdown_20d": -0.03,
+            "distance_to_ma20": 0.01,
+            "distance_to_20d_low": 0.08,
+            "analysis_framework": "consumer_quality",
+            "fundamental_verdict": "supportive",
+            "sector_sample_confidence": 0.5,
+            "is_st": False,
+            "is_suspended": False,
+        }
+    ]
+
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=[rule],
+        feature_contexts=contexts,
+    )
+
+    assert plans == []

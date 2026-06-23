@@ -101,6 +101,9 @@ MVP_RULES: list[StrategyRule] = [
         description="面向银行等低波动稳定资产，强调趋势、回撤控制和更长持有，不使用短线追突破逻辑。",
         entry=ConditionGroup(
             all=[
+                Condition(feature="analysis_framework", op="in", value=["banking_compound"]),
+                Condition(feature="fundamental_verdict", op="!=", value="weak"),
+                Condition(feature="sector_sample_confidence", op=">=", value=0.05),
                 Condition(feature="trend_score", op=">=", value=75),
                 Condition(feature="volatility_score", op="<=", value=60),
                 Condition(feature="risk_score", op="<=", value=35),
@@ -116,7 +119,10 @@ MVP_RULES: list[StrategyRule] = [
                 Condition(field="price", op=">=", ref="entry_trigger_price"),
             ]
         ),
-        stop=StopRule(type="composite", params={"atr_multiple": 2.5, "structure_ref": "support_level"}),
+        stop=StopRule(
+            type="composite",
+            params={"atr_multiple": 2.5, "structure_ref": "support_level"},
+        ),
         take_profit=TakeProfitRule(
             type="target_then_trailing",
             params={"take_profit_1_r": 2.0, "take_profit_2_r": 4.0, "drawdown_from_high_pct": 0.10},
