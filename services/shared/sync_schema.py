@@ -18,6 +18,9 @@ def _add_mysql_column_if_missing(table: str, column: str, ddl: str) -> None:
 def main() -> None:
     Base.metadata.create_all(bind=engine)
     if engine.dialect.name == "mysql":
+        _add_mysql_column_if_missing("securities", "sector_style", "VARCHAR(64) NULL")
+        _add_mysql_column_if_missing("securities", "analysis_framework", "VARCHAR(64) NULL")
+        _add_mysql_column_if_missing("securities", "holding_style", "VARCHAR(64) NULL")
         _add_mysql_column_if_missing("trade_plans", "entry_trigger_price", "NUMERIC(18, 4) NULL")
         _add_mysql_column_if_missing("trade_plans", "max_gap_up_pct", "NUMERIC(8, 4) NULL")
         _add_mysql_column_if_missing("trade_plans", "trailing_drawdown_pct", "NUMERIC(8, 4) NULL")

@@ -52,6 +52,26 @@ BANKING_COMPOUND_PROFILE = RiskProfile(
     default_max_holding_days=60,
 )
 
+COMPOUND_STYLE_PROFILE = RiskProfile(
+    name="compound_style",
+    scope_type="style",
+    scope_value="compound",
+    strategy_type=None,
+    priority=80,
+    risk_per_trade_pct=0.006,
+    max_position_pct=0.16,
+    min_position_pct=0.03,
+    atr_stop_multiple=2.3,
+    structure_stop_buffer_pct=0.006,
+    max_stop_loss_pct=0.11,
+    min_stop_loss_pct=0.025,
+    take_profit_1_r=2.0,
+    take_profit_2_r=4.0,
+    trailing_drawdown_pct=0.10,
+    max_gap_up_pct=0.035,
+    default_max_holding_days=60,
+)
+
 THEME_SHORT_PROFILE = RiskProfile(
     name="theme_short",
     scope_type="style",

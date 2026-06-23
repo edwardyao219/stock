@@ -7,6 +7,7 @@ from sqlalchemy import or_
 
 from services.engine.risk.profiles import (
     BANKING_COMPOUND_PROFILE,
+    COMPOUND_STYLE_PROFILE,
     DEFAULT_RISK_PROFILE,
     THEME_SHORT_PROFILE,
     RiskProfile,
@@ -77,6 +78,10 @@ def seed_default_risk_profile(db: Session) -> RiskProfileRecord:
         (
             BANKING_COMPOUND_PROFILE,
             "Banking and stable dividend sectors: wider stops, longer holding, compound-oriented exits.",
+        ),
+        (
+            COMPOUND_STYLE_PROFILE,
+            "Stable compound style sectors when no sector-specific profile exists.",
         ),
         (
             THEME_SHORT_PROFILE,

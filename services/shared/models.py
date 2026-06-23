@@ -46,6 +46,9 @@ class Security(Base):
     exchange: Mapped[str] = mapped_column(String(16))
     list_date: Mapped[Optional[date]] = mapped_column(Date)
     industry: Mapped[Optional[str]] = mapped_column(String(64))
+    sector_style: Mapped[Optional[str]] = mapped_column(String(64))
+    analysis_framework: Mapped[Optional[str]] = mapped_column(String(64))
+    holding_style: Mapped[Optional[str]] = mapped_column(String(64))
     is_st: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -122,6 +125,43 @@ class SectorFeatureDaily(Base):
     sector_code: Mapped[str] = mapped_column(String(32), index=True)
     trade_date: Mapped[date] = mapped_column(Date, index=True)
     features: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
+
+
+class SectorProfile(Base):
+    __tablename__ = "sector_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sector_name: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    sector_style: Mapped[str] = mapped_column(String(64), index=True)
+    analysis_framework: Mapped[str] = mapped_column(String(64))
+    default_strategy_type: Mapped[str] = mapped_column(String(32))
+    preferred_holding_style: Mapped[str] = mapped_column(String(64))
+    key_drivers_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
+    risk_notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class FundamentalSnapshot(Base):
+    __tablename__ = "fundamental_snapshots"
+    __table_args__ = (
+        UniqueConstraint("symbol", "report_date", name="uq_fundamental_symbol_report"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    report_date: Mapped[date] = mapped_column(Date, index=True)
+    revenue_growth: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    profit_growth: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    roe: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    dividend_yield: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    pe_ttm: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    pb: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    gross_margin: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    net_margin: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    debt_ratio: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    extra_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class StrategyRuleRecord(Base):
