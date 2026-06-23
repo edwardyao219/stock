@@ -69,6 +69,13 @@ python -m services.collector.run_sync indexes --start-date 20240101
 python -m services.collector.run_sync stocks 000001 600519 --start-date 20240101
 ```
 
+计算日线特征：
+
+```bash
+python -m services.engine.features.run_compute --symbols 000001 600519
+python -m services.engine.features.run_compute --limit 200
+```
+
 查看 API：
 
 ```text

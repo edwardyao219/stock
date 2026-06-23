@@ -45,13 +45,25 @@ def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyP
             )
         )
 
-    steps.append(
-        PipelineStepResult(
-            name="compute_daily_features",
-            status="pending",
-            detail="Feature store is not implemented yet.",
+    try:
+        from services.engine.features.sync import compute_and_store_stock_features
+
+        feature_result = compute_and_store_stock_features(limit=200)
+        steps.append(
+            PipelineStepResult(
+                name="compute_daily_features",
+                status="ok",
+                detail=f"{feature_result['rows']} feature rows written for {feature_result['symbols']} symbols",
+            )
         )
-    )
+    except Exception as exc:
+        steps.append(
+            PipelineStepResult(
+                name="compute_daily_features",
+                status="failed",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
+        )
 
     plans = generate_trade_plans(trade_date, next_trade_date, MVP_RULES)
     steps.append(

@@ -19,8 +19,15 @@ def sync_daily_market_data_task() -> dict[str, str]:
 
 @celery_app.task(name="services.jobs.tasks.compute_daily_features_task")
 def compute_daily_features_task() -> dict[str, str]:
+    from services.engine.features.sync import compute_and_store_stock_features
+
     today = now_local().date().isoformat()
-    return {"trade_date": today, "status": "pending", "message": "Feature computation is not implemented yet."}
+    result = compute_and_store_stock_features(limit=500)
+    return {
+        "trade_date": today,
+        "status": "ok",
+        "message": f"{result['rows']} feature rows written for {result['symbols']} symbols.",
+    }
 
 
 @celery_app.task(name="services.jobs.tasks.generate_trade_plans_task")

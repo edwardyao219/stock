@@ -44,12 +44,12 @@
 
 先实现日线特征：
 
-- return_1d/3d/5d/20d
-- MA5/MA10/MA20/MA60
-- ATR14
-- amount_percentile_60d
-- relative_strength_score
-- distance_to_20d_high
+- return_1d/3d/5d/20d，已实现
+- MA5/MA10/MA20/MA60，已实现
+- ATR14，已实现
+- amount_percentile_60d，已实现
+- relative_strength_score，已实现基础版本
+- distance_to_20d_high，已实现
 - sector_strength_score
 
 ### 4. 规则执行
