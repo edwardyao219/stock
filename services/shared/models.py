@@ -137,6 +137,22 @@ class StrategyRuleRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class RiskProfileRecord(Base):
+    __tablename__ = "risk_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    scope_type: Mapped[str] = mapped_column(String(32), default="global")
+    scope_value: Mapped[Optional[str]] = mapped_column(String(64))
+    strategy_type: Mapped[Optional[str]] = mapped_column(String(32))
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    config_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class TradePlan(Base):
     __tablename__ = "trade_plans"
     __table_args__ = (
@@ -151,6 +167,9 @@ class TradePlan(Base):
     strategy_type: Mapped[str] = mapped_column(String(32))
     sector_code: Mapped[Optional[str]] = mapped_column(String(32))
     entry_condition_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
+    entry_trigger_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    max_gap_up_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4))
+    trailing_drawdown_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4))
     initial_stop: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
     take_profit_1: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
     take_profit_2: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))

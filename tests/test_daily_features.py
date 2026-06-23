@@ -25,5 +25,10 @@ def test_compute_stock_daily_features_basic_values() -> None:
     assert latest["ma5"] == 19
     assert latest["ma20"] == 11.5
     assert latest["distance_to_20d_high"] == 21 / 22 - 1
+    assert latest["recent_high_20d"] == 22
+    assert latest["recent_low_20d"] == 1
+    assert latest["swing_high_10d"] == 22
+    assert latest["swing_low_10d"] == 11
+    assert latest["atr_pct"] is not None
     assert latest["amount_percentile_60d"] == 100
     assert latest["trend_score"] == 75

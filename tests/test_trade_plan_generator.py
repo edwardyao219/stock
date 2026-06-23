@@ -11,6 +11,8 @@ def test_generate_trade_plans_from_feature_context() -> None:
             "trade_date": "2026-06-23",
             "close": 10.0,
             "atr_14": 0.3,
+            "breakout_level": 10.2,
+            "support_level": 9.4,
             "sector_strength_score": 80,
             "relative_strength_score": 75,
             "amount_percentile_60d": 90,
@@ -33,7 +35,10 @@ def test_generate_trade_plans_from_feature_context() -> None:
     assert len(plans) == 1
     assert plans[0].symbol == "000001"
     assert plans[0].rule_id == "R001"
-    assert plans[0].initial_stop == 9.55
-    assert plans[0].take_profit_1 == pytest.approx(10.6)
-    assert plans[0].take_profit_2 == pytest.approx(11.2)
+    assert plans[0].entry_trigger_price == pytest.approx(10.2)
+    assert plans[0].initial_stop == pytest.approx(9.75)
+    assert plans[0].take_profit_1 == pytest.approx(10.65)
+    assert plans[0].take_profit_2 == pytest.approx(11.1)
+    assert plans[0].position_size == pytest.approx(0.10)
+    assert "trade_parameters" in plans[0].entry_condition
     assert plans[0].confidence_score > 70

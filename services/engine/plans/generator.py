@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from services.engine.risk.profiles import DEFAULT_RISK_PROFILE, RiskProfile
+from services.engine.risk.trade_parameters import build_trade_parameters
 from services.engine.rules.evaluator import evaluate_group
 from services.engine.rules.models import StrategyRule
 
@@ -22,6 +24,9 @@ class TradePlanCandidate:
     strategy_type: str = "short_term"
     sector_code: str | None = None
     entry_condition: dict[str, Any] | None = None
+    entry_trigger_price: float | None = None
+    max_gap_up_pct: float | None = None
+    trailing_drawdown_pct: float | None = None
     max_holding_days: int | None = None
     risk_notes: str | None = None
 
@@ -37,25 +42,11 @@ def _build_plan_from_context(
     trade_date: str,
     rule: StrategyRule,
     context: dict[str, Any],
+    risk_profile: RiskProfile,
 ) -> TradePlanCandidate:
-    close = _safe_float(context.get("close"))
-    atr_14 = _safe_float(context.get("atr_14"), 0.0) or 0.0
+    params = build_trade_parameters(rule=rule, context=context, profile=risk_profile)
     distance_to_20d_high = abs(_safe_float(context.get("distance_to_20d_high"), 0.0) or 0.0)
     risk_score = _safe_float(context.get("risk_score"), 50.0) or 50.0
-
-    initial_stop = None
-    if close:
-        if rule.stop.type in {"atr", "composite"}:
-            multiple = float(rule.stop.params.get("atr_multiple", 1.5))
-            initial_stop = close - atr_14 * multiple
-        elif rule.stop.type == "fixed_pct":
-            initial_stop = close * (1 - float(rule.stop.params.get("pct", 0.05)))
-
-    take_profit_1 = None
-    take_profit_2 = None
-    if close:
-        take_profit_1 = close * 1.06
-        take_profit_2 = close * 1.12
 
     confidence_score = max(
         0.0,
@@ -82,14 +73,19 @@ def _build_plan_from_context(
         entry_condition={
             "rule": rule.model_dump(mode="json"),
             "snapshot": context,
+            "trade_parameters": params.to_dict(),
+            "invalid_conditions": params.invalid_conditions,
         },
-        initial_stop=initial_stop,
-        take_profit_1=take_profit_1,
-        take_profit_2=take_profit_2,
-        max_holding_days=rule.time_exit.max_holding_days,
-        position_size=rule.position.base_position_pct,
+        entry_trigger_price=params.entry_trigger_price,
+        max_gap_up_pct=params.max_gap_up_pct,
+        trailing_drawdown_pct=params.trailing_drawdown_pct,
+        initial_stop=params.initial_stop,
+        take_profit_1=params.take_profit_1,
+        take_profit_2=params.take_profit_2,
+        max_holding_days=params.max_holding_days,
+        position_size=params.position_size_pct,
         confidence_score=confidence_score,
-        risk_notes=None,
+        risk_notes="; ".join(params.invalid_conditions),
     )
 
 
@@ -98,6 +94,8 @@ def generate_trade_plans(
     trade_date: str,
     rules: list[StrategyRule],
     feature_contexts: list[dict[str, Any]] | None = None,
+    risk_profile: RiskProfile = DEFAULT_RISK_PROFILE,
+    risk_profile_selector: Any | None = None,
 ) -> list[TradePlanCandidate]:
     """Generate trade plans from enabled rules and feature snapshots."""
     active_rules = [rule for rule in rules if rule.strategy_type.value != "filter"]
@@ -105,5 +103,8 @@ def generate_trade_plans(
     for context in feature_contexts or []:
         for rule in active_rules:
             if evaluate_group(rule.entry, context):
-                plans.append(_build_plan_from_context(plan_date, trade_date, rule, context))
+                selected_profile = (
+                    risk_profile_selector(rule, context) if risk_profile_selector else risk_profile
+                )
+                plans.append(_build_plan_from_context(plan_date, trade_date, rule, context, selected_profile))
     return sorted(plans, key=lambda item: item.confidence_score, reverse=True)

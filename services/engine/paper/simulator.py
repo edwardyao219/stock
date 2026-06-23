@@ -72,7 +72,22 @@ def _open_position_from_plan(db, account, plan: TradePlan, trade_date: date, bar
     if bar.is_suspended:
         return False, f"{plan.symbol} skipped: suspended"
 
-    entry_price = _decimal(bar.open)
+    open_price = _decimal(bar.open)
+    high_price = _decimal(bar.high)
+    previous_close = _decimal(bar.pre_close) if bar.pre_close is not None else None
+    trigger_price = _decimal(plan.entry_trigger_price) if plan.entry_trigger_price is not None else open_price
+    max_gap_up_pct = Decimal(str(plan.max_gap_up_pct)) if plan.max_gap_up_pct is not None else Decimal("0.06")
+
+    if previous_close is not None and previous_close > 0:
+        gap_up_pct = open_price / previous_close - Decimal("1")
+        if gap_up_pct > max_gap_up_pct:
+            plan.status = "cancelled"
+            return False, f"{plan.symbol} cancelled: gap_up {gap_up_pct:.2%} > {max_gap_up_pct:.2%}"
+
+    if high_price < trigger_price:
+        return False, f"{plan.symbol} pending: trigger {trigger_price} not touched"
+
+    entry_price = max(open_price, trigger_price)
     quantity = _entry_quantity(account.cash, entry_price, Decimal(plan.position_size))
     if quantity <= 0:
         return False, f"{plan.symbol} skipped: insufficient cash"

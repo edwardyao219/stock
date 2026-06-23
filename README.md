@@ -71,6 +71,7 @@ python -m services.jobs.run_pipeline --trade-date 2026-06-23 --next-trade-date 2
 
 ```bash
 python -m services.shared.create_tables
+python -m services.shared.sync_schema
 ```
 
 同步基础数据：
@@ -112,6 +113,26 @@ python -m services.engine.review.run_review --report-date 2026-06-23
 ```bash
 python -m services.engine.paper.run_simulation --trade-date 2026-06-24
 ```
+
+动态参数目前由 `risk_profiles` 表驱动。默认 profile 包括：
+
+- 单笔风险比例
+- 最大/最小仓位
+- ATR 止损倍数
+- 结构止损缓冲
+- 最大/最小止损幅度
+- 1R/2R 止盈倍数
+- 移动止盈回撤
+- 高开取消阈值
+- 突破触发缓冲
+
+`risk_profiles` 支持按范围匹配：
+
+- `global`: 全局默认参数
+- `sector`: 板块/行业参数，例如银行偏复利、长持有、宽止损
+- `style`: 交易风格参数，例如题材短线
+- `strategy_type`: 限定短线、波段或长线策略
+- `priority`: 多个 profile 命中时优先级高者生效
 
 查看 API：
 
