@@ -3,7 +3,6 @@ import {
   ClipboardList,
   RefreshCw,
   Search,
-  Star,
   TrendingUp,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -36,6 +35,7 @@ const pageItems = [
 ] as const;
 
 type PageKey = (typeof pageItems)[number]["key"];
+type PaperTrade = WorkspaceStock["recent_paper_trades"][number];
 
 function pct(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
@@ -69,6 +69,33 @@ function tradeStatusText(value: string | null | undefined) {
     closed: "已卖出",
   };
   return value ? labels[value] ?? value : "-";
+}
+
+function primaryPaperTrade(stock: WorkspaceStock): PaperTrade | null {
+  return stock.recent_paper_trades.find((trade) => trade.status === "open") ?? stock.recent_paper_trades[0] ?? null;
+}
+
+function tradeReturnPct(trade: PaperTrade | null, latestClose: number | null | undefined) {
+  if (!trade) return null;
+  if (trade.pnl_pct !== null && trade.pnl_pct !== undefined) return trade.pnl_pct;
+  if (trade.status === "open" && latestClose && trade.entry_price) {
+    return latestClose / trade.entry_price - 1;
+  }
+  return null;
+}
+
+function paperClosedCount(stock: WorkspaceStock) {
+  return stock.paper_trade_summaries.reduce((total, item) => total + item.closed_count, 0);
+}
+
+function paperWinRate(stock: WorkspaceStock) {
+  const closedCount = paperClosedCount(stock);
+  if (!closedCount) return null;
+  const wins = stock.paper_trade_summaries.reduce(
+    (total, item) => total + item.win_rate * item.closed_count,
+    0,
+  );
+  return wins / closedCount;
 }
 
 export function App() {
@@ -152,6 +179,10 @@ export function App() {
   const autoCount = stocks.filter((item) => item.source.includes("auto")).length;
   const manualCount = stocks.filter((item) => item.source.includes("manual")).length;
   const paperStockCount = stocks.filter((item) => item.paper_trade_summaries.length).length;
+  const selectedTrade = selected ? primaryPaperTrade(selected) : null;
+  const selectedTradeReturn = selected
+    ? tradeReturnPct(selectedTrade, selected.latest_close)
+    : null;
 
   return (
     <main className="app-shell">
@@ -285,13 +316,15 @@ export function App() {
                 </span>
                 <span>
                   <strong>
-                    {item.paper_trade_summaries[0]
-                      ? `${item.paper_trade_summaries[0].open_count}持仓`
+                    {primaryPaperTrade(item)
+                      ? `${tradeStatusText(primaryPaperTrade(item)?.status)} ${pct(
+                          tradeReturnPct(primaryPaperTrade(item), item.latest_close),
+                        )}`
                       : "-"}
                   </strong>
                   <small>
-                    {item.paper_trade_summaries[0]
-                      ? `${item.paper_trade_summaries[0].rule_id} / 已平${item.paper_trade_summaries[0].closed_count}笔`
+                    {primaryPaperTrade(item)
+                      ? `胜率 ${pct(paperWinRate(item))} / 已平${paperClosedCount(item)}笔`
                       : "无模拟"}
                   </small>
                 </span>
@@ -328,29 +361,40 @@ export function App() {
               </div>
 
               <section className="detail-section">
-                <div className="section-title">
-                  <TrendingUp size={16} />
-                  <h3>实盘模拟概览（按策略）</h3>
+                <div className="section-title with-action">
+                  <div>
+                    <ClipboardList size={16} />
+                    <h3>实盘模拟交易</h3>
+                  </div>
+                  {selected.recent_paper_trades.length ? (
+                    <button type="button" onClick={() => setTradeDialogOpen(true)}>
+                      历史记录
+                    </button>
+                  ) : null}
                 </div>
-                {selected.paper_trade_summaries.length ? (
-                  selected.paper_trade_summaries.map((summary) => (
-                    <div className="plan-card" key={summary.rule_id}>
-                      <div>
-                        <strong>{summary.rule_id}</strong>
-                        <span>
-                          已平 {summary.closed_count}笔 / 持仓 {summary.open_count}笔 /
-                          胜率 {summary.closed_count ? pct(summary.win_rate) : "-"} /
-                          平均收益 {summary.closed_count ? pct(summary.avg_return) : "-"}
-                        </span>
-                      </div>
-                      <p>
-                        累计 {summary.closed_count ? pct(summary.total_return) : "-"} /
-                        平均浮盈 {summary.closed_count ? pct(summary.avg_mfe) : "-"} /
-                        平均浮亏 {summary.closed_count ? pct(summary.avg_mae) : "-"} /
-                        最近退出 {exitReasonText(summary.latest_exit_reason)}
-                      </p>
+                {selectedTrade ? (
+                  <div className="active-trade-card">
+                    <div>
+                      <span>{selectedTrade.status === "open" ? "当前持仓" : "最近一笔"}</span>
+                      <strong>
+                        {selectedTrade.rule_id} / {tradeStatusText(selectedTrade.status)} /{" "}
+                        {pct(selectedTradeReturn)}
+                      </strong>
                     </div>
-                  ))
+                    <p>
+                      买入 {selectedTrade.entry_date} @ {price(selectedTrade.entry_price)}，
+                      卖出 {selectedTrade.exit_date ?? "未卖出"} @ {price(selectedTrade.exit_price)}
+                    </p>
+                    <p>
+                      数量 {selectedTrade.quantity} / 持有 {selectedTrade.holding_days}天 /
+                      最高 {price(selectedTrade.highest_price)} / 最低 {price(selectedTrade.lowest_price)} /
+                      顶峰浮盈 {pct(selectedTrade.mfe_pct)} / 最大浮亏 {pct(selectedTrade.mae_pct)}
+                    </p>
+                    <p>
+                      胜率 {pct(paperWinRate(selected))} / 已平 {paperClosedCount(selected)}笔 /
+                      退出原因 {exitReasonText(selectedTrade.exit_reason)}
+                    </p>
+                  </div>
                 ) : (
                   <div className="empty compact">暂无实盘模拟交易，需要先按交易日运行纸面实盘。</div>
                 )}
@@ -393,21 +437,6 @@ export function App() {
                 )}
               </section>
 
-              {selected.manual_note || selected.manual_tags.length ? (
-                <section className="detail-section">
-                  <div className="section-title">
-                    <Star size={16} />
-                    <h3>手动关注记录</h3>
-                  </div>
-                  <p className="manual-note">{selected.manual_note || "无备注"}</p>
-                  <div className="tag-row">
-                    {selected.manual_tags.map((tag) => (
-                      <span key={tag}>{tag}</span>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
               <section className="chart-panel in-detail">
                 <div className="panel-head">
                   <div>
@@ -417,30 +446,6 @@ export function App() {
                   <span>{candles.length} 根K线</span>
                 </div>
                 <StrategyEvidenceChart candles={candles} recommendation={null} />
-              </section>
-
-              <section className="detail-section">
-                <div className="section-title">
-                  <ClipboardList size={16} />
-                  <h3>实盘模拟交易</h3>
-                </div>
-                {selected.recent_paper_trades.length ? (
-                  <div className="trade-summary-row">
-                    <div>
-                      <strong>{selected.recent_paper_trades.length} 条记录</strong>
-                      <span>
-                        最近一笔 {tradeStatusText(selected.recent_paper_trades[0].status)} /
-                        买入 {selected.recent_paper_trades[0].entry_date} @{" "}
-                        {price(selected.recent_paper_trades[0].entry_price)}
-                      </span>
-                    </div>
-                    <button type="button" onClick={() => setTradeDialogOpen(true)}>
-                      查看明细
-                    </button>
-                  </div>
-                ) : (
-                  <div className="empty compact">暂无模拟交易明细</div>
-                )}
               </section>
 
               <section className="detail-section">

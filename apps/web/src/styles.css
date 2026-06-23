@@ -384,6 +384,26 @@ button {
   margin-bottom: 10px;
 }
 
+.section-title.with-action {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-title.with-action > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-title.with-action button {
+  border: 1px solid #cbd4df;
+  border-radius: 7px;
+  min-height: 32px;
+  background: #fff;
+  color: #17202b;
+  padding: 0 12px;
+}
+
 .section-title h3 {
   font-size: 16px;
 }
@@ -440,9 +460,28 @@ button {
 .plan-card p,
 .manual-note,
 .recommendation-card p,
-.trade-record p {
+.trade-record p,
+.active-trade-card p {
   margin: 0;
   line-height: 1.55;
+}
+
+.active-trade-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.active-trade-card span {
+  color: #64748b;
+  display: block;
+  font-size: 13px;
+}
+
+.active-trade-card strong {
+  display: block;
+  font-size: 18px;
+  margin-top: 2px;
 }
 
 .execution-note {
