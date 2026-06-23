@@ -26,7 +26,9 @@ def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyP
 
     try:
         collection_results = sync_daily_market_data(trade_date)
-        failed_collections = [item for item in collection_results if item.status not in {"ok", "pending"}]
+        failed_collections = [
+            item for item in collection_results if item.status not in {"ok", "pending"}
+        ]
         status = "failed" if failed_collections else "pending"
         steps.append(
             PipelineStepResult(
@@ -55,7 +57,10 @@ def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyP
             PipelineStepResult(
                 name="compute_daily_features",
                 status="ok",
-                detail=f"{feature_result['rows']} feature rows written for {feature_result['symbols']} symbols",
+                detail=(
+                    f"{feature_result['rows']} feature rows written for "
+                    f"{feature_result['symbols']} symbols"
+                ),
             )
         )
         pipeline_date = date.fromisoformat(trade_date)
@@ -133,8 +138,26 @@ def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyP
         )
 
     try:
-        from datetime import date
+        from services.engine.paper.diagnostics import generate_paper_trading_review
 
+        changed = generate_paper_trading_review(trade_date)
+        steps.append(
+            PipelineStepResult(
+                name="generate_paper_trading_review",
+                status="ok",
+                detail=f"{changed} paper-trading parameter suggestions written",
+            )
+        )
+    except Exception as exc:
+        steps.append(
+            PipelineStepResult(
+                name="generate_paper_trading_review",
+                status="failed",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
+        )
+
+    try:
         from services.engine.backtest.sync import run_rules_backtest
 
         backtest_result = run_rules_backtest(

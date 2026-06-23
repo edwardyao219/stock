@@ -370,9 +370,6 @@ class PaperOrder(Base):
 
 class PaperPosition(Base):
     __tablename__ = "paper_positions"
-    __table_args__ = (
-        UniqueConstraint("account_id", "symbol", "status", name="uq_paper_position_account_symbol_status"),
-    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     account_id: Mapped[int] = mapped_column(Integer, index=True)
