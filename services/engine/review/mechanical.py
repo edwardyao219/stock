@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from services.engine.review.rule_diagnostics import diagnose_rule_performances
+
 
 @dataclass(frozen=True)
 class MechanicalReview:
@@ -24,6 +26,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
         with SessionLocal() as db:
             performances = load_rule_performance_for_date(db, report_date)
             plans = load_trade_plans_for_date(db, report_date)
+            diagnostics = diagnose_rule_performances(performances)
 
             lines = [
                 "# 每日机械复盘",
@@ -34,15 +37,21 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 "",
             ]
             if performances:
+                diagnostics_by_rule = {item.rule_id: item for item in diagnostics}
                 for item in performances:
+                    diagnostic = diagnostics_by_rule[item.rule_id]
                     lines.append(
                         "- "
                         f"{item.rule_id}: 交易 {item.trade_count} 笔, "
                         f"胜率 {_pct(item.win_rate)}, "
                         f"平均收益 {_pct(item.avg_return)}, "
                         f"盈亏因子 {float(item.profit_factor):.2f}, "
-                        f"评分 {float(item.score):.2f}"
+                        f"评分 {float(item.score):.2f}, "
+                        f"诊断 {diagnostic.status}/{diagnostic.confidence}"
                     )
+                    lines.append(f"  - 结论: {diagnostic.summary}")
+                    for suggestion in diagnostic.suggestions:
+                        lines.append(f"  - 建议: {suggestion}")
             else:
                 lines.append("- 暂无规则表现数据")
 
@@ -66,6 +75,10 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 lines.append("- 存在平均收益为负的规则，建议降低对应规则仓位或继续观察。")
             else:
                 lines.append("- 暂未发现规则平均收益为负的机械信号。")
+            low_sample_rules = [item for item in diagnostics if item.confidence == "low"]
+            if low_sample_rules:
+                ids = ", ".join(item.rule_id for item in low_sample_rules)
+                lines.append(f"- 样本不足规则: {ids}，不要据此快速放大仓位。")
 
             content = "\n".join(lines)
             insert_review_report(
@@ -73,6 +86,10 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 report_date=report_date,
                 report_type="daily_mechanical",
                 content_md=content,
+                metrics_json={
+                    "rule_diagnostics": [item.to_dict() for item in diagnostics],
+                    "trade_plan_count": len(plans),
+                },
             )
             db.commit()
 

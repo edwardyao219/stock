@@ -32,6 +32,7 @@ def insert_review_report(
     report_date: str,
     report_type: str,
     content_md: str,
+    metrics_json: dict | None = None,
     scope: str = "market",
     generator: str = "mechanical",
 ) -> int:
@@ -42,7 +43,7 @@ def insert_review_report(
             scope=scope,
             generator=generator,
             content_md=content_md,
-            metrics_json={},
+            metrics_json=metrics_json or {},
         )
     )
     return 1
