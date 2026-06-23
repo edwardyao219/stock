@@ -65,6 +65,7 @@ def test_compound_rule_requires_banking_fundamental_context() -> None:
             "analysis_framework": "consumer_quality",
             "fundamental_verdict": "supportive",
             "pb": 3.5,
+            "dividend_yield": 0.04,
             "sector_sample_confidence": 0.5,
             "is_st": False,
             "is_suspended": False,

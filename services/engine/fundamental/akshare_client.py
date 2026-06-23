@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -139,8 +139,56 @@ def snapshot_from_valuation_row(symbol: str, raw: dict[str, Any]) -> dict[str, A
 
     for source_field, target_field in VALUATION_FIELDS.items():
         row[target_field] = _decimal(raw.get(source_field))
+    row["dividend_yield"] = _decimal(raw.get("DIVIDEND_YIELD_TTM"))
+    cash_ttm = _decimal(raw.get("DIVIDEND_CASH_TTM"))
+    if cash_ttm is not None:
+        row["extra_json"]["dividend_cash_ttm"] = str(cash_ttm)
 
     return row
+
+
+def dividend_events_from_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for raw in rows:
+        ex_date = _parse_date(raw.get("除权除息日") or raw.get("除权日"))
+        cash_per_10 = _decimal(raw.get("派息") or raw.get("派息比例"))
+        if ex_date is None or cash_per_10 is None or cash_per_10 <= 0:
+            continue
+        events.append(
+            {
+                "ex_date": ex_date,
+                "cash_per_share": cash_per_10 / Decimal("10"),
+                "cash_per_10": cash_per_10,
+            }
+        )
+    return sorted(events, key=lambda item: item["ex_date"])
+
+
+def apply_dividend_yield_to_valuation_rows(
+    valuation_rows: list[dict[str, Any]],
+    dividend_events: list[dict[str, Any]],
+    window_days: int = 365,
+) -> list[dict[str, Any]]:
+    enriched = []
+    for row in valuation_rows:
+        trade_date = _parse_date(row.get("数据日期"))
+        close = _decimal(row.get("当日收盘价"))
+        if trade_date is None or close is None or close <= 0:
+            enriched.append(row)
+            continue
+
+        window_start = trade_date - timedelta(days=window_days)
+        cash_sum = sum(
+            event["cash_per_share"]
+            for event in dividend_events
+            if window_start < event["ex_date"] <= trade_date
+        )
+        copied = dict(row)
+        if cash_sum > 0:
+            copied["DIVIDEND_YIELD_TTM"] = cash_sum / close
+            copied["DIVIDEND_CASH_TTM"] = cash_sum
+        enriched.append(copied)
+    return enriched
 
 
 def fetch_financial_indicator_snapshots(symbol: str) -> list[dict[str, Any]]:
@@ -162,6 +210,23 @@ def fetch_valuation_snapshots(symbol: str) -> list[dict[str, Any]]:
     df = ak.stock_value_em(symbol=symbol)
     rows: list[dict[str, Any]] = []
     for raw in df.to_dict("records"):
+        snapshot = snapshot_from_valuation_row(symbol, raw)
+        if snapshot is not None:
+            rows.append(snapshot)
+    return rows
+
+
+def fetch_dividend_adjusted_valuation_snapshots(symbol: str) -> list[dict[str, Any]]:
+    ak = _akshare()
+    valuation_df = ak.stock_value_em(symbol=symbol)
+    dividend_df = ak.stock_history_dividend_detail(symbol=symbol, indicator="分红")
+    dividend_events = dividend_events_from_rows(dividend_df.to_dict("records"))
+    valuation_rows = apply_dividend_yield_to_valuation_rows(
+        valuation_df.to_dict("records"),
+        dividend_events,
+    )
+    rows: list[dict[str, Any]] = []
+    for raw in valuation_rows:
         snapshot = snapshot_from_valuation_row(symbol, raw)
         if snapshot is not None:
             rows.append(snapshot)

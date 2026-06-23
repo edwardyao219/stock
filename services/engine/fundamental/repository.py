@@ -21,7 +21,7 @@ FUNDAMENTAL_FIELDS = [
     "net_margin",
     "debt_ratio",
 ]
-VALUATION_FIELDS = ["pe_ttm", "pb"]
+VALUATION_FIELDS = ["pe_ttm", "pb", "dividend_yield"]
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -91,7 +91,6 @@ def load_latest_fundamental_snapshot(
             (FundamentalSnapshot.revenue_growth.is_not(None))
             | (FundamentalSnapshot.profit_growth.is_not(None))
             | (FundamentalSnapshot.roe.is_not(None))
-            | (FundamentalSnapshot.dividend_yield.is_not(None))
             | (FundamentalSnapshot.gross_margin.is_not(None))
             | (FundamentalSnapshot.net_margin.is_not(None))
             | (FundamentalSnapshot.debt_ratio.is_not(None))

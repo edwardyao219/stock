@@ -5,6 +5,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from services.engine.fundamental.akshare_client import (
+    apply_dividend_yield_to_valuation_rows,
+    dividend_events_from_rows,
     market_symbol,
     snapshot_from_indicator_row,
     snapshot_from_valuation_row,
@@ -62,6 +64,8 @@ def test_snapshot_from_valuation_row_maps_daily_pb_and_pe() -> None:
             "当日收盘价": "11.50",
             "PE(TTM)": "5.2",
             "市净率": "0.62",
+            "DIVIDEND_YIELD_TTM": "0.055",
+            "DIVIDEND_CASH_TTM": "0.6325",
             "总市值": "223000000000",
             "流通市值": "222000000000",
         },
@@ -72,7 +76,32 @@ def test_snapshot_from_valuation_row_maps_daily_pb_and_pe() -> None:
     assert snapshot["available_date"] == "2026-06-23"
     assert snapshot["pe_ttm"] == Decimal("5.2")
     assert snapshot["pb"] == Decimal("0.62")
+    assert snapshot["dividend_yield"] == Decimal("0.055")
+    assert snapshot["extra_json"]["dividend_cash_ttm"] == "0.6325"
     assert snapshot["extra_json"]["source"] == "akshare.stock_value_em"
+
+
+def test_dividend_yield_uses_only_ex_dates_available_before_trade_date() -> None:
+    events = dividend_events_from_rows(
+        [
+            {"除权除息日": "2025-06-12", "派息": "3.60"},
+            {"除权除息日": "2025-10-15", "派息": "2.36"},
+            {"除权除息日": "2026-06-12", "派息": "3.62"},
+            {"除权除息日": "2026-10-15", "派息": "2.50"},
+        ]
+    )
+    rows = apply_dividend_yield_to_valuation_rows(
+        [
+            {"数据日期": "2026-06-11", "当日收盘价": "10.00"},
+            {"数据日期": "2026-06-13", "当日收盘价": "10.00"},
+        ],
+        events,
+    )
+
+    assert rows[0]["DIVIDEND_CASH_TTM"] == Decimal("0.596")
+    assert rows[0]["DIVIDEND_YIELD_TTM"] == Decimal("0.0596")
+    assert rows[1]["DIVIDEND_CASH_TTM"] == Decimal("0.598")
+    assert rows[1]["DIVIDEND_YIELD_TTM"] == Decimal("0.0598")
 
 
 def test_load_latest_fundamental_snapshot_uses_available_date_to_avoid_leakage() -> None:
@@ -135,6 +164,7 @@ def test_load_fundamental_context_merges_latest_financials_with_valuation() -> N
                     "available_date": "2026-06-23",
                     "pb": 0.62,
                     "pe_ttm": 5.2,
+                    "dividend_yield": 0.055,
                     "extra_json": {"source": "akshare.stock_value_em"},
                 },
             ],
@@ -148,3 +178,4 @@ def test_load_fundamental_context_merges_latest_financials_with_valuation() -> N
     assert context["valuation_date"] == "2026-06-23"
     assert context["pb"] == 0.62
     assert context["pe_ttm"] == 5.2
+    assert context["dividend_yield"] == 0.055

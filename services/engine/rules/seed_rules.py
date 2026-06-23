@@ -104,6 +104,7 @@ MVP_RULES: list[StrategyRule] = [
                 Condition(feature="analysis_framework", op="in", value=["banking_compound"]),
                 Condition(feature="fundamental_verdict", op="!=", value="weak"),
                 Condition(feature="pb", op="<=", value=1.0),
+                Condition(feature="dividend_yield", op=">=", value=0.03),
                 Condition(feature="sector_sample_confidence", op=">=", value=0.05),
                 Condition(feature="trend_score", op=">=", value=75),
                 Condition(feature="volatility_score", op="<=", value=60),

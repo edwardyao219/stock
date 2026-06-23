@@ -4,6 +4,7 @@ import argparse
 from pprint import pprint
 
 from services.engine.fundamental.akshare_client import (
+    fetch_dividend_adjusted_valuation_snapshots,
     fetch_financial_indicator_snapshots,
     fetch_valuation_snapshots,
 )
@@ -32,7 +33,10 @@ def main() -> None:
             count = upsert_fundamental_snapshots(db, rows)
             valuation_count = 0
             if args.include_valuation:
-                valuation_rows = fetch_valuation_snapshots(symbol)
+                try:
+                    valuation_rows = fetch_dividend_adjusted_valuation_snapshots(symbol)
+                except Exception:
+                    valuation_rows = fetch_valuation_snapshots(symbol)
                 valuation_count = upsert_valuation_snapshots(db, valuation_rows)
             results.append(
                 {
