@@ -5,9 +5,15 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from services.collector.akshare_client import AShareSecurity, DailyBarRow, IndexDailyRow, IndustryConstituent
+from services.collector.akshare_client import (
+    AShareSecurity,
+    DailyBarRow,
+    IndexDailyRow,
+    IndustryConstituent,
+    RealtimeQuoteRow,
+)
 from services.engine.sector.repository import load_sector_profile, seed_sector_profiles
-from services.shared.models import DailyBar, Security, TradingCalendar
+from services.shared.models import DailyBar, RealtimeQuote, Security, TradingCalendar
 from services.shared.upsert import upsert_rows
 
 
@@ -30,7 +36,9 @@ def upsert_trade_calendar(db: Session, trade_dates: list[str]) -> int:
                 "trade_date": trade_date,
                 "is_open": True,
                 "previous_trade_date": sorted_dates[index - 1] if index > 0 else None,
-                "next_trade_date": sorted_dates[index + 1] if index < len(sorted_dates) - 1 else None,
+                "next_trade_date": (
+                    sorted_dates[index + 1] if index < len(sorted_dates) - 1 else None
+                ),
             }
         )
     return upsert_rows(
@@ -107,6 +115,48 @@ def upsert_daily_bars(db: Session, bars: list[DailyBarRow | IndexDailyRow]) -> i
             "is_suspended",
         ],
         constraint="uq_daily_bars_symbol_date",
+    )
+
+
+def upsert_realtime_quotes(db: Session, quotes: list[RealtimeQuoteRow]) -> int:
+    if not quotes:
+        return 0
+    rows = [
+        {
+            "symbol": quote.symbol,
+            "trade_date": _date(quote.trade_date),
+            "quote_time": quote.quote_time,
+            "price": quote.price,
+            "open": quote.open,
+            "high": quote.high,
+            "low": quote.low,
+            "pre_close": quote.pre_close,
+            "pct_change": quote.pct_change,
+            "volume": quote.volume,
+            "amount": quote.amount,
+            "turnover_rate": quote.turnover_rate,
+            "source": quote.source,
+        }
+        for quote in quotes
+    ]
+    return upsert_rows(
+        db,
+        RealtimeQuote,
+        rows,
+        update_columns=[
+            "trade_date",
+            "price",
+            "open",
+            "high",
+            "low",
+            "pre_close",
+            "pct_change",
+            "volume",
+            "amount",
+            "turnover_rate",
+            "source",
+        ],
+        constraint="uq_realtime_quotes_symbol_time",
     )
 
 

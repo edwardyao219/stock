@@ -8,13 +8,21 @@ from services.shared.time import now_local
 @celery_app.task(name="services.jobs.tasks.pre_market_check")
 def pre_market_check() -> dict[str, str]:
     today = now_local().date().isoformat()
-    return {"trade_date": today, "status": "pending", "message": "Pre-market check is not implemented yet."}
+    return {
+        "trade_date": today,
+        "status": "pending",
+        "message": "Pre-market check is not implemented yet.",
+    }
 
 
 @celery_app.task(name="services.jobs.tasks.sync_daily_market_data_task")
 def sync_daily_market_data_task() -> dict[str, str]:
     today = now_local().date().isoformat()
-    return {"trade_date": today, "status": "pending", "message": "Data sync connector is not implemented yet."}
+    return {
+        "trade_date": today,
+        "status": "pending",
+        "message": "Data sync connector is not implemented yet.",
+    }
 
 
 @celery_app.task(name="services.jobs.tasks.compute_daily_features_task")
@@ -56,6 +64,14 @@ def run_paper_simulation_task() -> dict[str, str]:
     }
 
 
+@celery_app.task(name="services.jobs.tasks.monitor_paper_positions_realtime_task")
+def monitor_paper_positions_realtime_task() -> dict[str, object]:
+    from services.engine.paper.realtime import monitor_paper_positions_realtime
+
+    result = monitor_paper_positions_realtime()
+    return result.to_dict()
+
+
 @celery_app.task(name="services.jobs.tasks.run_rule_regression_task")
 def run_rule_regression_task() -> dict[str, str]:
     from datetime import date
@@ -82,7 +98,11 @@ def run_rule_regression_task() -> dict[str, str]:
 @celery_app.task(name="services.jobs.tasks.generate_daily_review_task")
 def generate_daily_review_task() -> dict[str, str]:
     today = now_local().date().isoformat()
-    return {"trade_date": today, "status": "pending", "message": "Daily review is not implemented yet."}
+    return {
+        "trade_date": today,
+        "status": "pending",
+        "message": "Daily review is not implemented yet.",
+    }
 
 
 @celery_app.task(name="services.jobs.tasks.run_daily_research_pipeline_task")

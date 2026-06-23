@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 import pandas as pd
+import requests
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,23 @@ class IndexDailyRow:
     amount: Decimal | None
 
 
+@dataclass(frozen=True)
+class RealtimeQuoteRow:
+    symbol: str
+    trade_date: str
+    quote_time: datetime
+    price: Decimal | None
+    open: Decimal | None
+    high: Decimal | None
+    low: Decimal | None
+    pre_close: Decimal | None
+    pct_change: Decimal | None
+    volume: Decimal | None
+    amount: Decimal | None
+    turnover_rate: Decimal | None
+    source: str = "akshare.stock_zh_a_spot_em"
+
+
 def _akshare() -> Any:
     import akshare as ak
 
@@ -78,6 +97,17 @@ def _exchange_for_symbol(symbol: str) -> str:
     if symbol.startswith(("4", "8")):
         return "BJ"
     return "UNKNOWN"
+
+
+def _market_prefix_for_symbol(symbol: str) -> str:
+    exchange = _exchange_for_symbol(symbol)
+    if exchange == "SH":
+        return "sh"
+    if exchange == "SZ":
+        return "sz"
+    if exchange == "BJ":
+        return "bj"
+    return ""
 
 
 def _first(raw: dict[str, Any], *keys: str) -> Any:
@@ -116,6 +146,99 @@ def fetch_a_share_securities() -> list[AShareSecurity]:
             )
         )
     return securities
+
+
+def fetch_realtime_quotes(
+    symbols: set[str] | None = None,
+    quote_time: datetime | None = None,
+) -> list[RealtimeQuoteRow]:
+    ak = _akshare()
+    current_time = quote_time or datetime.utcnow()
+    try:
+        df = ak.stock_zh_a_spot_em()
+    except Exception:
+        if symbols:
+            return fetch_sina_realtime_quotes(symbols=symbols, quote_time=current_time)
+        raise
+    rows: list[RealtimeQuoteRow] = []
+    for raw in df.to_dict("records"):
+        symbol = str(_first(raw, "代码", "股票代码") or "").strip()
+        if not symbol or (symbols and symbol not in symbols):
+            continue
+        rows.append(
+            RealtimeQuoteRow(
+                symbol=symbol,
+                trade_date=current_time.date().isoformat(),
+                quote_time=current_time,
+                price=_decimal(_first(raw, "最新价", "最新")),
+                open=_decimal(_first(raw, "今开", "开盘")),
+                high=_decimal(_first(raw, "最高")),
+                low=_decimal(_first(raw, "最低")),
+                pre_close=_decimal(_first(raw, "昨收")),
+                pct_change=_decimal(_first(raw, "涨跌幅")),
+                volume=_decimal(_first(raw, "成交量")),
+                amount=_decimal(_first(raw, "成交额")),
+                turnover_rate=_decimal(_first(raw, "换手率")),
+            )
+        )
+    return rows
+
+
+def fetch_sina_realtime_quotes(
+    symbols: set[str],
+    quote_time: datetime | None = None,
+) -> list[RealtimeQuoteRow]:
+    current_time = quote_time or datetime.utcnow()
+    sina_symbols = [
+        f"{_market_prefix_for_symbol(symbol)}{symbol}"
+        for symbol in sorted(symbols)
+        if _market_prefix_for_symbol(symbol)
+    ]
+    if not sina_symbols:
+        return []
+    session = requests.Session()
+    session.trust_env = False
+    response = session.get(
+        "https://hq.sinajs.cn/list=" + ",".join(sina_symbols),
+        headers={"Referer": "https://finance.sina.com.cn"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    response.encoding = "gbk"
+
+    rows: list[RealtimeQuoteRow] = []
+    for line in response.text.splitlines():
+        if '="' not in line:
+            continue
+        symbol_code = line.split("=", 1)[0].removeprefix("var hq_str_")[-6:]
+        payload = line.split('"', 2)[1]
+        parts = payload.split(",")
+        if len(parts) < 32 or not parts[0]:
+            continue
+        parsed_quote_time = current_time
+        if parts[30] and parts[31]:
+            try:
+                parsed_quote_time = datetime.fromisoformat(f"{parts[30]}T{parts[31]}")
+            except ValueError:
+                parsed_quote_time = current_time
+        rows.append(
+            RealtimeQuoteRow(
+                symbol=symbol_code,
+                trade_date=parsed_quote_time.date().isoformat(),
+                quote_time=parsed_quote_time,
+                price=_decimal(parts[3]),
+                open=_decimal(parts[1]),
+                high=_decimal(parts[4]),
+                low=_decimal(parts[5]),
+                pre_close=_decimal(parts[2]),
+                pct_change=None,
+                volume=_decimal(parts[8]),
+                amount=_decimal(parts[9]),
+                turnover_rate=None,
+                source="sina.hq",
+            )
+        )
+    return rows
 
 
 def fetch_industry_boards() -> list[IndustryBoard]:

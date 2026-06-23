@@ -84,6 +84,29 @@ class DailyBar(Base):
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class RealtimeQuote(Base):
+    __tablename__ = "realtime_quotes"
+    __table_args__ = (
+        UniqueConstraint("symbol", "quote_time", name="uq_realtime_quotes_symbol_time"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    quote_time: Mapped[datetime] = mapped_column(DateTime, index=True)
+    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    open: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    high: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    low: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    pre_close: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    pct_change: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4))
+    volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    turnover_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4))
+    source: Mapped[str] = mapped_column(String(64), default="akshare.stock_zh_a_spot_em")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class SectorDaily(Base):
     __tablename__ = "sector_daily"
     __table_args__ = (UniqueConstraint("sector_code", "trade_date", name="uq_sector_daily_code_date"),)
