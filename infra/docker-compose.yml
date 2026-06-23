@@ -15,5 +15,43 @@ services:
     ports:
       - "6379:6379"
 
+  api:
+    image: python:3.12-slim
+    working_dir: /app
+    command: bash -lc "pip install -e . && uvicorn apps.api.app.main:app --host 0.0.0.0 --port 8000"
+    env_file:
+      - ../.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ..:/app
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    image: python:3.12-slim
+    working_dir: /app
+    command: bash -lc "pip install -e . && celery -A services.jobs.celery_app.celery_app worker --loglevel=info"
+    env_file:
+      - ../.env
+    volumes:
+      - ..:/app
+    depends_on:
+      - postgres
+      - redis
+
+  beat:
+    image: python:3.12-slim
+    working_dir: /app
+    command: bash -lc "pip install -e . && celery -A services.jobs.celery_app.celery_app beat --loglevel=info"
+    env_file:
+      - ../.env
+    volumes:
+      - ..:/app
+    depends_on:
+      - postgres
+      - redis
+
 volumes:
   postgres_data:

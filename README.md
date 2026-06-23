@@ -37,3 +37,35 @@ infra/
 ```
 
 实盘自动下单不在第一阶段范围内。
+
+## Local Development
+
+```bash
+cp .env.example .env
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+docker compose -f infra/docker-compose.yml up -d postgres redis
+uvicorn apps.api.app.main:app --reload
+```
+
+运行一次占位版每日研究流水线：
+
+```bash
+python -m services.jobs.run_pipeline --trade-date 2026-06-23 --next-trade-date 2026-06-24
+```
+
+创建当前 ORM 草案对应的数据表：
+
+```bash
+python -m services.shared.create_tables
+```
+
+查看 API：
+
+```text
+GET http://127.0.0.1:8000/health
+GET http://127.0.0.1:8000/rules
+GET http://127.0.0.1:8000/market/overview
+GET http://127.0.0.1:8000/trade-plans/latest
+```

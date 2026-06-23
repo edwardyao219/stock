@@ -1,0 +1,82 @@
+# Development Notes
+
+## 当前状态
+
+项目已经具备：
+
+- FastAPI 应用入口
+- 配置加载
+- PostgreSQL/Redis compose
+- Celery 应用占位
+- 每日研究流水线占位
+- 规则表达模型
+- 三条 MVP 规则
+- 机械复盘占位
+
+## 下一步开发顺序
+
+### 1. 数据库模型和迁移
+
+已经先放入 SQLAlchemy ORM 草案。下一步引入 Alembic，把草案变成正式迁移：
+
+- securities
+- trading_calendar
+- daily_bars
+- sector_daily
+- stock_features_daily
+- sector_features_daily
+- strategy_rules
+- trade_plans
+- review_reports
+
+### 2. 数据采集
+
+优先接入 AKShare：
+
+- 股票列表
+- 交易日历
+- A 股日线
+- 指数日线
+- 板块数据
+- 涨跌停数据
+
+### 3. 特征计算
+
+先实现日线特征：
+
+- return_1d/3d/5d/20d
+- MA5/MA10/MA20/MA60
+- ATR14
+- amount_percentile_60d
+- relative_strength_score
+- distance_to_20d_high
+- sector_strength_score
+
+### 4. 规则执行
+
+把 `StrategyRule` 解释成候选股筛选：
+
+```text
+feature row + rule entry condition -> signal
+signal + trigger model -> trade plan
+```
+
+### 5. 回测引擎
+
+先做日线 T+1 回测：
+
+```text
+T 收盘生成信号
+T+1 按开盘/突破触发模拟买入
+持仓期间检查止损、止盈、时间退出
+记录 MFE/MAE
+```
+
+### 6. 前端
+
+先做四个页面：
+
+- 规则列表
+- 市场总览
+- 候选股
+- 每日复盘
