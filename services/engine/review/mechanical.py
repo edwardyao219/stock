@@ -55,6 +55,25 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
             else:
                 lines.append("- 暂无规则表现数据")
 
+            parameter_suggestions = [
+                suggestion
+                for diagnostic in diagnostics
+                for suggestion in diagnostic.parameter_suggestions
+            ]
+            lines.extend(["", "## 候选参数调整", ""])
+            if parameter_suggestions:
+                for suggestion in parameter_suggestions:
+                    lines.append(
+                        "- "
+                        f"{suggestion.scope_value or suggestion.scope_type} / "
+                        f"{suggestion.target_type}.{suggestion.target_name}: "
+                        f"{suggestion.action} "
+                        f"({suggestion.priority})"
+                    )
+                    lines.append(f"  - 理由: {suggestion.rationale}")
+            else:
+                lines.append("- 暂无候选参数调整")
+
             lines.extend(["", "## 明日候选计划", ""])
             if plans:
                 for item in plans:
@@ -88,6 +107,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 content_md=content,
                 metrics_json={
                     "rule_diagnostics": [item.to_dict() for item in diagnostics],
+                    "parameter_suggestions": [item.to_dict() for item in parameter_suggestions],
                     "trade_plan_count": len(plans),
                 },
             )

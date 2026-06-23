@@ -20,6 +20,14 @@ def test_diagnose_rule_performance_promotes_strong_rule() -> None:
     assert diagnostic.status == "promote"
     assert diagnostic.confidence == "medium"
     assert any("保持当前参数" in item for item in diagnostic.suggestions)
+    assert any(
+        item.target_name == "position_sizing" and item.action == "test_small_increase"
+        for item in diagnostic.parameter_suggestions
+    )
+    assert any(
+        item.target_name == "breakout_confirmation"
+        for item in diagnostic.parameter_suggestions
+    )
 
 
 def test_diagnose_rule_performance_reduces_weak_rule() -> None:
@@ -39,6 +47,11 @@ def test_diagnose_rule_performance_reduces_weak_rule() -> None:
     assert diagnostic.status == "reduce"
     assert diagnostic.confidence == "high"
     assert any("收紧止损" in item for item in diagnostic.suggestions)
+    assert any(
+        item.target_name == "banking_compound_valuation"
+        and item.proposed["candidate_dividend_yield_min"] == 0.04
+        for item in diagnostic.parameter_suggestions
+    )
 
 
 def test_diagnose_rule_performance_marks_low_sample_observation() -> None:
@@ -57,3 +70,30 @@ def test_diagnose_rule_performance_marks_low_sample_observation() -> None:
 
     assert diagnostic.confidence == "low"
     assert any("样本数不足" in item for item in diagnostic.reasons)
+    assert any(
+        item.target_name == "out_of_sample_collection"
+        and "低样本规则禁止放大仓位" in item.guardrails
+        for item in diagnostic.parameter_suggestions
+    )
+
+
+def test_diagnose_rule_performance_preserves_payoff_ratio() -> None:
+    diagnostic = diagnose_rule_performance(
+        SimpleNamespace(
+            rule_id="R004",
+            trade_count=60,
+            win_rate=0.42,
+            avg_return=0.006,
+            profit_factor=1.2,
+            avg_mfe=0.05,
+            avg_mae=-0.03,
+            score=4.0,
+        )
+    )
+
+    assert diagnostic.status == "observe"
+    assert any(
+        item.target_name == "banking_compound_take_profit"
+        and item.proposed["prefer_position_rebalance"] is True
+        for item in diagnostic.parameter_suggestions
+    )

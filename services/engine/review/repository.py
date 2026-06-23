@@ -5,7 +5,10 @@ from datetime import date
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from services.engine.rules.seed_rules import MVP_RULES
 from services.shared.models import ReviewReport, RulePerformanceDaily, TradePlan
+
+ACTIVE_RULE_IDS = tuple(rule.id for rule in MVP_RULES)
 
 
 def load_rule_performance_for_date(db: Session, report_date: str) -> list[RulePerformanceDaily]:
@@ -21,6 +24,7 @@ def load_trade_plans_for_date(db: Session, plan_date: str, limit: int = 20) -> l
     stmt = (
         select(TradePlan)
         .where(TradePlan.plan_date == date.fromisoformat(plan_date))
+        .where(TradePlan.rule_id.in_(ACTIVE_RULE_IDS))
         .order_by(desc(TradePlan.confidence_score))
         .limit(limit)
     )
