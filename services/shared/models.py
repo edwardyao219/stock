@@ -420,6 +420,27 @@ class PaperPosition(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class PaperAlert(Base):
+    __tablename__ = "paper_alerts"
+    __table_args__ = (
+        UniqueConstraint("position_id", "alert_type", "alert_time", name="uq_paper_alert_event"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(Integer, index=True)
+    position_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    alert_type: Mapped[str] = mapped_column(String(64), index=True)
+    severity: Mapped[str] = mapped_column(String(32), index=True)
+    alert_time: Mapped[datetime] = mapped_column(DateTime, index=True)
+    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    current_stop: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    pnl_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    message: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class PaperTrade(Base):
     __tablename__ = "paper_trades"
 

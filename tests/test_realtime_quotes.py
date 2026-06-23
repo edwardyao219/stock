@@ -104,4 +104,6 @@ def test_update_position_from_quote_raises_trailing_stop_and_alerts() -> None:
     assert [item.alert_type for item in alerts] == [
         "take_profit_touched",
         "stop_loss_touched",
+        "limit_up_touched",
     ]
+    assert alerts[0].alert_time == "2026-06-24T10:05:00"
