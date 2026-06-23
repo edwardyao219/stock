@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from services.engine.rules.seed_rules import MVP_RULES
 from services.shared.models import (
-    BacktestTradeRecord,
     DailyBar,
+    PaperPosition,
     ResearchPoolItem,
     Security,
     TradePlan,
@@ -34,9 +34,10 @@ class WorkspacePlan:
 
 
 @dataclass(frozen=True)
-class StrategyBacktestSummary:
+class PaperTradeSummary:
     rule_id: str
-    trade_count: int
+    closed_count: int
+    open_count: int
     win_rate: float
     avg_return: float
     total_return: float
@@ -51,19 +52,23 @@ class StrategyBacktestSummary:
 
 
 @dataclass(frozen=True)
-class BacktestTradeItem:
+class PaperTradeItem:
     id: int
+    trade_plan_id: int | None
     rule_id: str
-    signal_date: str
     entry_date: str
     entry_price: float
-    exit_date: str
-    exit_price: float
+    exit_date: str | None
+    exit_price: float | None
     holding_days: int
-    pnl_pct: float
+    pnl_pct: float | None
     mfe_pct: float
     mae_pct: float
-    exit_reason: str
+    highest_price: float
+    lowest_price: float
+    quantity: int
+    status: str
+    exit_reason: str | None
 
 
 @dataclass(frozen=True)
@@ -80,8 +85,8 @@ class WorkspaceItem:
     return_5d: float | None
     return_20d: float | None
     plans: list[WorkspacePlan]
-    strategy_summaries: list[StrategyBacktestSummary]
-    recent_backtest_trades: list[BacktestTradeItem]
+    paper_trade_summaries: list[PaperTradeSummary]
+    recent_paper_trades: list[PaperTradeItem]
 
 
 def _float(value: Decimal | None) -> float | None:
@@ -108,67 +113,109 @@ def _load_recent_bars(db: Session, symbol: str, limit: int = 61) -> list[DailyBa
     return list(reversed(db.execute(stmt).scalars().all()))
 
 
-def _load_recent_backtest_trades(
+def _load_recent_paper_positions(
     db: Session,
     symbol: str,
     limit: int = 30,
-) -> list[BacktestTradeRecord]:
+) -> list[PaperPosition]:
     stmt = (
-        select(BacktestTradeRecord)
-        .where(BacktestTradeRecord.symbol == symbol)
-        .order_by(desc(BacktestTradeRecord.exit_date), desc(BacktestTradeRecord.id))
+        select(PaperPosition)
+        .where(PaperPosition.symbol == symbol)
+        .order_by(desc(PaperPosition.entry_date), desc(PaperPosition.id))
         .limit(limit)
     )
     return list(db.execute(stmt).scalars())
 
 
-def _summarize_strategy_trades(
-    trades: list[BacktestTradeRecord],
-) -> list[StrategyBacktestSummary]:
-    grouped: dict[str, list[BacktestTradeRecord]] = {}
-    for trade in trades:
-        grouped.setdefault(trade.rule_id, []).append(trade)
+def _holding_days(position: PaperPosition, latest_bar: DailyBar | None) -> int:
+    end_date = position.exit_date or (latest_bar.trade_date if latest_bar else position.entry_date)
+    return (end_date - position.entry_date).days + 1
 
-    summaries: list[StrategyBacktestSummary] = []
+
+def _mfe_pct(position: PaperPosition) -> float:
+    return float(position.highest_price / position.entry_price - Decimal("1"))
+
+
+def _mae_pct(position: PaperPosition) -> float:
+    return float(position.lowest_price / position.entry_price - Decimal("1"))
+
+
+def _summarize_paper_trades(
+    positions: list[PaperPosition],
+) -> list[PaperTradeSummary]:
+    grouped: dict[str, list[PaperPosition]] = {}
+    for position in positions:
+        grouped.setdefault(position.rule_id, []).append(position)
+
+    summaries: list[PaperTradeSummary] = []
     for rule_id, items in grouped.items():
-        pnl_values = [float(item.pnl_pct) for item in items]
-        mfe_values = [float(item.mfe_pct) for item in items]
-        mae_values = [float(item.mae_pct) for item in items]
-        latest = max(items, key=lambda item: (item.exit_date, item.id))
+        closed = [item for item in items if item.status == "closed" and item.pnl_pct is not None]
+        open_count = sum(1 for item in items if item.status == "open")
+        if not closed:
+            latest_entry = max(items, key=lambda item: item.entry_date)
+            summaries.append(
+                PaperTradeSummary(
+                    rule_id=rule_id,
+                    closed_count=0,
+                    open_count=open_count,
+                    win_rate=0,
+                    avg_return=0,
+                    total_return=0,
+                    avg_mfe=0,
+                    avg_mae=0,
+                    best_return=0,
+                    worst_return=0,
+                    latest_entry_date=latest_entry.entry_date.isoformat(),
+                    latest_exit_date=None,
+                    latest_pnl_pct=None,
+                    latest_exit_reason=None,
+                )
+            )
+            continue
+
+        pnl_values = [float(item.pnl_pct) for item in closed if item.pnl_pct is not None]
+        mfe_values = [_mfe_pct(item) for item in closed]
+        mae_values = [_mae_pct(item) for item in closed]
+        latest = max(closed, key=lambda item: (item.exit_date or item.entry_date, item.id))
         summaries.append(
-            StrategyBacktestSummary(
+            PaperTradeSummary(
                 rule_id=rule_id,
-                trade_count=len(items),
-                win_rate=sum(1 for value in pnl_values if value > 0) / len(items),
-                avg_return=sum(pnl_values) / len(items),
+                closed_count=len(closed),
+                open_count=open_count,
+                win_rate=sum(1 for value in pnl_values if value > 0) / len(closed),
+                avg_return=sum(pnl_values) / len(closed),
                 total_return=sum(pnl_values),
-                avg_mfe=sum(mfe_values) / len(items),
-                avg_mae=sum(mae_values) / len(items),
+                avg_mfe=sum(mfe_values) / len(closed),
+                avg_mae=sum(mae_values) / len(closed),
                 best_return=max(pnl_values),
                 worst_return=min(pnl_values),
                 latest_entry_date=latest.entry_date.isoformat(),
-                latest_exit_date=latest.exit_date.isoformat(),
-                latest_pnl_pct=float(latest.pnl_pct),
+                latest_exit_date=latest.exit_date.isoformat() if latest.exit_date else None,
+                latest_pnl_pct=float(latest.pnl_pct) if latest.pnl_pct is not None else None,
                 latest_exit_reason=latest.exit_reason,
             )
         )
     return sorted(summaries, key=lambda item: item.total_return, reverse=True)
 
 
-def _to_backtest_trade_item(trade: BacktestTradeRecord) -> BacktestTradeItem:
-    return BacktestTradeItem(
-        id=trade.id,
-        rule_id=trade.rule_id,
-        signal_date=trade.signal_date.isoformat(),
-        entry_date=trade.entry_date.isoformat(),
-        entry_price=float(trade.entry_price),
-        exit_date=trade.exit_date.isoformat(),
-        exit_price=float(trade.exit_price),
-        holding_days=trade.holding_days,
-        pnl_pct=float(trade.pnl_pct),
-        mfe_pct=float(trade.mfe_pct),
-        mae_pct=float(trade.mae_pct),
-        exit_reason=trade.exit_reason,
+def _to_paper_trade_item(position: PaperPosition, latest_bar: DailyBar | None) -> PaperTradeItem:
+    return PaperTradeItem(
+        id=position.id,
+        trade_plan_id=position.trade_plan_id,
+        rule_id=position.rule_id,
+        entry_date=position.entry_date.isoformat(),
+        entry_price=float(position.entry_price),
+        exit_date=position.exit_date.isoformat() if position.exit_date else None,
+        exit_price=_float(position.exit_price),
+        holding_days=_holding_days(position, latest_bar),
+        pnl_pct=_float(position.pnl_pct),
+        mfe_pct=_mfe_pct(position),
+        mae_pct=_mae_pct(position),
+        highest_price=float(position.highest_price),
+        lowest_price=float(position.lowest_price),
+        quantity=position.quantity,
+        status=position.status,
+        exit_reason=position.exit_reason,
     )
 
 
@@ -208,8 +255,8 @@ def _build_workspace_item(
     plans: list[TradePlan],
 ) -> WorkspaceItem:
     recent_bars = _load_recent_bars(db, symbol)
-    backtest_trades = _load_recent_backtest_trades(db, symbol)
     latest_bar = recent_bars[-1] if recent_bars else None
+    paper_positions = _load_recent_paper_positions(db, symbol)
     source_parts = []
     if plans:
         source_parts.append("auto")
@@ -244,8 +291,10 @@ def _build_workspace_item(
             )
             for plan in plans
         ],
-        strategy_summaries=_summarize_strategy_trades(backtest_trades),
-        recent_backtest_trades=[_to_backtest_trade_item(item) for item in backtest_trades[:10]],
+        paper_trade_summaries=_summarize_paper_trades(paper_positions),
+        recent_paper_trades=[
+            _to_paper_trade_item(item, latest_bar) for item in paper_positions[:10]
+        ],
     )
 
 

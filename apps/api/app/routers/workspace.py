@@ -29,9 +29,10 @@ class WorkspacePlanResponse(BaseModel):
     status: str
 
 
-class StrategyBacktestSummaryResponse(BaseModel):
+class PaperTradeSummaryResponse(BaseModel):
     rule_id: str
-    trade_count: int
+    closed_count: int
+    open_count: int
     win_rate: float
     avg_return: float
     total_return: float
@@ -45,19 +46,23 @@ class StrategyBacktestSummaryResponse(BaseModel):
     latest_exit_reason: str | None
 
 
-class BacktestTradeResponse(BaseModel):
+class PaperTradeResponse(BaseModel):
     id: int
+    trade_plan_id: int | None
     rule_id: str
-    signal_date: str
     entry_date: str
     entry_price: float
-    exit_date: str
-    exit_price: float
+    exit_date: str | None
+    exit_price: float | None
     holding_days: int
-    pnl_pct: float
+    pnl_pct: float | None
     mfe_pct: float
     mae_pct: float
-    exit_reason: str
+    highest_price: float
+    lowest_price: float
+    quantity: int
+    status: str
+    exit_reason: str | None
 
 
 class WorkspaceStockResponse(BaseModel):
@@ -73,8 +78,8 @@ class WorkspaceStockResponse(BaseModel):
     return_5d: float | None
     return_20d: float | None
     plans: list[WorkspacePlanResponse]
-    strategy_summaries: list[StrategyBacktestSummaryResponse]
-    recent_backtest_trades: list[BacktestTradeResponse]
+    paper_trade_summaries: list[PaperTradeSummaryResponse]
+    recent_paper_trades: list[PaperTradeResponse]
 
 
 class ManualStockRequest(BaseModel):
@@ -113,10 +118,11 @@ def _to_response(item) -> WorkspaceStockResponse:
             )
             for plan in item.plans
         ],
-        strategy_summaries=[
-            StrategyBacktestSummaryResponse(
+        paper_trade_summaries=[
+            PaperTradeSummaryResponse(
                 rule_id=summary.rule_id,
-                trade_count=summary.trade_count,
+                closed_count=summary.closed_count,
+                open_count=summary.open_count,
                 win_rate=summary.win_rate,
                 avg_return=summary.avg_return,
                 total_return=summary.total_return,
@@ -129,13 +135,13 @@ def _to_response(item) -> WorkspaceStockResponse:
                 latest_pnl_pct=summary.latest_pnl_pct,
                 latest_exit_reason=summary.latest_exit_reason,
             )
-            for summary in item.strategy_summaries
+            for summary in item.paper_trade_summaries
         ],
-        recent_backtest_trades=[
-            BacktestTradeResponse(
+        recent_paper_trades=[
+            PaperTradeResponse(
                 id=trade.id,
+                trade_plan_id=trade.trade_plan_id,
                 rule_id=trade.rule_id,
-                signal_date=trade.signal_date,
                 entry_date=trade.entry_date,
                 entry_price=trade.entry_price,
                 exit_date=trade.exit_date,
@@ -144,9 +150,13 @@ def _to_response(item) -> WorkspaceStockResponse:
                 pnl_pct=trade.pnl_pct,
                 mfe_pct=trade.mfe_pct,
                 mae_pct=trade.mae_pct,
+                highest_price=trade.highest_price,
+                lowest_price=trade.lowest_price,
+                quantity=trade.quantity,
+                status=trade.status,
                 exit_reason=trade.exit_reason,
             )
-            for trade in item.recent_backtest_trades
+            for trade in item.recent_paper_trades
         ],
     )
 

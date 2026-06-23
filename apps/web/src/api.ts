@@ -55,9 +55,10 @@ export interface WorkspacePlan {
   status: string;
 }
 
-export interface StrategyBacktestSummary {
+export interface PaperTradeSummary {
   rule_id: string;
-  trade_count: number;
+  closed_count: number;
+  open_count: number;
   win_rate: number;
   avg_return: number;
   total_return: number;
@@ -71,19 +72,23 @@ export interface StrategyBacktestSummary {
   latest_exit_reason: string | null;
 }
 
-export interface BacktestTrade {
+export interface PaperTrade {
   id: number;
+  trade_plan_id: number | null;
   rule_id: string;
-  signal_date: string;
   entry_date: string;
   entry_price: number;
-  exit_date: string;
-  exit_price: number;
+  exit_date: string | null;
+  exit_price: number | null;
   holding_days: number;
-  pnl_pct: number;
+  pnl_pct: number | null;
   mfe_pct: number;
   mae_pct: number;
-  exit_reason: string;
+  highest_price: number;
+  lowest_price: number;
+  quantity: number;
+  status: string;
+  exit_reason: string | null;
 }
 
 export interface WorkspaceStock {
@@ -99,8 +104,8 @@ export interface WorkspaceStock {
   return_5d: number | null;
   return_20d: number | null;
   plans: WorkspacePlan[];
-  strategy_summaries: StrategyBacktestSummary[];
-  recent_backtest_trades: BacktestTrade[];
+  paper_trade_summaries: PaperTradeSummary[];
+  recent_paper_trades: PaperTrade[];
 }
 
 function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
@@ -108,8 +113,8 @@ function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
     ...item,
     manual_tags: item.manual_tags ?? [],
     plans: item.plans ?? [],
-    strategy_summaries: item.strategy_summaries ?? [],
-    recent_backtest_trades: item.recent_backtest_trades ?? [],
+    paper_trade_summaries: item.paper_trade_summaries ?? [],
+    recent_paper_trades: item.recent_paper_trades ?? [],
   };
 }
 

@@ -12,8 +12,9 @@ from apps.api.app.routers.workspace import (
 )
 from services.shared.database import Base
 from services.shared.models import (
-    BacktestTradeRecord,
     DailyBar,
+    PaperAccount,
+    PaperPosition,
     ResearchPoolItem,
     Security,
     TradePlan,
@@ -63,20 +64,36 @@ def test_list_workspace_stocks_merges_auto_plans_and_manual_pool() -> None:
             )
         )
         db.add(
-            BacktestTradeRecord(
-                run_date=date(2026, 1, 21),
-                rule_id="R001",
+            PaperAccount(
+                id=1,
+                name="default",
+                initial_cash=Decimal("1000000"),
+                cash=Decimal("1000000"),
+            )
+        )
+        db.add(
+            PaperPosition(
+                account_id=1,
+                trade_plan_id=1,
                 symbol="000001",
-                signal_date=date(2026, 1, 10),
+                rule_id="R001",
+                strategy_type="short_term",
                 entry_date=date(2026, 1, 11),
                 entry_price=Decimal("10"),
+                quantity=1000,
+                initial_stop=Decimal("9.5"),
+                current_stop=Decimal("10.5"),
+                take_profit_1=Decimal("11"),
+                take_profit_2=None,
+                highest_price=Decimal("11.5"),
+                lowest_price=Decimal("9.7"),
+                max_holding_days=5,
+                status="closed",
                 exit_date=date(2026, 1, 15),
                 exit_price=Decimal("11"),
-                holding_days=5,
-                pnl_pct=Decimal("0.10"),
-                mfe_pct=Decimal("0.15"),
-                mae_pct=Decimal("-0.03"),
                 exit_reason="take_profit",
+                pnl=Decimal("1000"),
+                pnl_pct=Decimal("0.10"),
             )
         )
         db.commit()
@@ -86,8 +103,10 @@ def test_list_workspace_stocks_merges_auto_plans_and_manual_pool() -> None:
     assert [item.symbol for item in payload] == ["000001", "600519"]
     assert payload[0].source == "auto"
     assert payload[0].plans[0].rule_id == "R001"
-    assert payload[0].strategy_summaries[0].win_rate == 1
-    assert payload[0].recent_backtest_trades[0].entry_date == "2026-01-11"
+    assert payload[0].paper_trade_summaries[0].win_rate == 1
+    assert payload[0].paper_trade_summaries[0].closed_count == 1
+    assert payload[0].recent_paper_trades[0].entry_date == "2026-01-11"
+    assert payload[0].recent_paper_trades[0].highest_price == 11.5
     assert payload[1].source == "manual"
     assert payload[1].manual_tags == ["白酒"]
     assert payload[0].return_5d is not None

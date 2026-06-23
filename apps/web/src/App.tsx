@@ -63,6 +63,14 @@ function exitReasonText(value: string | null | undefined) {
   return value ? labels[value] ?? value : "-";
 }
 
+function tradeStatusText(value: string | null | undefined) {
+  const labels: Record<string, string> = {
+    open: "持仓中",
+    closed: "已卖出",
+  };
+  return value ? labels[value] ?? value : "-";
+}
+
 export function App() {
   const [activePage, setActivePage] = useState<PageKey>("stocks");
   const [stocks, setStocks] = useState<WorkspaceStock[]>([]);
@@ -141,7 +149,7 @@ export function App() {
 
   const autoCount = stocks.filter((item) => item.source.includes("auto")).length;
   const manualCount = stocks.filter((item) => item.source.includes("manual")).length;
-  const backtestStockCount = stocks.filter((item) => item.strategy_summaries.length).length;
+  const paperStockCount = stocks.filter((item) => item.paper_trade_summaries.length).length;
 
   return (
     <main className="app-shell">
@@ -185,8 +193,8 @@ export function App() {
               <strong>{manualCount}</strong>
             </div>
             <div>
-              <span>已有回归数据</span>
-              <strong>{backtestStockCount}</strong>
+              <span>已有实盘模拟</span>
+              <strong>{paperStockCount}</strong>
             </div>
             <div>
               <span>列表股票总数</span>
@@ -251,7 +259,7 @@ export function App() {
               <span>股票</span>
               <span>来源</span>
               <span>近期表现</span>
-              <span>模拟回归</span>
+              <span>实盘模拟</span>
             </div>
             {loading ? <div className="empty">加载中</div> : null}
             {!loading && !filteredStocks.length ? <div className="empty">暂无股票</div> : null}
@@ -274,11 +282,15 @@ export function App() {
                   <small>20日 {pct(item.return_20d)}</small>
                 </span>
                 <span>
-                  <strong>{item.strategy_summaries[0] ? pct(item.strategy_summaries[0].win_rate) : "-"}</strong>
+                  <strong>
+                    {item.paper_trade_summaries[0]
+                      ? `${item.paper_trade_summaries[0].open_count}持仓`
+                      : "-"}
+                  </strong>
                   <small>
-                    {item.strategy_summaries[0]
-                      ? `${item.strategy_summaries[0].rule_id} / ${item.strategy_summaries[0].trade_count}笔`
-                      : "无回归"}
+                    {item.paper_trade_summaries[0]
+                      ? `${item.paper_trade_summaries[0].rule_id} / 已平${item.paper_trade_summaries[0].closed_count}笔`
+                      : "无模拟"}
                   </small>
                 </span>
               </button>
@@ -316,25 +328,29 @@ export function App() {
               <section className="detail-section">
                 <div className="section-title">
                   <TrendingUp size={16} />
-                  <h3>模拟交易概览（按策略）</h3>
+                  <h3>实盘模拟概览（按策略）</h3>
                 </div>
-                {selected.strategy_summaries.length ? (
-                  selected.strategy_summaries.map((summary) => (
+                {selected.paper_trade_summaries.length ? (
+                  selected.paper_trade_summaries.map((summary) => (
                     <div className="plan-card" key={summary.rule_id}>
                       <div>
                         <strong>{summary.rule_id}</strong>
                         <span>
-                          {summary.trade_count}笔 / 胜率 {pct(summary.win_rate)} / 平均收益 {pct(summary.avg_return)}
+                          已平 {summary.closed_count}笔 / 持仓 {summary.open_count}笔 /
+                          胜率 {summary.closed_count ? pct(summary.win_rate) : "-"} /
+                          平均收益 {summary.closed_count ? pct(summary.avg_return) : "-"}
                         </span>
                       </div>
                       <p>
-                        累计 {pct(summary.total_return)} / 平均浮盈 {pct(summary.avg_mfe)} /
-                        平均浮亏 {pct(summary.avg_mae)} / 最近退出 {exitReasonText(summary.latest_exit_reason)}
+                        累计 {summary.closed_count ? pct(summary.total_return) : "-"} /
+                        平均浮盈 {summary.closed_count ? pct(summary.avg_mfe) : "-"} /
+                        平均浮亏 {summary.closed_count ? pct(summary.avg_mae) : "-"} /
+                        最近退出 {exitReasonText(summary.latest_exit_reason)}
                       </p>
                     </div>
                   ))
                 ) : (
-                  <div className="empty compact">暂无回归交易数据，需要先跑该股票策略回归。</div>
+                  <div className="empty compact">暂无实盘模拟交易，需要先按交易日运行纸面实盘。</div>
                 )}
               </section>
 
@@ -387,21 +403,23 @@ export function App() {
               <section className="detail-section">
                 <div className="section-title">
                   <ClipboardList size={16} />
-                  <h3>最近模拟交易明细</h3>
+                  <h3>最近实盘模拟交易明细</h3>
                 </div>
-                {selected.recent_backtest_trades.length ? (
-                  selected.recent_backtest_trades.map((trade) => (
+                {selected.recent_paper_trades.length ? (
+                  selected.recent_paper_trades.map((trade) => (
                     <div className="recommendation-card" key={trade.id}>
                       <div>
-                        <strong>{trade.rule_id} / {pct(trade.pnl_pct)}</strong>
+                        <strong>{trade.rule_id} / {tradeStatusText(trade.status)} / {pct(trade.pnl_pct)}</strong>
                         <span>
                           买入 {trade.entry_date} @ {price(trade.entry_price)}，
-                          卖出 {trade.exit_date} @ {price(trade.exit_price)}
+                          卖出 {trade.exit_date ?? "未卖出"} @ {price(trade.exit_price)}
                         </span>
                       </div>
                       <p>
-                        持有 {trade.holding_days}天 / 顶峰浮盈 {pct(trade.mfe_pct)} /
-                        最大浮亏 {pct(trade.mae_pct)} / 退出原因 {exitReasonText(trade.exit_reason)}
+                        数量 {trade.quantity} / 持有 {trade.holding_days}天 /
+                        最高 {price(trade.highest_price)} / 最低 {price(trade.lowest_price)} /
+                        顶峰浮盈 {pct(trade.mfe_pct)} / 最大浮亏 {pct(trade.mae_pct)} /
+                        退出原因 {exitReasonText(trade.exit_reason)}
                       </p>
                     </div>
                   ))
@@ -415,11 +433,12 @@ export function App() {
                   <ClipboardList size={16} />
                   <h3>复盘总结</h3>
                 </div>
-                {selected.strategy_summaries.length ? (
+                {selected.paper_trade_summaries.length ? (
                   <p className="manual-note">
-                    当前展示的是该股票最近一批完整模拟交易记录：每笔包含买入日、卖出日、持有天数、收益、
-                    顶峰浮盈和最大浮亏。后续这里会接入机械规则总结和 AI 总结，用来解释哪些买点有效、
-                    哪类卖点拖累收益，以及止损止盈是否应该按股票或板块单独调整。
+                    当前展示的是按真实交易日推进的纸面实盘记录：每笔来自系统当日交易计划，
+                    买入后每天用真实行情更新最高价、最低价、浮盈浮亏，并在触发止损、跟踪止盈或时间退出时平仓。
+                    后续这里会接入机械规则总结和 AI 总结，解释哪些买点有效、哪些卖点拖累收益，
+                    以及止损止盈是否应该按股票或板块单独调整。
                   </p>
                 ) : (
                   <div className="empty compact">暂无可复盘交易，先为该股票跑模拟交易。</div>
