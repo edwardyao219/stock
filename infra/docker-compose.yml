@@ -21,6 +21,9 @@ services:
     command: bash -lc "pip install -e . && uvicorn apps.api.app.main:app --host 0.0.0.0 --port 8000"
     env_file:
       - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://stock:stock@postgres:5432/stock_research
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
     volumes:
@@ -35,6 +38,9 @@ services:
     command: bash -lc "pip install -e . && celery -A services.jobs.celery_app.celery_app worker --loglevel=info"
     env_file:
       - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://stock:stock@postgres:5432/stock_research
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - ..:/app
     depends_on:
@@ -47,6 +53,9 @@ services:
     command: bash -lc "pip install -e . && celery -A services.jobs.celery_app.celery_app beat --loglevel=info"
     env_file:
       - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://stock:stock@postgres:5432/stock_research
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - ..:/app
     depends_on:

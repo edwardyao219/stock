@@ -16,6 +16,7 @@ dependencies = [
   "polars>=1.0.0",
   "numpy>=2.0.0",
   "python-dotenv>=1.0.0",
+  "akshare>=1.18.0",
 ]
 
 [project.optional-dependencies]

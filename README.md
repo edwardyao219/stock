@@ -61,6 +61,14 @@ python -m services.jobs.run_pipeline --trade-date 2026-06-23 --next-trade-date 2
 python -m services.shared.create_tables
 ```
 
+同步基础数据：
+
+```bash
+python -m services.collector.run_sync bootstrap
+python -m services.collector.run_sync indexes --start-date 20240101
+python -m services.collector.run_sync stocks 000001 600519 --start-date 20240101
+```
+
 查看 API：
 
 ```text

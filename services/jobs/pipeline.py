@@ -25,14 +25,25 @@ class DailyPipelineResult:
 def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyPipelineResult:
     steps: list[PipelineStepResult] = []
 
-    collection_results = sync_daily_market_data(trade_date)
-    steps.append(
-        PipelineStepResult(
-            name="sync_daily_market_data",
-            status="pending",
-            detail=f"{len(collection_results)} datasets queued for future implementation",
+    try:
+        collection_results = sync_daily_market_data(trade_date)
+        failed_collections = [item for item in collection_results if item.status not in {"ok", "pending"}]
+        status = "failed" if failed_collections else "pending"
+        steps.append(
+            PipelineStepResult(
+                name="sync_daily_market_data",
+                status=status,
+                detail=f"{len(collection_results)} datasets processed or queued",
+            )
         )
-    )
+    except Exception as exc:
+        steps.append(
+            PipelineStepResult(
+                name="sync_daily_market_data",
+                status="failed",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
+        )
 
     steps.append(
         PipelineStepResult(
