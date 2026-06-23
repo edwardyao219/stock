@@ -14,3 +14,5 @@ coverage/
 *.log
 data/
 reports/
+
+*.egg-info/

@@ -3,11 +3,11 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from services.collector.akshare_client import AShareSecurity, DailyBarRow, IndexDailyRow
 from services.shared.models import DailyBar, Security, TradingCalendar
+from services.shared.upsert import upsert_rows
 
 
 def _date(value: str) -> date:
@@ -32,17 +32,13 @@ def upsert_trade_calendar(db: Session, trade_dates: list[str]) -> int:
                 "next_trade_date": sorted_dates[index + 1] if index < len(sorted_dates) - 1 else None,
             }
         )
-    stmt = insert(TradingCalendar).values(rows)
-    stmt = stmt.on_conflict_do_update(
+    return upsert_rows(
+        db,
+        TradingCalendar,
+        rows,
+        update_columns=["is_open", "previous_trade_date", "next_trade_date"],
         index_elements=[TradingCalendar.trade_date],
-        set_={
-            "is_open": stmt.excluded.is_open,
-            "previous_trade_date": stmt.excluded.previous_trade_date,
-            "next_trade_date": stmt.excluded.next_trade_date,
-        },
     )
-    db.execute(stmt)
-    return len(rows)
 
 
 def upsert_securities(db: Session, securities: list[AShareSecurity]) -> int:
@@ -60,19 +56,13 @@ def upsert_securities(db: Session, securities: list[AShareSecurity]) -> int:
         }
         for item in securities
     ]
-    stmt = insert(Security).values(rows)
-    stmt = stmt.on_conflict_do_update(
+    return upsert_rows(
+        db,
+        Security,
+        rows,
+        update_columns=["name", "exchange", "is_st", "is_active", "updated_at"],
         index_elements=[Security.symbol],
-        set_={
-            "name": stmt.excluded.name,
-            "exchange": stmt.excluded.exchange,
-            "is_st": stmt.excluded.is_st,
-            "is_active": stmt.excluded.is_active,
-            "updated_at": stmt.excluded.updated_at,
-        },
     )
-    db.execute(stmt)
-    return len(rows)
 
 
 def upsert_daily_bars(db: Session, bars: list[DailyBarRow | IndexDailyRow]) -> int:
@@ -98,22 +88,22 @@ def upsert_daily_bars(db: Session, bars: list[DailyBarRow | IndexDailyRow]) -> i
                 "is_suspended": False,
             }
         )
-    stmt = insert(DailyBar).values(rows)
-    stmt = stmt.on_conflict_do_update(
+    return upsert_rows(
+        db,
+        DailyBar,
+        rows,
+        update_columns=[
+            "open",
+            "high",
+            "low",
+            "close",
+            "pre_close",
+            "volume",
+            "amount",
+            "turnover_rate",
+            "limit_up",
+            "limit_down",
+            "is_suspended",
+        ],
         constraint="uq_daily_bars_symbol_date",
-        set_={
-            "open": stmt.excluded.open,
-            "high": stmt.excluded.high,
-            "low": stmt.excluded.low,
-            "close": stmt.excluded.close,
-            "pre_close": stmt.excluded.pre_close,
-            "volume": stmt.excluded.volume,
-            "amount": stmt.excluded.amount,
-            "turnover_rate": stmt.excluded.turnover_rate,
-            "limit_up": stmt.excluded.limit_up,
-            "limit_down": stmt.excluded.limit_down,
-            "is_suspended": stmt.excluded.is_suspended,
-        },
     )
-    db.execute(stmt)
-    return len(rows)

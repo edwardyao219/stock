@@ -45,8 +45,25 @@ def generate_trade_plans_task() -> dict[str, str]:
 
 @celery_app.task(name="services.jobs.tasks.run_rule_regression_task")
 def run_rule_regression_task() -> dict[str, str]:
+    from datetime import date
+
+    from services.engine.backtest.sync import run_rules_backtest
+
     today = now_local().date().isoformat()
-    return {"trade_date": today, "status": "pending", "message": "Rule regression is not implemented yet."}
+    result = run_rules_backtest(
+        end_date=date.fromisoformat(today),
+        run_date=date.fromisoformat(today),
+        persist=True,
+        limit=500,
+    )
+    return {
+        "trade_date": today,
+        "status": "ok",
+        "message": (
+            f"{result['trade_count']} trades, "
+            f"{result['written_performance']} performance rows written."
+        ),
+    }
 
 
 @celery_app.task(name="services.jobs.tasks.generate_daily_review_task")

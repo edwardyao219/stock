@@ -5,11 +5,11 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from services.engine.plans.generator import TradePlanCandidate
 from services.shared.models import DailyBar, Security, StockFeatureDaily, TradePlan
+from services.shared.upsert import upsert_rows
 
 
 def _date(value: str) -> date:
@@ -91,22 +91,22 @@ def upsert_trade_plans(db: Session, plans: list[TradePlanCandidate]) -> int:
     if not rows:
         return 0
 
-    stmt = insert(TradePlan).values(rows)
-    stmt = stmt.on_conflict_do_update(
+    return upsert_rows(
+        db,
+        TradePlan,
+        rows,
+        update_columns=[
+            "strategy_type",
+            "sector_code",
+            "entry_condition_json",
+            "initial_stop",
+            "take_profit_1",
+            "take_profit_2",
+            "max_holding_days",
+            "position_size",
+            "confidence_score",
+            "risk_notes",
+            "status",
+        ],
         constraint="uq_trade_plans_daily_rule",
-        set_={
-            "strategy_type": stmt.excluded.strategy_type,
-            "sector_code": stmt.excluded.sector_code,
-            "entry_condition_json": stmt.excluded.entry_condition_json,
-            "initial_stop": stmt.excluded.initial_stop,
-            "take_profit_1": stmt.excluded.take_profit_1,
-            "take_profit_2": stmt.excluded.take_profit_2,
-            "max_holding_days": stmt.excluded.max_holding_days,
-            "position_size": stmt.excluded.position_size,
-            "confidence_score": stmt.excluded.confidence_score,
-            "risk_notes": stmt.excluded.risk_notes,
-            "status": stmt.excluded.status,
-        },
     )
-    db.execute(stmt)
-    return len(rows)

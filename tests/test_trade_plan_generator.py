@@ -1,3 +1,5 @@
+import pytest
+
 from services.engine.plans.generator import generate_trade_plans
 from services.engine.rules.seed_rules import MVP_RULES
 
@@ -32,6 +34,6 @@ def test_generate_trade_plans_from_feature_context() -> None:
     assert plans[0].symbol == "000001"
     assert plans[0].rule_id == "R001"
     assert plans[0].initial_stop == 9.55
-    assert plans[0].take_profit_1 == 10.6
-    assert plans[0].take_profit_2 == 11.2
+    assert plans[0].take_profit_1 == pytest.approx(10.6)
+    assert plans[0].take_profit_2 == pytest.approx(11.2)
     assert plans[0].confidence_score > 70

@@ -5,11 +5,11 @@ from decimal import Decimal
 from typing import Iterable
 
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from services.engine.features.daily import BarInput, StockFeatureRow
 from services.shared.models import DailyBar, Security, StockFeatureDaily
+from services.shared.upsert import upsert_rows
 
 
 def _float(value: Decimal | None) -> float | None:
@@ -65,10 +65,10 @@ def upsert_stock_features(db: Session, feature_rows: Iterable[StockFeatureRow]) 
     ]
     if not rows:
         return 0
-    stmt = insert(StockFeatureDaily).values(rows)
-    stmt = stmt.on_conflict_do_update(
+    return upsert_rows(
+        db,
+        StockFeatureDaily,
+        rows,
+        update_columns=["features"],
         constraint="uq_stock_features_symbol_date",
-        set_={"features": stmt.excluded.features},
     )
-    db.execute(stmt)
-    return len(rows)

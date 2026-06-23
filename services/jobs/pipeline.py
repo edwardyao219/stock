@@ -90,13 +90,35 @@ def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyP
             )
         )
 
-    steps.append(
-        PipelineStepResult(
-            name="run_rule_regression",
-            status="pending",
-            detail="Backtest engine is not implemented yet.",
+    try:
+        from datetime import date
+
+        from services.engine.backtest.sync import run_rules_backtest
+
+        backtest_result = run_rules_backtest(
+            end_date=date.fromisoformat(trade_date),
+            run_date=date.fromisoformat(trade_date),
+            persist=True,
+            limit=200,
         )
-    )
+        steps.append(
+            PipelineStepResult(
+                name="run_rule_regression",
+                status="ok",
+                detail=(
+                    f"{backtest_result['trade_count']} trades, "
+                    f"{backtest_result['written_performance']} performance rows"
+                ),
+            )
+        )
+    except Exception as exc:
+        steps.append(
+            PipelineStepResult(
+                name="run_rule_regression",
+                status="failed",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
+        )
 
     review = generate_daily_mechanical_review(trade_date)
     steps.append(

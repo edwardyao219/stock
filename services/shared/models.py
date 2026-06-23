@@ -5,10 +5,36 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import JSON, TypeDecorator
 
 from services.shared.database import Base
+
+
+class PortableJSON(TypeDecorator):
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(JSON())
+        return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "postgresql":
+            return value
+        import json
+
+        return json.dumps(value, ensure_ascii=False)
+
+    def process_result_value(self, value, dialect):
+        if value is None or dialect.name == "postgresql":
+            return value
+        import json
+
+        return json.loads(value)
 
 
 class Security(Base):
@@ -83,7 +109,7 @@ class StockFeatureDaily(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     symbol: Mapped[str] = mapped_column(String(16), index=True)
     trade_date: Mapped[date] = mapped_column(Date, index=True)
-    features: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    features: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
 
 
 class SectorFeatureDaily(Base):
@@ -95,7 +121,7 @@ class SectorFeatureDaily(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     sector_code: Mapped[str] = mapped_column(String(32), index=True)
     trade_date: Mapped[date] = mapped_column(Date, index=True)
-    features: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    features: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
 
 
 class StrategyRuleRecord(Base):
@@ -106,7 +132,7 @@ class StrategyRuleRecord(Base):
     strategy_type: Mapped[str] = mapped_column(String(32))
     version: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32), index=True)
-    rule_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    rule_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -124,7 +150,7 @@ class TradePlan(Base):
     rule_id: Mapped[str] = mapped_column(String(32), index=True)
     strategy_type: Mapped[str] = mapped_column(String(32))
     sector_code: Mapped[Optional[str]] = mapped_column(String(32))
-    entry_condition_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    entry_condition_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
     initial_stop: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
     take_profit_1: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
     take_profit_2: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
@@ -144,5 +170,57 @@ class ReviewReport(Base):
     scope: Mapped[str] = mapped_column(String(64), default="market")
     generator: Mapped[str] = mapped_column(String(64), default="mechanical")
     content_md: Mapped[str] = mapped_column(Text)
-    metrics_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class BacktestTradeRecord(Base):
+    __tablename__ = "backtest_trades"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_date",
+            "rule_id",
+            "symbol",
+            "signal_date",
+            name="uq_backtest_trades_run_rule_symbol_signal",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_date: Mapped[date] = mapped_column(Date, index=True)
+    rule_id: Mapped[str] = mapped_column(String(32), index=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    signal_date: Mapped[date] = mapped_column(Date, index=True)
+    entry_date: Mapped[date] = mapped_column(Date, index=True)
+    entry_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    exit_date: Mapped[date] = mapped_column(Date, index=True)
+    exit_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    holding_days: Mapped[int] = mapped_column(Integer)
+    pnl_pct: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    mfe_pct: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    mae_pct: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    exit_reason: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class RulePerformanceDaily(Base):
+    __tablename__ = "rule_performance_daily"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "trade_date", "window_days", name="uq_rule_perf_daily"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[str] = mapped_column(String(32), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    window_days: Mapped[int] = mapped_column(Integer, default=0)
+    trade_count: Mapped[int] = mapped_column(Integer)
+    win_rate: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    avg_return: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    expectancy: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    profit_factor: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    max_drawdown: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    avg_mfe: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    avg_mae: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    score: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

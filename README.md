@@ -49,6 +49,18 @@ docker compose -f infra/docker-compose.yml up -d postgres redis
 uvicorn apps.api.app.main:app --reload
 ```
 
+如果使用本地 MySQL，先在 Navicat 里创建数据库：
+
+```sql
+CREATE DATABASE stock_research CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+然后把 `.env` 里的 `DATABASE_URL` 改成你的本地账号密码：
+
+```text
+DATABASE_URL=mysql+pymysql://root:你的密码@127.0.0.1:3306/stock_research?charset=utf8mb4
+```
+
 运行一次占位版每日研究流水线：
 
 ```bash
@@ -86,6 +98,13 @@ python -m services.engine.plans.run_generate --plan-date 2026-06-23 --trade-date
 
 ```bash
 python -m services.engine.backtest.run_backtest --symbols 000001 600519 --rules R001
+python -m services.engine.backtest.run_backtest --limit 200 --persist --run-date 2026-06-23
+```
+
+生成机械复盘：
+
+```bash
+python -m services.engine.review.run_review --report-date 2026-06-23
 ```
 
 查看 API：
