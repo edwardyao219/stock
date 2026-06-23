@@ -119,9 +119,15 @@ def test_diagnose_paper_trading_detects_profit_giveback() -> None:
     assert any(item.target_name == "profit_giveback" for item in rule.parameter_suggestions)
     assert any(item.target_name == "high_volume_chase" for item in rule.parameter_suggestions)
     assert any(item.scope_type == "sector" and item.scope_value == "银行" for item in diagnostics)
-    assert any(
-        item.scope_type == "signal" and item.scope_value == "high_position_volume_spike"
+    signal = next(
+        item
         for item in diagnostics
+        if item.scope_type == "signal" and item.scope_value == "high_position_volume_spike"
+    )
+    assert any(
+        item.target_type == "evidence_thresholds"
+        and item.action == "test_tighten_or_filter"
+        for item in signal.parameter_suggestions
     )
 
 

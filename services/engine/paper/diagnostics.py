@@ -227,6 +227,107 @@ def _base_suggestions(
     return suggestions
 
 
+def _signal_suggestions(
+    *,
+    scope_type: str,
+    scope_value: str,
+    trade_count: int,
+    avg_return: float,
+    profit_factor: float,
+    stop_loss_rate: float,
+    volume_trap_rate: float,
+    confidence: str,
+) -> list[ParameterSuggestion]:
+    if scope_type != "signal":
+        return []
+
+    guardrails = [
+        "信号建议只用于调整候选阈值，不直接删除策略",
+        "必须继续按板块、风格拆分验证，避免把题材股经验套到复利股",
+        "样本外观察至少一个完整交易周期后再应用",
+    ]
+    if trade_count < 10:
+        return []
+
+    suggestions: list[ParameterSuggestion] = []
+
+    if scope_value == "high_position_volume_spike" and (
+        avg_return <= 0 or stop_loss_rate >= 0.35 or volume_trap_rate >= 0.30
+    ):
+        suggestions.append(
+            ParameterSuggestion(
+                target_type="evidence_thresholds",
+                target_name="high_position_volume_spike",
+                action="test_tighten_or_filter",
+                priority="high",
+                scope_type=scope_type,
+                scope_value=scope_value,
+                rationale="高位放量风险标签在纸面实盘中表现偏弱，应测试更严格的追高过滤，而不是把放量直接当买入确认。",
+                current={
+                    "trade_count": trade_count,
+                    "avg_return": avg_return,
+                    "profit_factor": profit_factor,
+                    "stop_loss_rate": stop_loss_rate,
+                    "volume_trap_rate": volume_trap_rate,
+                    "confidence": confidence,
+                },
+                proposed={
+                    "high_volume_percentile_delta": 5.0,
+                    "near_high_distance_pct_delta": -0.01,
+                    "candidate_filter": "avoid_or_downrank_when_tagged",
+                },
+                guardrails=guardrails + ["分钟级数据接入后优先区分早盘放量和尾盘承接"],
+            )
+        )
+
+    if scope_value == "volatility_overheat" and avg_return <= 0:
+        suggestions.append(
+            ParameterSuggestion(
+                target_type="risk_profile",
+                target_name="volatility_overheat_exposure",
+                action="test_reduce_position_or_wider_confirmation",
+                priority="medium",
+                scope_type=scope_type,
+                scope_value=scope_value,
+                rationale="波动过热标签收益偏弱时，优先降低暴露或要求更强板块确认，避免被情绪波动扫损。",
+                current={
+                    "trade_count": trade_count,
+                    "avg_return": avg_return,
+                    "stop_loss_rate": stop_loss_rate,
+                },
+                proposed={
+                    "max_position_pct_multiplier": 0.8,
+                    "require_strong_sector_confirmation": True,
+                },
+                guardrails=guardrails,
+            )
+        )
+
+    if scope_value in {"strong_sector_confirmation", "trend_alignment"} and (
+        avg_return > 0 and profit_factor >= 1.2 and confidence in {"medium", "high"}
+    ):
+        suggestions.append(
+            ParameterSuggestion(
+                target_type="evidence_weight",
+                target_name=scope_value,
+                action="test_priority_boost",
+                priority="medium",
+                scope_type=scope_type,
+                scope_value=scope_value,
+                rationale="该支持性信号在纸面实盘中有正贡献，可小幅提高候选排序权重，但不能单独构成买点。",
+                current={
+                    "trade_count": trade_count,
+                    "avg_return": avg_return,
+                    "profit_factor": profit_factor,
+                },
+                proposed={"priority_score_delta": 2},
+                guardrails=guardrails,
+            )
+        )
+
+    return suggestions
+
+
 def _diagnose_group(
     *,
     scope_type: str,
@@ -284,6 +385,18 @@ def _diagnose_group(
         volume_trap_rate=volume_trap_rate,
         status=status,
         confidence=confidence,
+    )
+    parameter_suggestions.extend(
+        _signal_suggestions(
+            scope_type=scope_type,
+            scope_value=scope_value,
+            trade_count=trade_count,
+            avg_return=avg_return,
+            profit_factor=profit_factor,
+            stop_loss_rate=stop_loss_rate,
+            volume_trap_rate=volume_trap_rate,
+            confidence=confidence,
+        )
     )
     summary = (
         f"{scope_value}: {trade_count} 笔，胜率 {win_rate:.2%}，"
