@@ -20,6 +20,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
             insert_review_report,
             load_rule_performance_for_date,
             load_trade_plans_for_date,
+            upsert_parameter_recommendations,
         )
         from services.shared.database import SessionLocal
 
@@ -100,6 +101,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 lines.append(f"- 样本不足规则: {ids}，不要据此快速放大仓位。")
 
             content = "\n".join(lines)
+            parameter_suggestions_json = [item.to_dict() for item in parameter_suggestions]
             insert_review_report(
                 db,
                 report_date=report_date,
@@ -107,9 +109,15 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 content_md=content,
                 metrics_json={
                     "rule_diagnostics": [item.to_dict() for item in diagnostics],
-                    "parameter_suggestions": [item.to_dict() for item in parameter_suggestions],
+                    "parameter_suggestions": parameter_suggestions_json,
                     "trade_plan_count": len(plans),
                 },
+            )
+            upsert_parameter_recommendations(
+                db,
+                report_date=report_date,
+                suggestions=parameter_suggestions_json,
+                source_report_type="daily_mechanical",
             )
             db.commit()
 

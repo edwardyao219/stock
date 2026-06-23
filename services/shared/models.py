@@ -234,6 +234,40 @@ class ReviewReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ParameterRecommendation(Base):
+    __tablename__ = "parameter_recommendations"
+    __table_args__ = (
+        UniqueConstraint(
+            "report_date",
+            "scope_type",
+            "scope_value",
+            "target_type",
+            "target_name",
+            "action",
+            name="uq_parameter_recommendation_daily_target",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report_date: Mapped[date] = mapped_column(Date, index=True)
+    rule_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    scope_type: Mapped[str] = mapped_column(String(32), default="rule")
+    scope_value: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    target_type: Mapped[str] = mapped_column(String(64), index=True)
+    target_name: Mapped[str] = mapped_column(String(128))
+    action: Mapped[str] = mapped_column(String(64))
+    priority: Mapped[str] = mapped_column(String(32), default="medium", index=True)
+    rationale: Mapped[str] = mapped_column(Text)
+    current_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    proposed_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    guardrails_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    source_report_type: Mapped[str] = mapped_column(String(64), default="daily_mechanical")
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    decision_reason: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class BacktestTradeRecord(Base):
     __tablename__ = "backtest_trades"
     __table_args__ = (
