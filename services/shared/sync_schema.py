@@ -34,6 +34,7 @@ def main() -> None:
         _add_mysql_column_if_missing("risk_profiles", "strategy_type", "VARCHAR(32) NULL")
         _add_mysql_column_if_missing("risk_profiles", "priority", "INTEGER NOT NULL DEFAULT 0")
         _add_mysql_column_if_missing("fundamental_snapshots", "available_date", "DATE NULL")
+        _add_mysql_column_if_missing("research_pool_items", "tags_json", "TEXT NULL")
         _execute_mysql(
             "UPDATE fundamental_snapshots "
             "SET available_date = report_date "

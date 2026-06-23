@@ -286,6 +286,22 @@ class RulePerformanceDaily(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ResearchPoolItem(Base):
+    __tablename__ = "research_pool_items"
+    __table_args__ = (
+        UniqueConstraint("pool_name", "symbol", name="uq_research_pool_symbol"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    pool_name: Mapped[str] = mapped_column(String(64), index=True, default="manual")
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    tags_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class PaperAccount(Base):
     __tablename__ = "paper_accounts"
 

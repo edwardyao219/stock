@@ -5,7 +5,8 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from services.collector.akshare_client import AShareSecurity, DailyBarRow, IndexDailyRow
+from services.collector.akshare_client import AShareSecurity, DailyBarRow, IndexDailyRow, IndustryConstituent
+from services.engine.sector.repository import load_sector_profile, seed_sector_profiles
 from services.shared.models import DailyBar, Security, TradingCalendar
 from services.shared.upsert import upsert_rows
 
@@ -106,4 +107,47 @@ def upsert_daily_bars(db: Session, bars: list[DailyBarRow | IndexDailyRow]) -> i
             "is_suspended",
         ],
         constraint="uq_daily_bars_symbol_date",
+    )
+
+
+def upsert_industry_constituents(db: Session, constituents: list[IndustryConstituent]) -> int:
+    if not constituents:
+        return 0
+
+    seed_sector_profiles(db)
+    now = datetime.utcnow()
+    rows = []
+    for item in constituents:
+        profile = load_sector_profile(db, item.board_name)
+        rows.append(
+            {
+                "symbol": item.symbol,
+                "name": item.name,
+                "exchange": item.exchange,
+                "industry": item.board_name,
+                "sector_style": profile.sector_style if profile else None,
+                "analysis_framework": profile.analysis_framework if profile else None,
+                "holding_style": profile.preferred_holding_style if profile else None,
+                "is_st": item.is_st,
+                "is_active": True,
+                "updated_at": now,
+            }
+        )
+
+    return upsert_rows(
+        db,
+        Security,
+        rows,
+        update_columns=[
+            "name",
+            "exchange",
+            "industry",
+            "sector_style",
+            "analysis_framework",
+            "holding_style",
+            "is_st",
+            "is_active",
+            "updated_at",
+        ],
+        index_elements=[Security.symbol],
     )

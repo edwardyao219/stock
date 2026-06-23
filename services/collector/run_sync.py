@@ -6,6 +6,7 @@ from pprint import pprint
 from services.collector.sync import (
     DEFAULT_INDEX_SYMBOLS,
     sync_calendar_and_securities,
+    sync_industry_constituents,
     sync_index_daily_bars,
     sync_stock_daily_bars,
 )
@@ -18,6 +19,9 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("bootstrap", help="Sync trading calendar and securities.")
+
+    industry_parser = subparsers.add_parser("industries", help="Sync industry constituents.")
+    industry_parser.add_argument("--limit", type=int, default=None)
 
     index_parser = subparsers.add_parser("indexes", help="Sync index daily bars.")
     index_parser.add_argument("--start-date", default=settings.data_start_date)
@@ -33,6 +37,8 @@ def main() -> None:
 
     if args.command == "bootstrap":
         pprint(sync_calendar_and_securities())
+    elif args.command == "industries":
+        pprint(sync_industry_constituents(limit=args.limit))
     elif args.command == "indexes":
         pprint(sync_index_daily_bars(args.start_date, args.end_date, args.symbols))
     elif args.command == "stocks":

@@ -17,6 +17,22 @@ class AShareSecurity:
 
 
 @dataclass(frozen=True)
+class IndustryBoard:
+    code: str
+    name: str
+
+
+@dataclass(frozen=True)
+class IndustryConstituent:
+    board_code: str
+    board_name: str
+    symbol: str
+    name: str
+    exchange: str
+    is_st: bool
+
+
+@dataclass(frozen=True)
 class DailyBarRow:
     symbol: str
     trade_date: str
@@ -64,6 +80,14 @@ def _exchange_for_symbol(symbol: str) -> str:
     return "UNKNOWN"
 
 
+def _first(raw: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = raw.get(key)
+        if value is not None and not pd.isna(value) and str(value).strip() != "":
+            return value
+    return None
+
+
 def fetch_trade_dates() -> list[str]:
     ak = _akshare()
     df = ak.tool_trade_date_hist_sina()
@@ -92,6 +116,41 @@ def fetch_a_share_securities() -> list[AShareSecurity]:
             )
         )
     return securities
+
+
+def fetch_industry_boards() -> list[IndustryBoard]:
+    ak = _akshare()
+    df = ak.stock_board_industry_name_em()
+    boards: list[IndustryBoard] = []
+    for raw in df.to_dict("records"):
+        name = str(_first(raw, "板块名称", "名称", "行业名称") or "").strip()
+        code = str(_first(raw, "板块代码", "代码", "行业代码") or name).strip()
+        if not name:
+            continue
+        boards.append(IndustryBoard(code=code, name=name))
+    return boards
+
+
+def fetch_industry_constituents(board: IndustryBoard) -> list[IndustryConstituent]:
+    ak = _akshare()
+    df = ak.stock_board_industry_cons_em(symbol=board.name)
+    constituents: list[IndustryConstituent] = []
+    for raw in df.to_dict("records"):
+        symbol = str(_first(raw, "代码", "股票代码") or "").strip()
+        name = str(_first(raw, "名称", "股票名称") or "").strip()
+        if not symbol or not name:
+            continue
+        constituents.append(
+            IndustryConstituent(
+                board_code=board.code,
+                board_name=board.name,
+                symbol=symbol,
+                name=name,
+                exchange=_exchange_for_symbol(symbol),
+                is_st="ST" in name.upper(),
+            )
+        )
+    return constituents
 
 
 def fetch_stock_daily_bars(symbol: str, start_date: str, end_date: str) -> list[DailyBarRow]:

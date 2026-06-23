@@ -4,12 +4,19 @@ from collections.abc import Iterable
 
 from services.collector.akshare_client import (
     fetch_a_share_securities,
+    fetch_industry_boards,
+    fetch_industry_constituents,
     fetch_index_daily_bars,
     fetch_stock_daily_bars,
     fetch_trade_dates,
 )
 from services.collector.contracts import CollectionResult
-from services.collector.repository import upsert_daily_bars, upsert_securities, upsert_trade_calendar
+from services.collector.repository import (
+    upsert_daily_bars,
+    upsert_industry_constituents,
+    upsert_securities,
+    upsert_trade_calendar,
+)
 from services.shared.config import get_settings
 from services.shared.database import SessionLocal
 
@@ -93,5 +100,53 @@ def sync_stock_daily_bars(
                     status="ok",
                 )
             )
+        db.commit()
+    return results
+
+
+def sync_industry_constituents(limit: int | None = None) -> list[CollectionResult]:
+    try:
+        boards = fetch_industry_boards()
+    except Exception as exc:
+        return [
+            CollectionResult(
+                source="akshare",
+                dataset="industry_constituents",
+                trade_date="",
+                rows=0,
+                status="failed",
+                message=f"{type(exc).__name__}: {exc}",
+            )
+        ]
+    if limit:
+        boards = boards[:limit]
+
+    results: list[CollectionResult] = []
+    with SessionLocal() as db:
+        for board in boards:
+            try:
+                constituents = fetch_industry_constituents(board)
+                rows = upsert_industry_constituents(db, constituents)
+                results.append(
+                    CollectionResult(
+                        source="akshare",
+                        dataset=f"industry_constituents:{board.name}",
+                        trade_date="",
+                        rows=rows,
+                        status="ok",
+                        message=board.code,
+                    )
+                )
+            except Exception as exc:
+                results.append(
+                    CollectionResult(
+                        source="akshare",
+                        dataset=f"industry_constituents:{board.name}",
+                        trade_date="",
+                        rows=0,
+                        status="failed",
+                        message=f"{type(exc).__name__}: {exc}",
+                    )
+                )
         db.commit()
     return results

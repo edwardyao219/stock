@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from services.engine.backtest.models import DailyBacktestInput, FeatureSnapshot
 from services.engine.features.repository import load_daily_bars
-from services.shared.models import StockFeatureDaily
+from services.shared.models import DailyBar, StockFeatureDaily
 
 
 def load_backtest_input(
@@ -19,7 +19,12 @@ def load_backtest_input(
 ) -> DailyBacktestInput:
     bars = load_daily_bars(db, symbol=symbol, start_date=start_date, end_date=end_date)
     stmt = (
-        select(StockFeatureDaily)
+        select(StockFeatureDaily, DailyBar)
+        .join(
+            DailyBar,
+            (DailyBar.symbol == StockFeatureDaily.symbol)
+            & (DailyBar.trade_date == StockFeatureDaily.trade_date),
+        )
         .where(StockFeatureDaily.symbol == symbol)
         .order_by(StockFeatureDaily.trade_date)
     )
@@ -28,14 +33,26 @@ def load_backtest_input(
     if end_date:
         stmt = stmt.where(StockFeatureDaily.trade_date <= end_date)
 
-    snapshots = [
-        FeatureSnapshot(
-            symbol=row.symbol,
-            trade_date=row.trade_date.isoformat(),
-            context={"symbol": row.symbol, "trade_date": row.trade_date.isoformat(), **(row.features or {})},
+    snapshots = []
+    for feature_row, bar in db.execute(stmt):
+        snapshots.append(
+            FeatureSnapshot(
+                symbol=feature_row.symbol,
+                trade_date=feature_row.trade_date.isoformat(),
+                context={
+                    "symbol": feature_row.symbol,
+                    "trade_date": feature_row.trade_date.isoformat(),
+                    **(feature_row.features or {}),
+                    "open": float(bar.open),
+                    "high": float(bar.high),
+                    "low": float(bar.low),
+                    "close": float(bar.close),
+                    "amount": float(bar.amount) if bar.amount is not None else None,
+                    "volume": float(bar.volume) if bar.volume is not None else None,
+                    "turnover_rate": float(bar.turnover_rate) if bar.turnover_rate is not None else None,
+                },
+            )
         )
-        for row in db.execute(stmt).scalars()
-    ]
     return DailyBacktestInput(symbol=symbol, bars=bars, features=snapshots)
 
 
