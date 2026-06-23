@@ -32,8 +32,15 @@ def compute_daily_features_task() -> dict[str, str]:
 
 @celery_app.task(name="services.jobs.tasks.generate_trade_plans_task")
 def generate_trade_plans_task() -> dict[str, str]:
+    from services.engine.plans.sync import generate_and_store_trade_plans
+
     today = now_local().date().isoformat()
-    return {"trade_date": today, "status": "pending", "message": "Trade plan generation is not implemented yet."}
+    result = generate_and_store_trade_plans(plan_date=today, trade_date=today, limit=500)
+    return {
+        "trade_date": today,
+        "status": "ok",
+        "message": f"{result['written']} plans written from {result['contexts']} feature contexts.",
+    }
 
 
 @celery_app.task(name="services.jobs.tasks.run_rule_regression_task")

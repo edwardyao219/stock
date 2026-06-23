@@ -152,6 +152,7 @@ def compute_stock_daily_features(bars: list[BarInput]) -> list[StockFeatureRow]:
                     "position_score": position_score,
                     "volatility_score": volatility_score,
                     "relative_strength_score": relative_strength_score,
+                    "sector_strength_score": 75.0,
                     "risk_score": risk_score,
                     "is_st": False,
                     "is_suspended": False,

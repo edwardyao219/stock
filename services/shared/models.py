@@ -113,6 +113,9 @@ class StrategyRuleRecord(Base):
 
 class TradePlan(Base):
     __tablename__ = "trade_plans"
+    __table_args__ = (
+        UniqueConstraint("plan_date", "trade_date", "symbol", "rule_id", name="uq_trade_plans_daily_rule"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     plan_date: Mapped[date] = mapped_column(Date, index=True)

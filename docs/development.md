@@ -57,8 +57,8 @@
 把 `StrategyRule` 解释成候选股筛选：
 
 ```text
-feature row + rule entry condition -> signal
-signal + trigger model -> trade plan
+feature row + rule entry condition -> signal，已实现基础版本
+signal + trigger model -> trade plan，已实现收盘后计划生成，盘中 trigger 待实现
 ```
 
 ### 5. 回测引擎

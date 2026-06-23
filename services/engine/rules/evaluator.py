@@ -16,23 +16,23 @@ def evaluate_condition(condition: Condition, context: dict[str, Any]) -> bool:
     if left is None or right is None:
         return False
 
-    match condition.op:
-        case ">":
-            return left > right
-        case ">=":
-            return left >= right
-        case "<":
-            return left < right
-        case "<=":
-            return left <= right
-        case "==":
-            return left == right
-        case "!=":
-            return left != right
-        case "in":
-            return left in right
-        case "not_in":
-            return left not in right
+    if condition.op == ">":
+        return left > right
+    if condition.op == ">=":
+        return left >= right
+    if condition.op == "<":
+        return left < right
+    if condition.op == "<=":
+        return left <= right
+    if condition.op == "==":
+        return left == right
+    if condition.op == "!=":
+        return left != right
+    if condition.op == "in":
+        return left in right
+    if condition.op == "not_in":
+        return left not in right
+    return False
 
 
 def evaluate_group(group: ConditionGroup, context: dict[str, Any]) -> bool:

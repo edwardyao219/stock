@@ -3,9 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from services.collector.daily import sync_daily_market_data
-from services.engine.plans.generator import generate_trade_plans
 from services.engine.review.mechanical import generate_daily_mechanical_review
-from services.engine.rules.seed_rules import MVP_RULES
 
 
 @dataclass(frozen=True)
@@ -65,14 +63,32 @@ def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyP
             )
         )
 
-    plans = generate_trade_plans(trade_date, next_trade_date, MVP_RULES)
-    steps.append(
-        PipelineStepResult(
-            name="generate_trade_plans",
-            status="ok",
-            detail=f"{len(plans)} plans generated.",
+    try:
+        from services.engine.plans.sync import generate_and_store_trade_plans
+
+        plan_result = generate_and_store_trade_plans(
+            plan_date=trade_date,
+            trade_date=next_trade_date,
+            limit=200,
         )
-    )
+        steps.append(
+            PipelineStepResult(
+                name="generate_trade_plans",
+                status="ok",
+                detail=(
+                    f"{plan_result['written']} plans written from "
+                    f"{plan_result['contexts']} feature contexts"
+                ),
+            )
+        )
+    except Exception as exc:
+        steps.append(
+            PipelineStepResult(
+                name="generate_trade_plans",
+                status="failed",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
+        )
 
     steps.append(
         PipelineStepResult(
