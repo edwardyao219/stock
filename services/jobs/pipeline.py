@@ -91,6 +91,29 @@ def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyP
         )
 
     try:
+        from services.engine.paper.simulator import run_daily_paper_simulation
+
+        paper_result = run_daily_paper_simulation(trade_date=trade_date)
+        steps.append(
+            PipelineStepResult(
+                name="run_paper_simulation",
+                status="ok",
+                detail=(
+                    f"opened {paper_result.opened}, closed {paper_result.closed}, "
+                    f"skipped {paper_result.skipped}"
+                ),
+            )
+        )
+    except Exception as exc:
+        steps.append(
+            PipelineStepResult(
+                name="run_paper_simulation",
+                status="failed",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
+        )
+
+    try:
         from datetime import date
 
         from services.engine.backtest.sync import run_rules_backtest

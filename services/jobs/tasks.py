@@ -43,6 +43,19 @@ def generate_trade_plans_task() -> dict[str, str]:
     }
 
 
+@celery_app.task(name="services.jobs.tasks.run_paper_simulation_task")
+def run_paper_simulation_task() -> dict[str, str]:
+    from services.engine.paper.simulator import run_daily_paper_simulation
+
+    today = now_local().date().isoformat()
+    result = run_daily_paper_simulation(trade_date=today)
+    return {
+        "trade_date": today,
+        "status": "ok",
+        "message": f"opened {result.opened}, closed {result.closed}, skipped {result.skipped}",
+    }
+
+
 @celery_app.task(name="services.jobs.tasks.run_rule_regression_task")
 def run_rule_regression_task() -> dict[str, str]:
     from datetime import date

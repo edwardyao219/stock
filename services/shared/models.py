@@ -224,3 +224,85 @@ class RulePerformanceDaily(Base):
     score: Mapped[Decimal] = mapped_column(Numeric(12, 6))
     notes: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PaperAccount(Base):
+    __tablename__ = "paper_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    initial_cash: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    cash: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PaperOrder(Base):
+    __tablename__ = "paper_orders"
+    __table_args__ = (
+        UniqueConstraint("account_id", "trade_plan_id", "side", name="uq_paper_order_plan_side"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(Integer, index=True)
+    trade_plan_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    side: Mapped[str] = mapped_column(String(16))
+    order_date: Mapped[date] = mapped_column(Date, index=True)
+    planned_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    quantity: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), default="created")
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PaperPosition(Base):
+    __tablename__ = "paper_positions"
+    __table_args__ = (
+        UniqueConstraint("account_id", "symbol", "status", name="uq_paper_position_account_symbol_status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(Integer, index=True)
+    trade_plan_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    rule_id: Mapped[str] = mapped_column(String(32), index=True)
+    strategy_type: Mapped[str] = mapped_column(String(32))
+    entry_date: Mapped[date] = mapped_column(Date, index=True)
+    entry_price: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    quantity: Mapped[int] = mapped_column(Integer)
+    initial_stop: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    current_stop: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    take_profit_1: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    take_profit_2: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    highest_price: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    lowest_price: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    max_holding_days: Mapped[Optional[int]] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), default="open", index=True)
+    exit_date: Mapped[Optional[date]] = mapped_column(Date)
+    exit_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    exit_reason: Mapped[Optional[str]] = mapped_column(String(64))
+    pnl: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    pnl_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PaperTrade(Base):
+    __tablename__ = "paper_trades"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(Integer, index=True)
+    order_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    position_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    side: Mapped[str] = mapped_column(String(16))
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    quantity: Mapped[int] = mapped_column(Integer)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    fee: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

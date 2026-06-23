@@ -107,6 +107,12 @@ python -m services.engine.backtest.run_backtest --limit 200 --persist --run-date
 python -m services.engine.review.run_review --report-date 2026-06-23
 ```
 
+运行每日模拟交易：
+
+```bash
+python -m services.engine.paper.run_simulation --trade-date 2026-06-24
+```
+
 查看 API：
 
 ```text
