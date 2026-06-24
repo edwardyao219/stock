@@ -12,6 +12,11 @@ def main() -> None:
     parser.add_argument("--trade-date", required=True, help="YYYY-MM-DD")
     parser.add_argument("--feature-date", default=None, help="YYYY-MM-DD, defaults to plan-date")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--disable-learning-adjustments",
+        action="store_true",
+        help="Generate plans without paper-learning parameter adjustments.",
+    )
     args = parser.parse_args()
 
     pprint(
@@ -20,6 +25,7 @@ def main() -> None:
             trade_date=args.trade_date,
             feature_date=args.feature_date,
             limit=args.limit,
+            use_learning_adjustments=not args.disable_learning_adjustments,
         )
     )
 
