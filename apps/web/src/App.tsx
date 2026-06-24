@@ -138,6 +138,10 @@ function latestPlan(stock: WorkspaceStock) {
   return stock.plans[0] ?? null;
 }
 
+function displayPrice(stock: WorkspaceStock) {
+  return stock.current_price ?? stock.latest_close;
+}
+
 function hasOpenAutoTrade(stock: WorkspaceStock) {
   return stock.recent_paper_trades.some((trade) => trade.status === "open");
 }
@@ -620,7 +624,8 @@ export function App() {
                   </span>
                   <span>
                     <em className={(item.return_5d ?? 0) >= 0 ? "up" : "down"}>{pct(item.return_5d)}</em>
-                    <small>20日 {pct(item.return_20d)} / 收盘 {price(item.latest_close)}</small>
+                    <small>今日 {pct(item.day_change_pct)} / 20日 {pct(item.return_20d)}</small>
+                    <small>现价 {price(displayPrice(item))}</small>
                   </span>
                   <span className="trade-cell">
                     <strong className={(rowReturn ?? 0) >= 0 ? "up" : "down"}>
@@ -657,13 +662,19 @@ export function App() {
                   <p>{selected.industry ?? "暂无行业"} / {selected.sector_style ?? "暂无风格"}</p>
                 </div>
                 <div className="latest-price">
-                  <span>最新收盘</span>
-                  <strong>{price(selected.latest_close)}</strong>
-                  <small>{selected.latest_trade_date ?? "-"}</small>
+                  <span>当前价</span>
+                  <strong>{price(displayPrice(selected))}</strong>
+                  <small>今日 {pct(selected.day_change_pct)}</small>
                 </div>
               </div>
 
               <div className="return-cards">
+                <div>
+                  <span>今日涨幅</span>
+                  <strong className={(selected.day_change_pct ?? 0) >= 0 ? "up" : "down"}>
+                    {pct(selected.day_change_pct)}
+                  </strong>
+                </div>
                 <div>
                   <span>5日表现</span>
                   <strong className={(selected.return_5d ?? 0) >= 0 ? "up" : "down"}>{pct(selected.return_5d)}</strong>
@@ -709,6 +720,13 @@ export function App() {
                         <span>{selectedTrade.status === "open" ? "实时价" : "卖出"}</span>
                         <strong>{price(selectedTrade.status === "open" ? selectedTrade.current_price : selectedTrade.exit_price)}</strong>
                         <small>{selectedTrade.status === "open" ? selectedTrade.quote_time ?? "-" : selectedTrade.exit_date ?? "-"}</small>
+                      </div>
+                      <div>
+                        <span>今日涨幅</span>
+                        <strong className={(selected.day_change_pct ?? 0) >= 0 ? "up" : "down"}>
+                          {pct(selected.day_change_pct)}
+                        </strong>
+                        <small>{selected.quote_time ?? selected.latest_trade_date ?? "-"}</small>
                       </div>
                       <div>
                         <span>止损</span>

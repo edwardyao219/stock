@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import create_engine
@@ -15,6 +15,7 @@ from services.shared.models import (
     DailyBar,
     PaperAccount,
     PaperPosition,
+    RealtimeQuote,
     ResearchPoolItem,
     Security,
     TradePlan,
@@ -111,6 +112,22 @@ def test_list_workspace_stocks_merges_auto_plans_and_manual_pool() -> None:
                 pnl_pct=Decimal("0.10"),
             )
         )
+        db.add(
+            RealtimeQuote(
+                symbol="000001",
+                trade_date=date(2026, 1, 22),
+                quote_time=datetime(2026, 1, 22, 10, 5),
+                price=Decimal("22"),
+                open=Decimal("21"),
+                high=Decimal("22.5"),
+                low=Decimal("20.5"),
+                pre_close=Decimal("20"),
+                pct_change=Decimal("10"),
+                volume=Decimal("1000"),
+                amount=Decimal("22000"),
+                turnover_rate=Decimal("1"),
+            )
+        )
         db.commit()
 
         payload = list_workspace_stocks(db=db, pool_name="manual")
@@ -124,6 +141,9 @@ def test_list_workspace_stocks_merges_auto_plans_and_manual_pool() -> None:
     assert payload[0].paper_trade_summaries[0].closed_count == 1
     assert payload[0].recent_paper_trades[0].entry_date == "2026-01-11"
     assert payload[0].recent_paper_trades[0].highest_price == 11.5
+    assert payload[0].current_price == 22
+    assert payload[0].day_change_pct == 0.1
+    assert payload[0].quote_time == "2026-01-22T10:05:00"
     assert payload[1].source == "manual"
     assert payload[1].manual_tags == ["白酒"]
     assert payload[0].return_5d is not None

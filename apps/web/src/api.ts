@@ -120,6 +120,9 @@ export interface WorkspaceStock {
   manual_tags: string[];
   latest_trade_date: string | null;
   latest_close: number | null;
+  current_price: number | null;
+  day_change_pct: number | null;
+  quote_time: string | null;
   return_5d: number | null;
   return_20d: number | null;
   plans: WorkspacePlan[];

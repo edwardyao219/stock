@@ -94,6 +94,9 @@ class WorkspaceStockResponse(BaseModel):
     manual_tags: list[str]
     latest_trade_date: str | None
     latest_close: float | None
+    current_price: float | None
+    day_change_pct: float | None
+    quote_time: str | None
     return_5d: float | None
     return_20d: float | None
     plans: list[WorkspacePlanResponse]
@@ -119,6 +122,9 @@ def _to_response(item) -> WorkspaceStockResponse:
         manual_tags=item.manual_tags,
         latest_trade_date=item.latest_trade_date,
         latest_close=item.latest_close,
+        current_price=item.current_price,
+        day_change_pct=item.day_change_pct,
+        quote_time=item.quote_time,
         return_5d=item.return_5d,
         return_20d=item.return_20d,
         plans=[

@@ -106,6 +106,9 @@ class WorkspaceItem:
     manual_tags: list[str]
     latest_trade_date: str | None
     latest_close: float | None
+    current_price: float | None
+    day_change_pct: float | None
+    quote_time: str | None
     return_5d: float | None
     return_20d: float | None
     plans: list[WorkspacePlan]
@@ -407,6 +410,12 @@ def _current_pnl_pct(position: PaperPosition, current_price: Decimal | None) -> 
     )
 
 
+def _quote_change_pct(quote: RealtimeQuote | None) -> float | None:
+    if quote is None or quote.price is None or quote.pre_close is None or quote.pre_close == 0:
+        return None
+    return float((quote.price / quote.pre_close - Decimal("1")).quantize(Decimal("0.000001")))
+
+
 def _to_paper_trade_item(
     position: PaperPosition,
     latest_bar: DailyBar | None,
@@ -519,6 +528,9 @@ def _build_workspace_item(
         manual_tags=(manual.tags_json or {}).get("tags", []) if manual else [],
         latest_trade_date=latest_bar.trade_date.isoformat() if latest_bar else None,
         latest_close=_float(latest_bar.close) if latest_bar else None,
+        current_price=_float(latest_quote.price) if latest_quote else None,
+        day_change_pct=_quote_change_pct(latest_quote),
+        quote_time=latest_quote.quote_time.isoformat(timespec="seconds") if latest_quote else None,
         return_5d=_return_from_bars(recent_bars, 5),
         return_20d=_return_from_bars(recent_bars, 20),
         plans=[_to_workspace_plan(db, plan) for plan in plans],
