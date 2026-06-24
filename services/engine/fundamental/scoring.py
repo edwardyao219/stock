@@ -28,6 +28,52 @@ def _extra_value(context: dict[str, Any], key: str) -> float | None:
     return float(value)
 
 
+def _score_growth_quality(context: dict[str, Any], reasons: list[str]) -> float:
+    score_delta = 0.0
+    revenue_growth = _value(context, "revenue_growth")
+    profit_growth = _value(context, "profit_growth")
+    roe = _extra_value(context, "roe_annualized") or _value(context, "roe")
+    gross_margin = _value(context, "gross_margin")
+    debt_ratio = _value(context, "debt_ratio")
+    pe_ttm = _value(context, "pe_ttm")
+
+    if revenue_growth is not None:
+        if revenue_growth >= 0.15:
+            score_delta += 8
+            reasons.append("营收增速较强，题材有业绩承接")
+        elif revenue_growth < 0:
+            score_delta -= 8
+            reasons.append("营收下滑，题材兑现风险更高")
+    if profit_growth is not None:
+        if profit_growth >= 0.20:
+            score_delta += 10
+            reasons.append("利润增速较强，趋势延续更有基本面支撑")
+        elif profit_growth < 0:
+            score_delta -= 15
+            reasons.append("利润增速为负，短线更偏资金博弈")
+    if roe is not None:
+        if roe >= 0.10:
+            score_delta += 6
+            reasons.append("ROE 尚可，质量不拖累交易")
+        elif roe < 0.03:
+            score_delta -= 8
+            reasons.append("ROE 偏低，质量支撑不足")
+    if gross_margin is not None and gross_margin >= 0.25:
+        score_delta += 4
+        reasons.append("毛利率具备一定产品/周期弹性")
+    if debt_ratio is not None and debt_ratio >= 0.75:
+        score_delta -= 8
+        reasons.append("负债率偏高，回撤时风险放大")
+    if pe_ttm is not None:
+        if pe_ttm <= 0:
+            score_delta -= 8
+            reasons.append("PE 为负或不可用，盈利质量需警惕")
+        elif pe_ttm > 100:
+            score_delta -= 6
+            reasons.append("PE 极高，业绩兑现压力较大")
+    return score_delta
+
+
 def assess_fundamentals(context: dict[str, Any]) -> FundamentalAssessment:
     framework = context.get("analysis_framework")
     reasons: list[str] = []
@@ -74,6 +120,9 @@ def assess_fundamentals(context: dict[str, Any]) -> FundamentalAssessment:
         if pe_ttm is not None and pe_ttm > 35:
             score -= 10
             reasons.append("PE 偏高，估值修复空间受限")
+
+    elif framework in {"tech_growth_cycle", "theme_momentum"}:
+        score += _score_growth_quality(context, reasons)
 
     else:
         for key in ["profit_growth", "revenue_growth", "roe"]:

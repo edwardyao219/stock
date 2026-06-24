@@ -13,6 +13,16 @@ def test_prepare_next_trade_session_runs_prepare_steps(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         pipeline,
+        "_sync_fundamentals_step",
+        lambda pool_name: pipeline.PipelineStepResult(
+            name="sync_fundamentals",
+            status="ok",
+            detail=f"fundamentals:{pool_name}",
+            summary=f"fundamentals:{pool_name}",
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
         "_generate_trade_plans_step",
         lambda plan_date, trade_date, limit, use_learning_adjustments: (
             f"plans:{trade_date}:{use_learning_adjustments}"
@@ -29,10 +39,11 @@ def test_prepare_next_trade_session_runs_prepare_steps(monkeypatch) -> None:
     assert result.stage == "prepare_next_session"
     assert [item.name for item in result.steps] == [
         "sync_daily_market_data",
+        "sync_fundamentals",
         "compute_features",
         "generate_trade_plans",
     ]
-    assert result.steps[2].detail == "plans:2026-06-25:False"
+    assert result.steps[3].detail == "plans:2026-06-25:False"
 
 
 def test_sync_daily_market_data_step_returns_chinese_failure_summary(monkeypatch) -> None:

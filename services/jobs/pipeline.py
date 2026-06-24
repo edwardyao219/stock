@@ -148,6 +148,29 @@ def _compute_features_step(trade_date: str, limit: int) -> str:
     )
 
 
+def _sync_fundamentals_step(pool_name: str) -> PipelineStepResult:
+    from services.engine.fundamental.sync import sync_fundamentals_from_akshare
+
+    result = sync_fundamentals_from_akshare(pool_name=pool_name, include_valuation=True)
+    details = [
+        (
+            f"{item['symbol']}: {item['status']}, "
+            f"financial={item['financial_snapshots']}, valuation={item['valuation_snapshots']}"
+            + (f", {item['message']}" if item.get("message") else "")
+        )
+        for item in result["results"]
+    ]
+    status = "warning" if result["failed"] else "ok"
+    summary = f"财务同步完成：成功 {result['ok']}，失败 {result['failed']}。"
+    return PipelineStepResult(
+        name="sync_fundamentals",
+        status=status,
+        detail=summary,
+        summary=summary,
+        details=details,
+    )
+
+
 def _generate_trade_plans_step(
     plan_date: str,
     trade_date: str,
@@ -270,6 +293,7 @@ def prepare_next_trade_session(
                 full_refresh=full_market_sync,
             ),
         ),
+        _run_step("sync_fundamentals", lambda: _sync_fundamentals_step("experiment")),
         _run_step("compute_features", lambda: _compute_features_step(trade_date, limit)),
         _run_step(
             "generate_trade_plans",

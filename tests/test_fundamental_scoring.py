@@ -34,3 +34,33 @@ def test_missing_fundamentals_remain_neutral() -> None:
 
     assert assessment.verdict == "neutral"
     assert assessment.score == 50
+
+
+def test_theme_growth_assessment_flags_profit_decline_hot_money_risk() -> None:
+    assessment = assess_fundamentals(
+        {
+            "analysis_framework": "theme_momentum",
+            "revenue_growth": -0.05,
+            "profit_growth": -0.20,
+            "roe": 0.01,
+            "pe_ttm": -1,
+        }
+    )
+
+    assert assessment.verdict == "weak"
+    assert any("资金博弈" in reason for reason in assessment.reasons)
+
+
+def test_tech_growth_assessment_rewards_real_growth() -> None:
+    assessment = assess_fundamentals(
+        {
+            "analysis_framework": "tech_growth_cycle",
+            "revenue_growth": 0.22,
+            "profit_growth": 0.35,
+            "roe": 0.12,
+            "gross_margin": 0.32,
+        }
+    )
+
+    assert assessment.verdict == "supportive"
+    assert any("业绩承接" in reason for reason in assessment.reasons)
