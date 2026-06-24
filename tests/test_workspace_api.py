@@ -113,7 +113,7 @@ def test_list_workspace_stocks_merges_auto_plans_and_manual_pool() -> None:
         )
         db.commit()
 
-        payload = list_workspace_stocks(db=db)
+        payload = list_workspace_stocks(db=db, pool_name="manual")
 
     assert [item.symbol for item in payload] == ["000001", "600519"]
     assert payload[0].source == "auto"
@@ -139,7 +139,7 @@ def test_workspace_stock_detail_and_manual_add() -> None:
             payload=ManualStockRequest(symbol="000001", note="观察银行", tags=["银行"]),
             db=db,
         )
-        loaded = get_workspace_stock(symbol="000001", db=db)
+        loaded = get_workspace_stock(symbol="000001", db=db, pool_name="manual")
 
     assert added.symbol == "000001"
     assert added.source == "manual"

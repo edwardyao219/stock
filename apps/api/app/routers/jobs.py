@@ -28,6 +28,7 @@ class PipelineRunRequest(BaseModel):
     force: bool = False
     full_market_sync: bool = False
     disable_learning_adjustments: bool = False
+    dry_run_entries: bool = False
     dry_run_exits: bool = False
 
 
@@ -72,6 +73,7 @@ def run_pipeline_stage(payload: PipelineRunRequest) -> PipelineRunResponse:
         result = run_intraday_trade_session(
             trade_date,
             account=payload.account,
+            execute_entries=not payload.dry_run_entries,
             execute_exits=not payload.dry_run_exits,
             force=payload.force,
         )

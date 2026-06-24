@@ -31,6 +31,7 @@ class WorkspacePlanResponse(BaseModel):
     trade_date: str
     position_size: float
     confidence_score: float | None
+    entry_trigger_price: float | None
     initial_stop: float | None
     take_profit_1: float | None
     take_profit_2: float | None
@@ -76,6 +77,11 @@ class PaperTradeResponse(BaseModel):
     quantity: int
     status: str
     exit_reason: str | None
+    current_price: float | None
+    current_pnl_pct: float | None
+    current_stop: float | None
+    take_profit_1: float | None
+    quote_time: str | None
 
 
 class WorkspaceStockResponse(BaseModel):
@@ -124,6 +130,7 @@ def _to_response(item) -> WorkspaceStockResponse:
                 trade_date=plan.trade_date,
                 position_size=plan.position_size,
                 confidence_score=plan.confidence_score,
+                entry_trigger_price=plan.entry_trigger_price,
                 initial_stop=plan.initial_stop,
                 take_profit_1=plan.take_profit_1,
                 take_profit_2=plan.take_profit_2,
@@ -182,6 +189,11 @@ def _to_response(item) -> WorkspaceStockResponse:
                 quantity=trade.quantity,
                 status=trade.status,
                 exit_reason=trade.exit_reason,
+                current_price=trade.current_price,
+                current_pnl_pct=trade.current_pnl_pct,
+                current_stop=trade.current_stop,
+                take_profit_1=trade.take_profit_1,
+                quote_time=trade.quote_time,
             )
             for trade in item.recent_paper_trades
         ],
@@ -191,7 +203,7 @@ def _to_response(item) -> WorkspaceStockResponse:
 @router.get("/stocks", response_model=list[WorkspaceStockResponse])
 def list_workspace_stocks(
     db: DbSession,
-    pool_name: str = "manual",
+    pool_name: str = "experiment",
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
 ) -> list[WorkspaceStockResponse]:
     return [
@@ -204,7 +216,7 @@ def list_workspace_stocks(
 def get_workspace_stock(
     symbol: str,
     db: DbSession,
-    pool_name: str = "manual",
+    pool_name: str = "experiment",
 ) -> WorkspaceStockResponse:
     item = load_stock_workspace_item(db, symbol=symbol, pool_name=pool_name)
     if item is None:

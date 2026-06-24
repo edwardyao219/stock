@@ -513,6 +513,15 @@ button {
   background: #eef5ff;
 }
 
+.stock-row.has-open-trade {
+  border-left: 4px solid #2f9d62;
+  background: #f2fbf5;
+}
+
+.stock-row.has-open-trade.selected {
+  background: #e8f8ee;
+}
+
 .stock-row strong,
 .stock-row small,
 .stock-row em {
@@ -698,6 +707,13 @@ button {
   display: block;
   font-size: 18px;
   margin-top: 2px;
+}
+
+.live-trade-line {
+  border-radius: 7px;
+  background: #edf8f1;
+  color: #17623a;
+  padding: 8px 10px;
 }
 
 .execution-note {

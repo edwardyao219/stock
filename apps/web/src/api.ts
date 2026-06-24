@@ -49,6 +49,7 @@ export interface WorkspacePlan {
   trade_date: string;
   position_size: number;
   confidence_score: number | null;
+  entry_trigger_price: number | null;
   initial_stop: number | null;
   take_profit_1: number | null;
   take_profit_2: number | null;
@@ -102,6 +103,11 @@ export interface PaperTrade {
   quantity: number;
   status: string;
   exit_reason: string | null;
+  current_price: number | null;
+  current_pnl_pct: number | null;
+  current_stop: number | null;
+  take_profit_1: number | null;
+  quote_time: string | null;
 }
 
 export interface WorkspaceStock {
@@ -147,6 +153,7 @@ export interface PipelineRunPayload {
   force?: boolean;
   full_market_sync?: boolean;
   disable_learning_adjustments?: boolean;
+  dry_run_entries?: boolean;
   dry_run_exits?: boolean;
 }
 
@@ -199,8 +206,9 @@ export function fetchCandles(symbol: string) {
   return request<Candle[]>(`/market/candles/${symbol}?limit=240`);
 }
 
-export function fetchWorkspaceStocks() {
-  return request<WorkspaceStock[]>("/workspace/stocks").then((items) =>
+export function fetchWorkspaceStocks(poolName = "experiment") {
+  const params = new URLSearchParams({ pool_name: poolName });
+  return request<WorkspaceStock[]>(`/workspace/stocks?${params.toString()}`).then((items) =>
     items.map(normalizeWorkspaceStock),
   );
 }

@@ -11,6 +11,7 @@ from services.engine.rules.seed_rules import MVP_RULES
 from services.shared.models import (
     DailyBar,
     PaperPosition,
+    RealtimeQuote,
     ResearchPoolItem,
     Security,
     TradePlan,
@@ -18,7 +19,7 @@ from services.shared.models import (
 )
 from services.shared.time import now_local
 
-ACTIVE_RULE_IDS = tuple(rule.id for rule in MVP_RULES)
+ACTIVE_RULE_IDS = tuple(rule.id for rule in MVP_RULES) + ("OBS001",)
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class WorkspacePlan:
     trade_date: str
     position_size: float
     confidence_score: float | None
+    entry_trigger_price: float | None
     initial_stop: float | None
     take_profit_1: float | None
     take_profit_2: float | None
@@ -86,6 +88,11 @@ class PaperTradeItem:
     quantity: int
     status: str
     exit_reason: str | None
+    current_price: float | None
+    current_pnl_pct: float | None
+    current_stop: float | None
+    take_profit_1: float | None
+    quote_time: str | None
 
 
 @dataclass(frozen=True)
@@ -298,6 +305,29 @@ def _load_recent_paper_positions(
     return list(db.execute(stmt).scalars())
 
 
+def _load_latest_quotes(db: Session, symbols: list[str]) -> dict[str, RealtimeQuote]:
+    if not symbols:
+        return {}
+    latest_times = (
+        select(
+            RealtimeQuote.symbol.label("symbol"),
+            func.max(RealtimeQuote.quote_time).label("quote_time"),
+        )
+        .where(RealtimeQuote.symbol.in_(symbols))
+        .group_by(RealtimeQuote.symbol)
+        .subquery()
+    )
+    stmt = (
+        select(RealtimeQuote)
+        .join(
+            latest_times,
+            (RealtimeQuote.symbol == latest_times.c.symbol)
+            & (RealtimeQuote.quote_time == latest_times.c.quote_time),
+        )
+    )
+    return {item.symbol: item for item in db.execute(stmt).scalars()}
+
+
 def _holding_days(position: PaperPosition, latest_bar: DailyBar | None) -> int:
     end_date = position.exit_date or (latest_bar.trade_date if latest_bar else position.entry_date)
     return (end_date - position.entry_date).days + 1
@@ -369,7 +399,20 @@ def _summarize_paper_trades(
     return sorted(summaries, key=lambda item: item.total_return, reverse=True)
 
 
-def _to_paper_trade_item(position: PaperPosition, latest_bar: DailyBar | None) -> PaperTradeItem:
+def _current_pnl_pct(position: PaperPosition, current_price: Decimal | None) -> float | None:
+    if position.status != "open" or current_price is None or position.entry_price == 0:
+        return _float(position.pnl_pct)
+    return float(
+        (current_price / position.entry_price - Decimal("1")).quantize(Decimal("0.000001"))
+    )
+
+
+def _to_paper_trade_item(
+    position: PaperPosition,
+    latest_bar: DailyBar | None,
+    latest_quote: RealtimeQuote | None,
+) -> PaperTradeItem:
+    current_price = latest_quote.price if latest_quote is not None else None
     return PaperTradeItem(
         id=position.id,
         trade_plan_id=position.trade_plan_id,
@@ -387,6 +430,11 @@ def _to_paper_trade_item(position: PaperPosition, latest_bar: DailyBar | None) -
         quantity=position.quantity,
         status=position.status,
         exit_reason=position.exit_reason,
+        current_price=_float(current_price),
+        current_pnl_pct=_current_pnl_pct(position, current_price),
+        current_stop=_float(position.current_stop),
+        take_profit_1=_float(position.take_profit_1),
+        quote_time=latest_quote.quote_time.isoformat(timespec="seconds") if latest_quote else None,
     )
 
 
@@ -430,6 +478,7 @@ def _to_workspace_plan(db: Session, plan: TradePlan) -> WorkspacePlan:
         trade_date=plan.trade_date.isoformat(),
         position_size=float(plan.position_size),
         confidence_score=_float(plan.confidence_score),
+        entry_trigger_price=_float(plan.entry_trigger_price),
         initial_stop=_float(plan.initial_stop),
         take_profit_1=_float(plan.take_profit_1),
         take_profit_2=_float(plan.take_profit_2),
@@ -449,6 +498,7 @@ def _build_workspace_item(
     security: Security | None,
     manual: ResearchPoolItem | None,
     plans: list[TradePlan],
+    latest_quote: RealtimeQuote | None = None,
 ) -> WorkspaceItem:
     recent_bars = _load_recent_bars(db, symbol)
     latest_bar = recent_bars[-1] if recent_bars else None
@@ -474,7 +524,7 @@ def _build_workspace_item(
         plans=[_to_workspace_plan(db, plan) for plan in plans],
         paper_trade_summaries=_summarize_paper_trades(paper_positions),
         recent_paper_trades=[
-            _to_paper_trade_item(item, latest_bar) for item in paper_positions[:10]
+            _to_paper_trade_item(item, latest_bar, latest_quote) for item in paper_positions[:10]
         ],
     )
 
@@ -496,6 +546,7 @@ def load_stock_workspace_items(
         item.symbol: item
         for item in db.execute(select(Security).where(Security.symbol.in_(symbols))).scalars()
     }
+    latest_quotes = _load_latest_quotes(db, symbols)
 
     rows: list[WorkspaceItem] = []
     for symbol in symbols:
@@ -506,6 +557,7 @@ def load_stock_workspace_items(
                 security=securities.get(symbol),
                 manual=manual_map.get(symbol),
                 plans=plan_map.get(symbol, []),
+                latest_quote=latest_quotes.get(symbol),
             )
         )
 
@@ -531,10 +583,12 @@ def load_stock_workspace_item(
         return None
 
     security = db.execute(select(Security).where(Security.symbol == symbol)).scalar_one_or_none()
+    latest_quote = _load_latest_quotes(db, [symbol]).get(symbol)
     return _build_workspace_item(
         db,
         symbol=symbol,
         security=security,
         manual=manual_map.get(symbol),
         plans=plan_map.get(symbol, []),
+        latest_quote=latest_quote,
     )

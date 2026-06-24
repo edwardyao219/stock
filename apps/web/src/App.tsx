@@ -33,6 +33,7 @@ const strategyLabels: Record<string, string> = {
   swing: "波段",
   long_term: "长线",
   filter: "过滤",
+  watch_breakout: "观察突破",
 };
 
 const pageItems = [
@@ -87,6 +88,16 @@ function riskText(plan: WorkspaceStock["plans"][number]) {
   )} / 止盈 ${price(plan.take_profit_1)}`;
 }
 
+function planStatusText(value: string | null | undefined) {
+  const labels: Record<string, string> = {
+    planned: "等待触发",
+    executed: "已自动买入",
+    cancelled: "已取消",
+    skipped: "已跳过",
+  };
+  return value ? labels[value] ?? value : "-";
+}
+
 function exitReasonText(value: string | null | undefined) {
   const labels: Record<string, string> = {
     stop_loss: "止损",
@@ -111,11 +122,22 @@ function primaryPaperTrade(stock: WorkspaceStock): PaperTrade | null {
 
 function tradeReturnPct(trade: PaperTrade | null, latestClose: number | null | undefined) {
   if (!trade) return null;
+  if (trade.current_pnl_pct !== null && trade.current_pnl_pct !== undefined) {
+    return trade.current_pnl_pct;
+  }
   if (trade.pnl_pct !== null && trade.pnl_pct !== undefined) return trade.pnl_pct;
   if (trade.status === "open" && latestClose && trade.entry_price) {
     return latestClose / trade.entry_price - 1;
   }
   return null;
+}
+
+function latestPlan(stock: WorkspaceStock) {
+  return stock.plans[0] ?? null;
+}
+
+function hasOpenAutoTrade(stock: WorkspaceStock) {
+  return stock.recent_paper_trades.some((trade) => trade.status === "open");
 }
 
 function paperClosedCount(stock: WorkspaceStock) {
@@ -154,6 +176,7 @@ export function App() {
   const [pipelineForce, setPipelineForce] = useState(false);
   const [pipelineFullMarketSync, setPipelineFullMarketSync] = useState(false);
   const [pipelineUseLearning, setPipelineUseLearning] = useState(true);
+  const [pipelineDryRunEntries, setPipelineDryRunEntries] = useState(false);
   const [pipelineDryRunExits, setPipelineDryRunExits] = useState(false);
   const [pipelineRunning, setPipelineRunning] = useState<PipelineStage | null>(null);
   const [pipelineResult, setPipelineResult] = useState<PipelineRunResult | null>(null);
@@ -230,6 +253,7 @@ export function App() {
         force: pipelineForce,
         full_market_sync: pipelineFullMarketSync,
         disable_learning_adjustments: !pipelineUseLearning,
+        dry_run_entries: pipelineDryRunEntries,
         dry_run_exits: pipelineDryRunExits,
       });
       setPipelineResult(result);
@@ -259,6 +283,7 @@ export function App() {
   const autoCount = stocks.filter((item) => item.source.includes("auto")).length;
   const manualCount = stocks.filter((item) => item.source.includes("manual")).length;
   const paperStockCount = stocks.filter((item) => item.paper_trade_summaries.length).length;
+  const openTradeCount = stocks.filter(hasOpenAutoTrade).length;
   const selectedTrade = selected ? primaryPaperTrade(selected) : null;
   const selectedTradeReturn = selected
     ? tradeReturnPct(selectedTrade, selected.latest_close)
@@ -356,6 +381,14 @@ export function App() {
               <label className="toggle-line">
                 <input
                   type="checkbox"
+                  checked={pipelineDryRunEntries}
+                  onChange={(event) => setPipelineDryRunEntries(event.target.checked)}
+                />
+                <span>只观察不买入</span>
+              </label>
+              <label className="toggle-line">
+                <input
+                  type="checkbox"
                   checked={pipelineDryRunExits}
                   onChange={(event) => setPipelineDryRunExits(event.target.checked)}
                 />
@@ -445,8 +478,8 @@ export function App() {
               <strong>{manualCount}</strong>
             </div>
             <div>
-              <span>已有实盘模拟</span>
-              <strong>{paperStockCount}</strong>
+              <span>当前持仓</span>
+              <strong>{openTradeCount}</strong>
             </div>
             <div>
               <span>列表股票总数</span>
@@ -523,7 +556,9 @@ export function App() {
             {filteredStocks.map((item) => (
               <button
                 key={item.symbol}
-                className={`stock-row ${selected?.symbol === item.symbol ? "selected" : ""}`}
+                className={`stock-row ${selected?.symbol === item.symbol ? "selected" : ""} ${
+                  hasOpenAutoTrade(item) ? "has-open-trade" : ""
+                }`}
                 type="button"
                 onClick={() => setSelectedSymbol(item.symbol)}
               >
@@ -541,15 +576,19 @@ export function App() {
                 <span>
                   <strong>
                     {primaryPaperTrade(item)
-                      ? `${tradeStatusText(primaryPaperTrade(item)?.status)} ${pct(
+                      ? `${hasOpenAutoTrade(item) ? "自动买入" : tradeStatusText(primaryPaperTrade(item)?.status)} ${pct(
                           tradeReturnPct(primaryPaperTrade(item), item.latest_close),
                         )}`
-                      : "-"}
+                      : latestPlan(item)
+                        ? planStatusText(latestPlan(item)?.status)
+                        : "-"}
                   </strong>
                   <small>
                     {primaryPaperTrade(item)
-                      ? `胜率 ${pct(paperWinRate(item))} / 已平${paperClosedCount(item)}笔`
-                      : "无模拟"}
+                      ? `实时 ${price(primaryPaperTrade(item)?.current_price)} / 已平${paperClosedCount(item)}笔`
+                      : latestPlan(item)
+                        ? `触发价 ${price(latestPlan(item)?.entry_trigger_price)}`
+                        : "无模拟"}
                   </small>
                 </span>
               </button>
@@ -609,6 +648,15 @@ export function App() {
                       买入 {selectedTrade.entry_date} @ {price(selectedTrade.entry_price)}，
                       卖出 {selectedTrade.exit_date ?? "未卖出"} @ {price(selectedTrade.exit_price)}
                     </p>
+                    {selectedTrade.status === "open" ? (
+                      <p className="live-trade-line">
+                        实时价 {price(selectedTrade.current_price)} / 当前浮盈{" "}
+                        {pct(selectedTrade.current_pnl_pct)} / 当前止损{" "}
+                        {price(selectedTrade.current_stop)} / 第一止盈{" "}
+                        {price(selectedTrade.take_profit_1)}
+                        {selectedTrade.quote_time ? ` / 快照 ${selectedTrade.quote_time}` : ""}
+                      </p>
+                    ) : null}
                     <p>
                       数量 {selectedTrade.quantity} / 持有 {selectedTrade.holding_days}天 /
                       最高 {price(selectedTrade.highest_price)} / 最低 {price(selectedTrade.lowest_price)} /
@@ -636,10 +684,10 @@ export function App() {
                         <strong>{plan.rule_id} / {strategyLabels[plan.strategy_type] ?? plan.strategy_type}</strong>
                         <span>
                           计划交易日 {plan.trade_date} / {plan.execution_label} /
-                          置信分 {price(plan.confidence_score)}
+                          {planStatusText(plan.status)} / 置信分 {price(plan.confidence_score)}
                         </span>
                       </div>
-                      <p>{riskText(plan)}</p>
+                      <p>触发价 {price(plan.entry_trigger_price)} / {riskText(plan)}</p>
                       <p className={plan.can_buy_now ? "execution-note tradable" : "execution-note blocked"}>
                         {plan.execution_note}
                       </p>
