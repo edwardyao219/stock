@@ -181,6 +181,7 @@ def _run_daily_paper_simulation_step(trade_date: str, account: str) -> str:
 def _run_realtime_monitor_step(
     trade_date: str,
     account: str,
+    execute_entries: bool,
     execute_exits: bool,
     force: bool,
 ) -> str:
@@ -192,10 +193,12 @@ def _run_realtime_monitor_step(
     result = monitor_paper_positions_realtime(
         trade_date=trade_date,
         account_name=account,
+        execute_entries=execute_entries,
         execute_exits=execute_exits,
     )
     return (
         f"实时监控完成：获取 {result.quotes} 条快照，"
+        f"纸面买入 {result.executed_entries} 笔，"
         f"产生 {len(result.alerts)} 条预警，执行 {result.executed_exits} 次卖出。"
     )
 
@@ -290,13 +293,20 @@ def run_intraday_trade_session(
     trade_date: str,
     *,
     account: str = "default",
+    execute_entries: bool = True,
     execute_exits: bool = True,
     force: bool = False,
 ) -> DailyPipelineResult:
     steps = [
         _run_step(
             "monitor_paper_positions_realtime",
-            lambda: _run_realtime_monitor_step(trade_date, account, execute_exits, force),
+            lambda: _run_realtime_monitor_step(
+                trade_date,
+                account,
+                execute_entries,
+                execute_exits,
+                force,
+            ),
         )
     ]
     return DailyPipelineResult(

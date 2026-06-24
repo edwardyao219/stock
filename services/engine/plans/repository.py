@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
 from services.engine.plans.context import build_strategy_context, load_sector_feature_map
@@ -23,9 +23,17 @@ def _decimal(value: float | None) -> Decimal | None:
     return Decimal(str(round(value, 6)))
 
 
+def latest_feature_date(db: Session, before: date | None = None) -> date | None:
+    stmt = select(func.max(StockFeatureDaily.trade_date))
+    if before is not None:
+        stmt = stmt.where(StockFeatureDaily.trade_date < before)
+    return db.execute(stmt).scalar_one_or_none()
+
+
 def load_feature_contexts(
     db: Session,
     feature_date: str,
+    symbols: list[str] | None = None,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
     target_date = _date(feature_date)
@@ -41,6 +49,8 @@ def load_feature_contexts(
         .where(Security.is_active.is_(True))
         .order_by(StockFeatureDaily.symbol)
     )
+    if symbols:
+        stmt = stmt.where(StockFeatureDaily.symbol.in_(symbols))
     if limit:
         stmt = stmt.limit(limit)
 

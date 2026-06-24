@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from datetime import date
+
 from services.engine.plans.generator import generate_trade_plans
 from services.engine.plans.learning_adjustments import load_plan_learning_adjustments
-from services.engine.plans.repository import load_feature_contexts, upsert_trade_plans
+from services.engine.plans.repository import (
+    latest_feature_date,
+    load_feature_contexts,
+    upsert_trade_plans,
+)
+from services.engine.research_pool.repository import list_pool_symbols
 from services.engine.risk.repository import (
     load_matching_risk_profile,
     load_risk_profile,
@@ -16,6 +23,8 @@ def generate_and_store_trade_plans(
     plan_date: str,
     trade_date: str,
     feature_date: str | None = None,
+    symbols: list[str] | None = None,
+    pool_name: str | None = None,
     limit: int | None = None,
     risk_profile_name: str = "default",
     use_learning_adjustments: bool = True,
@@ -23,7 +32,19 @@ def generate_and_store_trade_plans(
     with SessionLocal() as db:
         seed_default_risk_profile(db)
         risk_profile = load_risk_profile(db, risk_profile_name)
-        contexts = load_feature_contexts(db, feature_date=feature_date or plan_date, limit=limit)
+        effective_feature_date = feature_date
+        if effective_feature_date is None:
+            latest_date = latest_feature_date(db, before=date.fromisoformat(trade_date))
+            effective_feature_date = latest_date.isoformat() if latest_date else plan_date
+        target_symbols = symbols
+        if target_symbols is None and pool_name:
+            target_symbols = list_pool_symbols(db, pool_name=pool_name)
+        contexts = load_feature_contexts(
+            db,
+            feature_date=effective_feature_date,
+            symbols=target_symbols,
+            limit=limit,
+        )
 
         def learning_loader(rule, context, signal_tags):
             return load_plan_learning_adjustments(
@@ -49,4 +70,10 @@ def generate_and_store_trade_plans(
         )
         written = upsert_trade_plans(db, plans)
         db.commit()
-    return {"contexts": len(contexts), "plans": len(plans), "written": written}
+    return {
+        "contexts": len(contexts),
+        "plans": len(plans),
+        "written": written,
+        "feature_date": effective_feature_date,
+        "symbols": len(target_symbols) if target_symbols is not None else 0,
+    }

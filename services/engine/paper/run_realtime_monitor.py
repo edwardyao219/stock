@@ -12,6 +12,7 @@ def main() -> None:
     parser.add_argument("--account", default="default")
     parser.add_argument("--interval-seconds", type=float, default=30.0)
     parser.add_argument("--ticks", type=int, default=1)
+    parser.add_argument("--dry-run-entries", action="store_true")
     parser.add_argument("--execute-exits", action="store_true")
     args = parser.parse_args()
 
@@ -20,6 +21,7 @@ def main() -> None:
         max_ticks=args.ticks if args.ticks > 0 else None,
         trade_date=args.trade_date,
         account_name=args.account,
+        execute_entries=not args.dry_run_entries,
         execute_exits=args.execute_exits,
     )
     for result in results:

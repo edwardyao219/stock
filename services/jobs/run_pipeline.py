@@ -24,6 +24,7 @@ def main() -> None:
     parser.add_argument("--account", default="default")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--disable-learning-adjustments", action="store_true")
+    parser.add_argument("--dry-run-entries", action="store_true")
     parser.add_argument("--dry-run-exits", action="store_true")
     args = parser.parse_args()
 
@@ -39,6 +40,7 @@ def main() -> None:
         result = run_intraday_trade_session(
             args.trade_date,
             account=args.account,
+            execute_entries=not args.dry_run_entries,
             execute_exits=not args.dry_run_exits,
             force=args.force,
         )
