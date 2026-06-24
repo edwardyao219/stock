@@ -76,6 +76,30 @@ def _exit_trade(
     return exit_date, exit_price, holding_days, mfe_pct, mae_pct, exit_reason
 
 
+def _resolve_entry_price(
+    entry_bar: BarInput,
+    previous_close: float,
+    entry_trigger_price: float | None,
+    max_gap_up_pct: float | None,
+    slippage_rate: float,
+) -> float | None:
+    trigger = entry_trigger_price or float(entry_bar.open)
+    entry_open = float(entry_bar.open)
+    entry_high = float(entry_bar.high)
+
+    if previous_close > 0 and max_gap_up_pct is not None:
+        gap_up_pct = entry_open / previous_close - 1
+        if gap_up_pct > max_gap_up_pct:
+            return None
+
+    if entry_high < trigger:
+        return None
+
+    if entry_open >= trigger:
+        return entry_open * (1 + slippage_rate)
+    return trigger * (1 + slippage_rate)
+
+
 def run_daily_rule_backtest(
     data: DailyBacktestInput,
     rule: StrategyRule,
@@ -113,17 +137,29 @@ def run_daily_rule_backtest(
 
         entry_index = dates.index(entry_date)
         entry_bar = bars_by_date[entry_date]
-        entry_open = float(entry_bar.open)
-        entry_price = entry_open * (1 + slippage_rate)
-
         plan = plans[0]
+        signal_bar = bars_by_date[signal_date]
+        entry_price = _resolve_entry_price(
+            entry_bar=entry_bar,
+            previous_close=float(signal_bar.close),
+            entry_trigger_price=plan.entry_trigger_price,
+            max_gap_up_pct=plan.max_gap_up_pct,
+            slippage_rate=slippage_rate,
+        )
+        if entry_price is None:
+            continue
+
+        initial_stop = plan.initial_stop
+        if initial_stop is not None and initial_stop >= entry_price:
+            continue
+
         exit_date, exit_price, holding_days, mfe_pct, mae_pct, exit_reason = _exit_trade(
             rule=rule,
             bars_by_date=bars_by_date,
             dates=dates,
             entry_index=entry_index,
             entry_price=entry_price,
-            initial_stop=plan.initial_stop,
+            initial_stop=initial_stop,
             take_profit_1=plan.take_profit_1,
         )
         exit_price = exit_price * (1 - slippage_rate)

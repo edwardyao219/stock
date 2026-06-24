@@ -278,13 +278,20 @@ def fetch_industry_constituents(board: IndustryBoard) -> list[IndustryConstituen
 
 def fetch_stock_daily_bars(symbol: str, start_date: str, end_date: str) -> list[DailyBarRow]:
     ak = _akshare()
-    df = ak.stock_zh_a_hist(
-        symbol=symbol,
-        period="daily",
-        start_date=start_date,
-        end_date=end_date,
-        adjust="qfq",
-    )
+    try:
+        df = ak.stock_zh_a_hist(
+            symbol=symbol,
+            period="daily",
+            start_date=start_date,
+            end_date=end_date,
+            adjust="qfq",
+        )
+    except Exception:
+        return fetch_eastmoney_stock_daily_bars(symbol, start_date, end_date)
+    return _daily_bars_from_dataframe(symbol, df)
+
+
+def _daily_bars_from_dataframe(symbol: str, df: pd.DataFrame) -> list[DailyBarRow]:
     rows: list[DailyBarRow] = []
     previous_close: Decimal | None = None
     for raw in df.to_dict("records"):
@@ -303,6 +310,57 @@ def fetch_stock_daily_bars(symbol: str, start_date: str, end_date: str) -> list[
                 volume=_decimal(raw.get("成交量")),
                 amount=_decimal(raw.get("成交额")),
                 turnover_rate=_decimal(raw.get("换手率")),
+            )
+        )
+        previous_close = close
+    return rows
+
+
+def fetch_eastmoney_stock_daily_bars(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+) -> list[DailyBarRow]:
+    secid = f"{'1' if symbol.startswith('6') else '0'}.{symbol}"
+    session = requests.Session()
+    session.trust_env = False
+    response = session.get(
+        "https://push2his.eastmoney.com/api/qt/stock/kline/get",
+        params={
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+            "ut": "7eea3edcaed734bea9cbfc24409ed989",
+            "klt": "101",
+            "fqt": "1",
+            "secid": secid,
+            "beg": start_date,
+            "end": end_date,
+        },
+        timeout=12,
+    )
+    response.raise_for_status()
+    data = response.json().get("data") or {}
+    rows: list[DailyBarRow] = []
+    previous_close: Decimal | None = None
+    for line in data.get("klines") or []:
+        parts = line.split(",")
+        if len(parts) < 11:
+            continue
+        close = _decimal(parts[2])
+        if close is None:
+            continue
+        rows.append(
+            DailyBarRow(
+                symbol=symbol,
+                trade_date=parts[0],
+                open=_decimal(parts[1]) or close,
+                high=_decimal(parts[3]) or close,
+                low=_decimal(parts[4]) or close,
+                close=close,
+                pre_close=previous_close,
+                volume=_decimal(parts[5]),
+                amount=_decimal(parts[6]),
+                turnover_rate=_decimal(parts[10]),
             )
         )
         previous_close = close

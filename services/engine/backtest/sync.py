@@ -4,7 +4,11 @@ from datetime import date
 
 from services.engine.backtest.daily import run_daily_rule_backtest
 from services.engine.backtest.metrics import summarize_rule_performance
-from services.engine.backtest.persistence import upsert_backtest_trades, upsert_rule_performance
+from services.engine.backtest.persistence import (
+    delete_backtest_trades,
+    upsert_backtest_trades,
+    upsert_rule_performance,
+)
 from services.engine.backtest.repository import load_many_backtest_inputs
 from services.engine.features.repository import list_active_symbols
 from services.engine.rules.seed_rules import MVP_RULES
@@ -25,6 +29,7 @@ def run_rules_backtest(
     trade_count = 0
     written_trades = 0
     written_performance = 0
+    deleted_trades = 0
 
     with SessionLocal() as db:
         target_symbols = symbols if symbols is not None else list_active_symbols(db, limit=limit)
@@ -40,6 +45,12 @@ def run_rules_backtest(
 
             if persist:
                 effective_run_date = run_date or end_date or date.today()
+                deleted_trades += delete_backtest_trades(
+                    db,
+                    effective_run_date,
+                    rule.id,
+                    target_symbols,
+                )
                 written_trades += upsert_backtest_trades(db, effective_run_date, rule_trades)
                 written_performance += upsert_rule_performance(db, effective_run_date, performance)
 
@@ -50,6 +61,7 @@ def run_rules_backtest(
         "symbols": len(target_symbols),
         "rules": [rule.id for rule in target_rules],
         "trade_count": trade_count,
+        "deleted_trades": deleted_trades,
         "written_trades": written_trades,
         "written_performance": written_performance,
         "summaries": summaries,

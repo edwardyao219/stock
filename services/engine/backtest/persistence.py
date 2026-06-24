@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from services.engine.backtest.models import BacktestTrade, RulePerformance
@@ -16,6 +17,24 @@ def _date(value: str) -> date:
 
 def _decimal(value: float) -> Decimal:
     return Decimal(str(round(value, 6)))
+
+
+def delete_backtest_trades(
+    db: Session,
+    run_date: date,
+    rule_id: str,
+    symbols: list[str],
+) -> int:
+    if not symbols:
+        return 0
+    result = db.execute(
+        delete(BacktestTradeRecord).where(
+            BacktestTradeRecord.run_date == run_date,
+            BacktestTradeRecord.rule_id == rule_id,
+            BacktestTradeRecord.symbol.in_(symbols),
+        )
+    )
+    return int(result.rowcount or 0)
 
 
 def upsert_backtest_trades(db: Session, run_date: date, trades: list[BacktestTrade]) -> int:

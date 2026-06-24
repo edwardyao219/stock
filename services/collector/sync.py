@@ -89,18 +89,31 @@ def sync_stock_daily_bars(
     results: list[CollectionResult] = []
     with SessionLocal() as db:
         for symbol in symbols:
-            bars = fetch_stock_daily_bars(symbol=symbol, start_date=start, end_date=end)
-            rows = upsert_daily_bars(db, bars)
-            results.append(
-                CollectionResult(
-                    source="akshare",
-                    dataset=f"stock_daily:{symbol}",
-                    trade_date=end,
-                    rows=rows,
-                    status="ok",
+            try:
+                bars = fetch_stock_daily_bars(symbol=symbol, start_date=start, end_date=end)
+                rows = upsert_daily_bars(db, bars)
+                db.commit()
+                results.append(
+                    CollectionResult(
+                        source="akshare",
+                        dataset=f"stock_daily:{symbol}",
+                        trade_date=end,
+                        rows=rows,
+                        status="ok",
+                    )
                 )
-            )
-        db.commit()
+            except Exception as exc:
+                db.rollback()
+                results.append(
+                    CollectionResult(
+                        source="akshare",
+                        dataset=f"stock_daily:{symbol}",
+                        trade_date=end,
+                        rows=0,
+                        status="failed",
+                        message=f"{type(exc).__name__}: {exc}",
+                    )
+                )
     return results
 
 
