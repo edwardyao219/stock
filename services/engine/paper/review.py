@@ -208,6 +208,39 @@ def upsert_paper_trade_reviews(db: Session, report_date: date | None = None) -> 
     )
 
 
+def upsert_paper_trade_review_for_position(db: Session, position: PaperPosition) -> int:
+    sample = build_paper_trade_review_sample(db, position)
+    if sample is None:
+        return 0
+    return upsert_rows(
+        db,
+        PaperTradeReview,
+        [sample.to_row()],
+        update_columns=[
+            "account_id",
+            "trade_plan_id",
+            "symbol",
+            "rule_id",
+            "sector_code",
+            "strategy_type",
+            "entry_date",
+            "exit_date",
+            "holding_days",
+            "pnl_pct",
+            "mfe_pct",
+            "mae_pct",
+            "giveback_pct",
+            "exit_reason",
+            "signal_tags_json",
+            "alert_summary_json",
+            "evidence_json",
+            "verdict",
+            "summary",
+        ],
+        constraint="uq_paper_trade_review_position",
+    )
+
+
 def generate_paper_trade_reviews(report_date: str | None = None) -> int:
     parsed_date = date.fromisoformat(report_date) if report_date else None
     with SessionLocal() as db:

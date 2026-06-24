@@ -13,6 +13,7 @@ from services.engine.paper.repository import (
     load_open_positions,
     load_trade_plans_for_trade_date,
 )
+from services.engine.paper.review import upsert_paper_trade_review_for_position
 from services.notifications.dispatcher import dispatch_paper_alerts
 from services.shared.database import SessionLocal
 from services.shared.models import PaperAlert, PaperOrder, PaperPosition
@@ -328,6 +329,7 @@ def monitor_paper_positions_realtime(
                 should_exit, exit_price, reason = _realtime_exit_signal(position, quote)
                 if should_exit and exit_price is not None:
                     _execute_realtime_exit(db, account, position, exit_price, reason, current_date)
+                    upsert_paper_trade_review_for_position(db, position)
                     executed_exits += 1
 
         _persist_alerts(db, alerts)

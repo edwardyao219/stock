@@ -8,7 +8,7 @@ from services.collector.akshare_client import RealtimeQuoteRow, fetch_sina_realt
 from services.collector.repository import upsert_realtime_quotes
 from services.engine.paper.realtime import _realtime_exit_signal, _update_position_from_quote
 from services.shared.database import Base
-from services.shared.models import PaperPosition, RealtimeQuote
+from services.shared.models import PaperPosition, PaperTradeReview, RealtimeQuote
 
 
 def _quote(symbol: str = "000001") -> RealtimeQuoteRow:
@@ -134,3 +134,53 @@ def test_realtime_exit_signal_uses_trailing_take_profit_after_profit_touch() -> 
     assert should_exit is True
     assert exit_price == Decimal("10.3400")
     assert reason == "trailing_take_profit"
+
+
+def test_realtime_monitor_can_execute_exit_and_create_review(monkeypatch) -> None:
+    from services.engine.paper import realtime
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    monkeypatch.setattr(realtime, "SessionLocal", session)
+
+    with session() as db:
+        db.add(
+            PaperPosition(
+                account_id=1,
+                trade_plan_id=None,
+                symbol="000001",
+                rule_id="R001",
+                strategy_type="short_term",
+                entry_date=date(2026, 6, 24),
+                entry_price=Decimal("10.0000"),
+                quantity=1000,
+                initial_stop=Decimal("9.5000"),
+                current_stop=Decimal("10.3400"),
+                take_profit_1=Decimal("10.5000"),
+                take_profit_2=None,
+                highest_price=Decimal("11.0000"),
+                lowest_price=Decimal("10.0000"),
+                max_holding_days=5,
+                status="open",
+            )
+        )
+        db.commit()
+
+    result = realtime.monitor_paper_positions_realtime(
+        trade_date="2026-06-24",
+        account_name="default",
+        quotes=[_quote()],
+        quote_time=datetime(2026, 6, 24, 10, 5),
+        execute_exits=True,
+    )
+
+    with session() as db:
+        review = db.query(PaperTradeReview).one()
+        position = db.query(PaperPosition).one()
+
+    assert result.executed_exits == 1
+    assert position.status == "closed"
+    assert review.position_id == position.id
+    assert review.exit_reason == "trailing_take_profit"

@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from apps.api.app.routers import (
     health,
     market,
+    paper_learning,
     parameter_recommendations,
     rules,
     trade_plans,
@@ -21,6 +22,7 @@ def create_app() -> FastAPI:
         prefix="/parameter-recommendations",
         tags=["parameter-recommendations"],
     )
+    app.include_router(paper_learning.router, prefix="/paper-learning", tags=["paper-learning"])
     app.include_router(rules.router, prefix="/rules", tags=["rules"])
     app.include_router(trade_plans.router, prefix="/trade-plans", tags=["trade-plans"])
     app.include_router(workspace.router, prefix="/workspace", tags=["workspace"])
