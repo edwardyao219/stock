@@ -441,6 +441,37 @@ class PaperAlert(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class PaperTradeReview(Base):
+    __tablename__ = "paper_trade_reviews"
+    __table_args__ = (
+        UniqueConstraint("position_id", name="uq_paper_trade_review_position"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    position_id: Mapped[int] = mapped_column(Integer, index=True)
+    account_id: Mapped[int] = mapped_column(Integer, index=True)
+    trade_plan_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    rule_id: Mapped[str] = mapped_column(String(32), index=True)
+    sector_code: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    strategy_type: Mapped[str] = mapped_column(String(32), index=True)
+    entry_date: Mapped[date] = mapped_column(Date, index=True)
+    exit_date: Mapped[date] = mapped_column(Date, index=True)
+    holding_days: Mapped[int] = mapped_column(Integer)
+    pnl_pct: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    mfe_pct: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    mae_pct: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    giveback_pct: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    exit_reason: Mapped[str] = mapped_column(String(64), index=True)
+    signal_tags_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    alert_summary_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    evidence_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    verdict: Mapped[str] = mapped_column(String(32), index=True)
+    summary: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class PaperTrade(Base):
     __tablename__ = "paper_trades"
 

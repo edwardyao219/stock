@@ -139,13 +139,21 @@ def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyP
 
     try:
         from services.engine.paper.diagnostics import generate_paper_trading_review
+        from services.engine.paper.learning import generate_paper_learning_report
+        from services.engine.paper.review import generate_paper_trade_reviews
 
+        review_samples = generate_paper_trade_reviews(trade_date)
         changed = generate_paper_trading_review(trade_date)
+        learning_changed = generate_paper_learning_report(trade_date)
         steps.append(
             PipelineStepResult(
                 name="generate_paper_trading_review",
                 status="ok",
-                detail=f"{changed} paper-trading parameter suggestions written",
+                detail=(
+                    f"{review_samples} trade review samples, "
+                    f"{changed} paper-trading suggestions, "
+                    f"{learning_changed} learning suggestions written"
+                ),
             )
         )
     except Exception as exc:
