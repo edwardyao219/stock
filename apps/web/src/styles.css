@@ -243,7 +243,7 @@ button {
 
 .control-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  grid-template-columns: repeat(6, minmax(130px, 1fr));
   gap: 10px;
 }
 
@@ -316,10 +316,21 @@ button {
   padding: 10px 12px;
 }
 
+.pipeline-step button,
 .pipeline-step strong,
 .pipeline-step span,
-.pipeline-step p {
+.pipeline-step p,
+.pipeline-step li {
   display: block;
+}
+
+.pipeline-step button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #17202b;
+  padding: 0;
+  text-align: left;
 }
 
 .pipeline-step span {
@@ -334,6 +345,29 @@ button {
   line-height: 1.5;
 }
 
+.pipeline-step-detail {
+  margin-top: 10px;
+  border-top: 1px solid #dbe2ea;
+  padding-top: 10px;
+}
+
+.pipeline-step-detail p,
+.pipeline-step-detail li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.pipeline-step-detail ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.pipeline-step-detail li {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .pipeline-step.ok {
   border-color: #bde4ca;
   background: #f3fbf5;
@@ -342,6 +376,11 @@ button {
 .pipeline-step.failed {
   border-color: #f5c2bd;
   background: #fff5f3;
+}
+
+.pipeline-step.warning {
+  border-color: #f2d18c;
+  background: #fff9e8;
 }
 
 .pipeline-step.skipped {

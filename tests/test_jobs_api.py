@@ -40,6 +40,7 @@ def test_run_prepare_pipeline_stage(monkeypatch) -> None:
             next_trade_date="2026-06-25",
             limit=20,
             disable_learning_adjustments=True,
+            full_market_sync=True,
             force=True,
         )
     )
@@ -48,6 +49,7 @@ def test_run_prepare_pipeline_stage(monkeypatch) -> None:
     assert payload.steps[0].detail == "done"
     assert captured["limit"] == 20
     assert captured["use_learning_adjustments"] is False
+    assert captured["full_market_sync"] is True
     assert captured["force"] is True
 
 

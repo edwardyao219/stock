@@ -127,6 +127,8 @@ export interface PipelineStep {
   name: string;
   status: string;
   detail: string;
+  summary: string | null;
+  details: string[];
 }
 
 export interface PipelineRunResult {
@@ -143,6 +145,7 @@ export interface PipelineRunPayload {
   limit?: number;
   account?: string;
   force?: boolean;
+  full_market_sync?: boolean;
   disable_learning_adjustments?: boolean;
   dry_run_exits?: boolean;
 }

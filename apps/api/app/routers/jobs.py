@@ -26,6 +26,7 @@ class PipelineRunRequest(BaseModel):
     limit: int = 200
     account: str = "default"
     force: bool = False
+    full_market_sync: bool = False
     disable_learning_adjustments: bool = False
     dry_run_exits: bool = False
 
@@ -34,6 +35,8 @@ class PipelineStepResponse(BaseModel):
     name: str
     status: str
     detail: str
+    summary: str | None = None
+    details: list[str] = []
 
 
 class PipelineRunResponse(BaseModel):
@@ -62,6 +65,7 @@ def run_pipeline_stage(payload: PipelineRunRequest) -> PipelineRunResponse:
             next_trade_date,
             limit=payload.limit,
             use_learning_adjustments=not payload.disable_learning_adjustments,
+            full_market_sync=payload.full_market_sync,
             force=payload.force,
         )
     elif payload.stage == "intraday":

@@ -1,3 +1,4 @@
+from services.collector.contracts import CollectionResult
 from services.jobs import pipeline
 
 
@@ -34,6 +35,63 @@ def test_prepare_next_trade_session_runs_prepare_steps(monkeypatch) -> None:
     assert result.steps[2].detail == "plans:2026-06-25:False"
 
 
+def test_sync_daily_market_data_step_returns_chinese_failure_summary(monkeypatch) -> None:
+    monkeypatch.setattr(
+        pipeline,
+        "sync_daily_market_data",
+        lambda trade_date, *, full_refresh=False: [
+            CollectionResult(
+                source="akshare",
+                dataset="trading_calendar_and_securities",
+                trade_date=trade_date,
+                rows=0,
+                status="failed",
+                message="ProxyError: unable to connect",
+            ),
+            CollectionResult(
+                source="akshare",
+                dataset="stock_daily",
+                trade_date=trade_date,
+                rows=0,
+                status="pending",
+                message="queued",
+            ),
+        ],
+    )
+
+    result = pipeline._sync_daily_market_data_step("2026-06-24")
+
+    assert result.status == "failed"
+    assert result.summary == "同步行情失败"
+    assert "同步行情部分失败" in result.detail
+    assert result.details[0].startswith("trading_calendar_and_securities")
+
+
+def test_sync_daily_market_data_step_defaults_to_lightweight_mode(monkeypatch) -> None:
+    captured = {}
+
+    def fake_sync(trade_date, *, full_refresh=False):
+        captured["full_refresh"] = full_refresh
+        return [
+            CollectionResult(
+                source="local",
+                dataset="daily_market_data",
+                trade_date=trade_date,
+                rows=0,
+                status="skipped",
+                message="local only",
+            )
+        ]
+
+    monkeypatch.setattr(pipeline, "sync_daily_market_data", fake_sync)
+
+    result = pipeline._sync_daily_market_data_step("2026-06-24")
+
+    assert captured["full_refresh"] is False
+    assert result.status == "skipped"
+    assert result.summary == "已跳过全量同步"
+
+
 def test_intraday_session_skips_outside_window(monkeypatch) -> None:
     monkeypatch.setattr(pipeline, "is_a_share_intraday_window", lambda: False)
 
@@ -41,7 +99,7 @@ def test_intraday_session_skips_outside_window(monkeypatch) -> None:
 
     assert result.stage == "intraday"
     assert result.steps[0].status == "ok"
-    assert result.steps[0].detail == "skipped: outside A-share intraday window"
+    assert result.steps[0].detail == "当前不在 A 股盘中时段，已跳过实时监控。"
 
 
 def test_after_close_session_runs_review_learning_steps(monkeypatch) -> None:

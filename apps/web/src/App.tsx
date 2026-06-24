@@ -64,6 +64,13 @@ const pipelineStepLabels: Record<string, string> = {
   generate_daily_review: "每日总结",
 };
 
+const pipelineStatusLabels: Record<string, string> = {
+  ok: "完成",
+  failed: "失败",
+  skipped: "跳过",
+  warning: "部分完成",
+};
+
 function pct(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
@@ -145,10 +152,12 @@ export function App() {
   const [pipelineDate, setPipelineDate] = useState(todayText());
   const [nextPipelineDate, setNextPipelineDate] = useState(todayText(1));
   const [pipelineForce, setPipelineForce] = useState(false);
+  const [pipelineFullMarketSync, setPipelineFullMarketSync] = useState(false);
   const [pipelineUseLearning, setPipelineUseLearning] = useState(true);
   const [pipelineDryRunExits, setPipelineDryRunExits] = useState(false);
   const [pipelineRunning, setPipelineRunning] = useState<PipelineStage | null>(null);
   const [pipelineResult, setPipelineResult] = useState<PipelineRunResult | null>(null);
+  const [expandedPipelineSteps, setExpandedPipelineSteps] = useState<Record<string, boolean>>({});
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -219,10 +228,12 @@ export function App() {
         next_trade_date: nextPipelineDate,
         limit: 200,
         force: pipelineForce,
+        full_market_sync: pipelineFullMarketSync,
         disable_learning_adjustments: !pipelineUseLearning,
         dry_run_exits: pipelineDryRunExits,
       });
       setPipelineResult(result);
+      setExpandedPipelineSteps({});
       await loadWorkspace();
     } catch (exc) {
       setPipelineError(exc instanceof Error ? exc.message : "任务执行失败");
@@ -337,6 +348,14 @@ export function App() {
               <label className="toggle-line">
                 <input
                   type="checkbox"
+                  checked={pipelineFullMarketSync}
+                  onChange={(event) => setPipelineFullMarketSync(event.target.checked)}
+                />
+                <span>全量同步行情</span>
+              </label>
+              <label className="toggle-line">
+                <input
+                  type="checkbox"
                   checked={pipelineDryRunExits}
                   onChange={(event) => setPipelineDryRunExits(event.target.checked)}
                 />
@@ -379,9 +398,31 @@ export function App() {
               <div className="pipeline-steps">
                 {pipelineResult.steps.map((step) => (
                   <div className={`pipeline-step ${step.status}`} key={step.name}>
-                    <strong>{pipelineStepLabels[step.name] ?? step.name}</strong>
-                    <span>{step.status}</span>
-                    <p>{step.detail}</p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedPipelineSteps((current) => ({
+                          ...current,
+                          [step.name]: !current[step.name],
+                        }))
+                      }
+                    >
+                      <strong>{pipelineStepLabels[step.name] ?? step.name}</strong>
+                      <span>{pipelineStatusLabels[step.status] ?? step.status}</span>
+                    </button>
+                    <p>{step.summary || step.detail}</p>
+                    {expandedPipelineSteps[step.name] ? (
+                      <div className="pipeline-step-detail">
+                        <p>{step.detail}</p>
+                        {step.details?.length ? (
+                          <ul>
+                            {step.details.map((item, index) => (
+                              <li key={`${step.name}-${index}`}>{item}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

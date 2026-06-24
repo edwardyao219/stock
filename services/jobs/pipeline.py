@@ -19,8 +19,10 @@ class PipelineStepResult:
     name: str
     status: str
     detail: str
+    summary: str | None = None
+    details: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
 
@@ -40,14 +42,19 @@ class DailyPipelineResult:
         }
 
 
-def _run_step(name: str, fn: Callable[[], str]) -> PipelineStepResult:
+def _run_step(name: str, fn: Callable[[], str | PipelineStepResult]) -> PipelineStepResult:
     try:
-        return PipelineStepResult(name=name, status="ok", detail=fn())
+        result = fn()
+        if isinstance(result, PipelineStepResult):
+            return result
+        return PipelineStepResult(name=name, status="ok", detail=result, summary=result)
     except Exception as exc:
         return PipelineStepResult(
             name=name,
             status="failed",
-            detail=f"{type(exc).__name__}: {exc}",
+            detail="任务执行失败，请点开详情查看原因。",
+            summary="任务执行失败",
+            details=[f"{type(exc).__name__}: {exc}"],
         )
 
 
@@ -63,13 +70,58 @@ def is_a_share_intraday_window() -> bool:
     return time(9, 25) <= current <= time(11, 30) or time(13, 0) <= current <= time(15, 5)
 
 
-def _sync_daily_market_data_step(trade_date: str) -> str:
-    collection_results = sync_daily_market_data(trade_date)
+def _sync_daily_market_data_step(
+    trade_date: str,
+    *,
+    full_refresh: bool = False,
+) -> PipelineStepResult:
+    collection_results = sync_daily_market_data(trade_date, full_refresh=full_refresh)
     failed_collections = [item for item in collection_results if item.status == "failed"]
+    pending_collections = [item for item in collection_results if item.status == "pending"]
+    ok_collections = [item for item in collection_results if item.status == "ok"]
+    skipped_collections = [item for item in collection_results if item.status == "skipped"]
+    details = [
+        f"{item.dataset}: {item.status}, rows={item.rows}"
+        + (f", {item.message}" if item.message else "")
+        for item in collection_results
+    ]
     if failed_collections:
-        failed_names = ", ".join(item.dataset for item in failed_collections)
-        raise RuntimeError(f"failed datasets: {failed_names}")
-    return f"{len(collection_results)} datasets processed or queued"
+        return PipelineStepResult(
+            name="sync_daily_market_data",
+            status="failed",
+            detail=(
+                f"同步行情部分失败：{len(failed_collections)} 个数据源失败，"
+                f"{len(ok_collections)} 个成功，{len(pending_collections)} 个待处理。"
+            ),
+            summary="同步行情失败",
+            details=details,
+        )
+    if skipped_collections:
+        return PipelineStepResult(
+            name="sync_daily_market_data",
+            status="skipped",
+            detail="轻量试运行：已跳过全市场行情同步，直接使用本地已有数据。",
+            summary="已跳过全量同步",
+            details=details,
+        )
+    if pending_collections:
+        return PipelineStepResult(
+            name="sync_daily_market_data",
+            status="warning",
+            detail=(
+                f"同步行情部分完成：{len(ok_collections)} 个成功，"
+                f"{len(pending_collections)} 个待处理。"
+            ),
+            summary="同步行情部分完成",
+            details=details,
+        )
+    return PipelineStepResult(
+        name="sync_daily_market_data",
+        status="ok",
+        detail=f"同步行情完成：{len(collection_results)} 个数据集已处理。",
+        summary="同步行情完成",
+        details=details,
+    )
 
 
 def _compute_features_step(trade_date: str, limit: int) -> str:
@@ -89,9 +141,10 @@ def _compute_features_step(trade_date: str, limit: int) -> str:
         end_date=pipeline_date,
     )
     return (
-        f"{feature_result['rows']} stock feature rows for {feature_result['symbols']} symbols; "
-        f"{sector_feature_result['rows']} sector rows for "
-        f"{sector_feature_result['sectors']} sectors"
+        f"计算完成：{feature_result['symbols']} 只股票、"
+        f"{feature_result['rows']} 条股票特征；"
+        f"{sector_feature_result['sectors']} 个板块、"
+        f"{sector_feature_result['rows']} 条板块特征。"
     )
 
 
@@ -109,7 +162,10 @@ def _generate_trade_plans_step(
         limit=limit,
         use_learning_adjustments=use_learning_adjustments,
     )
-    return f"{plan_result['written']} plans written from {plan_result['contexts']} contexts"
+    return (
+        f"生成完成：从 {plan_result['contexts']} 个特征上下文"
+        f"写入 {plan_result['written']} 条计划。"
+    )
 
 
 def _run_daily_paper_simulation_step(trade_date: str, account: str) -> str:
@@ -117,8 +173,8 @@ def _run_daily_paper_simulation_step(trade_date: str, account: str) -> str:
 
     paper_result = run_daily_paper_simulation(trade_date=trade_date, account_name=account)
     return (
-        f"opened {paper_result.opened}, closed {paper_result.closed}, "
-        f"skipped {paper_result.skipped}"
+        f"模拟完成：买入 {paper_result.opened} 笔，卖出 {paper_result.closed} 笔，"
+        f"跳过 {paper_result.skipped} 笔。"
     )
 
 
@@ -129,7 +185,7 @@ def _run_realtime_monitor_step(
     force: bool,
 ) -> str:
     if not force and not is_a_share_intraday_window():
-        return "skipped: outside A-share intraday window"
+        return "当前不在 A 股盘中时段，已跳过实时监控。"
 
     from services.engine.paper.realtime import monitor_paper_positions_realtime
 
@@ -139,8 +195,8 @@ def _run_realtime_monitor_step(
         execute_exits=execute_exits,
     )
     return (
-        f"{result.quotes} quotes, {len(result.alerts)} alerts, "
-        f"{result.executed_exits} executed exits"
+        f"实时监控完成：获取 {result.quotes} 条快照，"
+        f"产生 {len(result.alerts)} 条预警，执行 {result.executed_exits} 次卖出。"
     )
 
 
@@ -153,9 +209,8 @@ def _generate_paper_reviews_step(trade_date: str) -> str:
     changed = generate_paper_trading_review(trade_date)
     learning_changed = generate_paper_learning_report(trade_date)
     return (
-        f"{review_samples} trade review samples, "
-        f"{changed} paper-trading suggestions, "
-        f"{learning_changed} learning suggestions written"
+        f"复盘完成：生成 {review_samples} 条交易样本、"
+        f"{changed} 条纸面交易建议、{learning_changed} 条学习建议。"
     )
 
 
@@ -169,8 +224,8 @@ def _run_rule_regression_step(trade_date: str, limit: int) -> str:
         limit=limit,
     )
     return (
-        f"{backtest_result['trade_count']} trades, "
-        f"{backtest_result['written_performance']} performance rows"
+        f"回归完成：{backtest_result['trade_count']} 笔交易样本，"
+        f"{backtest_result['written_performance']} 条表现记录。"
     )
 
 
@@ -185,6 +240,7 @@ def prepare_next_trade_session(
     *,
     limit: int = 200,
     use_learning_adjustments: bool = True,
+    full_market_sync: bool = False,
     force: bool = False,
 ) -> DailyPipelineResult:
     with SessionLocal() as db:
@@ -197,13 +253,20 @@ def prepare_next_trade_session(
                     PipelineStepResult(
                         name="trading_calendar_guard",
                         status="skipped",
-                        detail=f"{trade_date} is not an open trading day",
+                        detail=f"{trade_date} 不是交易日，已跳过准备流程。",
+                        summary="非交易日跳过",
                     )
                 ],
             )
 
     steps = [
-        _run_step("sync_daily_market_data", lambda: _sync_daily_market_data_step(trade_date)),
+        _run_step(
+            "sync_daily_market_data",
+            lambda: _sync_daily_market_data_step(
+                trade_date,
+                full_refresh=full_market_sync,
+            ),
+        ),
         _run_step("compute_features", lambda: _compute_features_step(trade_date, limit)),
         _run_step(
             "generate_trade_plans",
@@ -272,7 +335,11 @@ def run_after_close_session(
 
 
 def run_daily_research_pipeline(trade_date: str, next_trade_date: str) -> DailyPipelineResult:
-    prepare_result = prepare_next_trade_session(trade_date, next_trade_date)
+    prepare_result = prepare_next_trade_session(
+        trade_date,
+        next_trade_date,
+        full_market_sync=True,
+    )
     after_close_result = run_after_close_session(trade_date, next_trade_date)
     return DailyPipelineResult(
         trade_date=trade_date,
