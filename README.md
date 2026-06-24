@@ -61,10 +61,17 @@ CREATE DATABASE stock_research CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 DATABASE_URL=mysql+pymysql://root:你的密码@127.0.0.1:3306/stock_research?charset=utf8mb4
 ```
 
-运行一次占位版每日研究流水线：
+本地按交易节奏运行流水线：
 
 ```bash
-python -m services.jobs.run_pipeline --trade-date 2026-06-23 --next-trade-date 2026-06-24
+# 收盘后准备下一交易日候选，默认会应用纸面复盘学习参数
+python -m services.jobs.run_pipeline --stage prepare --trade-date 2026-06-24 --next-trade-date 2026-06-25
+
+# 盘中单次实时纸面监控，非交易时段会自动跳过；测试时可加 --force
+python -m services.jobs.run_pipeline --stage intraday --trade-date 2026-06-25
+
+# 收盘后生成纸面交易复盘、学习建议和规则回归
+python -m services.jobs.run_pipeline --stage after-close --trade-date 2026-06-25 --next-trade-date 2026-06-26
 ```
 
 创建当前 ORM 草案对应的数据表：
