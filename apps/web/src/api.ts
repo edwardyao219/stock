@@ -121,6 +121,32 @@ export interface WorkspaceStock {
   recent_paper_trades: PaperTrade[];
 }
 
+export type PipelineStage = "daily" | "prepare" | "intraday" | "after-close";
+
+export interface PipelineStep {
+  name: string;
+  status: string;
+  detail: string;
+}
+
+export interface PipelineRunResult {
+  trade_date: string;
+  next_trade_date: string;
+  stage: string;
+  steps: PipelineStep[];
+}
+
+export interface PipelineRunPayload {
+  stage: PipelineStage;
+  trade_date?: string;
+  next_trade_date?: string;
+  limit?: number;
+  account?: string;
+  force?: boolean;
+  disable_learning_adjustments?: boolean;
+  dry_run_exits?: boolean;
+}
+
 function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
   return {
     ...item,
@@ -181,4 +207,11 @@ export function addManualStock(symbol: string, note: string, tags: string[]) {
     method: "POST",
     body: JSON.stringify({ symbol, note: note || null, tags }),
   }).then(normalizeWorkspaceStock);
+}
+
+export function runPipelineStage(payload: PipelineRunPayload) {
+  return request<PipelineRunResult>("/jobs/pipeline/run", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

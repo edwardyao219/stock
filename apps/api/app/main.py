@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from apps.api.app.routers import (
     health,
+    jobs,
     market,
     paper_learning,
     parameter_recommendations,
@@ -16,6 +17,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name)
     app.include_router(health.router)
+    app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
     app.include_router(market.router, prefix="/market", tags=["market"])
     app.include_router(
         parameter_recommendations.router,

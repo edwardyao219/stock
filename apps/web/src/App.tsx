@@ -1,18 +1,24 @@
 import {
   BarChart3,
   ClipboardList,
+  Play,
   RefreshCw,
   Search,
+  Settings2,
+  SlidersHorizontal,
   TrendingUp,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
   Candle,
+  PipelineRunResult,
+  PipelineStage,
   WorkspaceStock,
   addManualStock,
   fetchCandles,
   fetchWorkspaceStocks,
+  runPipelineStage,
 } from "./api";
 import { StrategyEvidenceChart } from "./StrategyEvidenceChart";
 
@@ -36,6 +42,27 @@ const pageItems = [
 
 type PageKey = (typeof pageItems)[number]["key"];
 type PaperTrade = WorkspaceStock["recent_paper_trades"][number];
+type StockSubPage = "list" | "workflow";
+
+const pipelineStageLabels: Record<string, string> = {
+  daily: "完整流程",
+  prepare: "准备候选",
+  intraday: "盘中监控",
+  "after-close": "盘后复盘",
+  prepare_next_session: "准备候选",
+  after_close: "盘后复盘",
+};
+
+const pipelineStepLabels: Record<string, string> = {
+  sync_daily_market_data: "同步行情",
+  compute_features: "计算特征",
+  generate_trade_plans: "生成计划",
+  monitor_paper_positions_realtime: "实时监控",
+  run_daily_paper_simulation: "日级模拟",
+  generate_paper_trading_review: "交易复盘",
+  run_rule_regression: "策略回归",
+  generate_daily_review: "每日总结",
+};
 
 function pct(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
@@ -98,8 +125,15 @@ function paperWinRate(stock: WorkspaceStock) {
   return wins / closedCount;
 }
 
+function todayText(offsetDays = 0) {
+  const value = new Date();
+  value.setDate(value.getDate() + offsetDays);
+  return value.toISOString().slice(0, 10);
+}
+
 export function App() {
   const [activePage, setActivePage] = useState<PageKey>("stocks");
+  const [stockSubPage, setStockSubPage] = useState<StockSubPage>("list");
   const [stocks, setStocks] = useState<WorkspaceStock[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -108,6 +142,14 @@ export function App() {
   const [sourceFilter, setSourceFilter] = useState<"all" | "auto" | "manual">("all");
   const [candles, setCandles] = useState<Candle[]>([]);
   const [tradeDialogOpen, setTradeDialogOpen] = useState(false);
+  const [pipelineDate, setPipelineDate] = useState(todayText());
+  const [nextPipelineDate, setNextPipelineDate] = useState(todayText(1));
+  const [pipelineForce, setPipelineForce] = useState(false);
+  const [pipelineUseLearning, setPipelineUseLearning] = useState(true);
+  const [pipelineDryRunExits, setPipelineDryRunExits] = useState(false);
+  const [pipelineRunning, setPipelineRunning] = useState<PipelineStage | null>(null);
+  const [pipelineResult, setPipelineResult] = useState<PipelineRunResult | null>(null);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -167,6 +209,33 @@ export function App() {
     await loadWorkspace();
   }
 
+  async function runWorkflow(stage: PipelineStage) {
+    setPipelineRunning(stage);
+    setPipelineError(null);
+    try {
+      const result = await runPipelineStage({
+        stage,
+        trade_date: pipelineDate,
+        next_trade_date: nextPipelineDate,
+        limit: 200,
+        force: pipelineForce,
+        disable_learning_adjustments: !pipelineUseLearning,
+        dry_run_exits: pipelineDryRunExits,
+      });
+      setPipelineResult(result);
+      await loadWorkspace();
+    } catch (exc) {
+      setPipelineError(exc instanceof Error ? exc.message : "任务执行失败");
+    } finally {
+      setPipelineRunning(null);
+    }
+  }
+
+  function switchPage(page: PageKey) {
+    setActivePage(page);
+    if (page !== "stocks") setStockSubPage("list");
+  }
+
   useEffect(() => {
     loadWorkspace();
   }, []);
@@ -200,7 +269,7 @@ export function App() {
               className={activePage === page.key ? "active" : ""}
               key={page.key}
               type="button"
-              onClick={() => setActivePage(page.key)}
+              onClick={() => switchPage(page.key)}
             >
               {page.label}
             </button>
@@ -214,7 +283,116 @@ export function App() {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      {activePage === "stocks" ? (
+      {activePage === "stocks" && stockSubPage === "workflow" ? (
+        <section className="page-panel workflow-page">
+          <div className="breadcrumb-row">
+            <button type="button" onClick={() => setStockSubPage("list")}>
+              股票
+            </button>
+            <span>/</span>
+            <strong>交易日控制台</strong>
+          </div>
+
+          <section className="control-panel full-page">
+            <div className="control-head">
+              <div>
+                <span>本地试运行控制台</span>
+                <h3>交易日流程</h3>
+              </div>
+              <Settings2 size={18} />
+            </div>
+            <div className="control-grid">
+              <label>
+                <span>交易日</span>
+                <input
+                  type="date"
+                  value={pipelineDate}
+                  onChange={(event) => setPipelineDate(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>下一交易日</span>
+                <input
+                  type="date"
+                  value={nextPipelineDate}
+                  onChange={(event) => setNextPipelineDate(event.target.value)}
+                />
+              </label>
+              <label className="toggle-line">
+                <input
+                  type="checkbox"
+                  checked={pipelineUseLearning}
+                  onChange={(event) => setPipelineUseLearning(event.target.checked)}
+                />
+                <span>应用学习调参</span>
+              </label>
+              <label className="toggle-line">
+                <input
+                  type="checkbox"
+                  checked={pipelineForce}
+                  onChange={(event) => setPipelineForce(event.target.checked)}
+                />
+                <span>强制执行</span>
+              </label>
+              <label className="toggle-line">
+                <input
+                  type="checkbox"
+                  checked={pipelineDryRunExits}
+                  onChange={(event) => setPipelineDryRunExits(event.target.checked)}
+                />
+                <span>只预警不卖出</span>
+              </label>
+            </div>
+            <div className="control-actions">
+              {(["prepare", "intraday", "after-close"] as PipelineStage[]).map((stage) => (
+                <button
+                  key={stage}
+                  type="button"
+                  disabled={pipelineRunning !== null}
+                  onClick={() => runWorkflow(stage)}
+                >
+                  <Play size={15} />
+                  {pipelineRunning === stage ? "执行中" : pipelineStageLabels[stage]}
+                </button>
+              ))}
+            </div>
+            {pipelineError ? <div className="error-banner compact">{pipelineError}</div> : null}
+          </section>
+
+          <section className="pipeline-result-panel">
+            <div className="panel-head">
+              <div>
+                <span>执行结果</span>
+                <h3>
+                  {pipelineResult
+                    ? pipelineStageLabels[pipelineResult.stage] ?? pipelineResult.stage
+                    : "暂无执行记录"}
+                </h3>
+              </div>
+              {pipelineResult ? (
+                <span>
+                  {pipelineResult.trade_date} → {pipelineResult.next_trade_date}
+                </span>
+              ) : null}
+            </div>
+            {pipelineResult ? (
+              <div className="pipeline-steps">
+                {pipelineResult.steps.map((step) => (
+                  <div className={`pipeline-step ${step.status}`} key={step.name}>
+                    <strong>{pipelineStepLabels[step.name] ?? step.name}</strong>
+                    <span>{step.status}</span>
+                    <p>{step.detail}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty compact">选择一个阶段开始试运行。</div>
+            )}
+          </section>
+        </section>
+      ) : null}
+
+      {activePage === "stocks" && stockSubPage === "list" ? (
         <>
           <section className="summary-strip">
             <div>
@@ -233,6 +411,11 @@ export function App() {
               <span>列表股票总数</span>
               <strong>{stocks.length}</strong>
             </div>
+            <button className="summary-action" type="button" onClick={() => setStockSubPage("workflow")}>
+              <SlidersHorizontal size={18} />
+              <span>交易日控制台</span>
+              <strong>进入</strong>
+            </button>
           </section>
 
           <section className="workspace-layout">
