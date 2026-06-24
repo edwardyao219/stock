@@ -53,8 +53,10 @@ MVP_RULES: list[StrategyRule] = [
             all=[
                 Condition(feature="sector_strength_score", op=">=", value=70),
                 Condition(feature="trend_score", op=">=", value=65),
-                Condition(feature="pullback_to_ma20_pct", op="<=", value=0.03),
-                Condition(feature="pullback_volume_ratio", op="<=", value=0.8),
+                Condition(feature="distance_to_ma20", op=">=", value=-0.04),
+                Condition(feature="distance_to_ma20", op="<=", value=0.08),
+                Condition(feature="pullback_volume_ratio", op="<=", value=1.1),
+                Condition(feature="volume_trap_risk_score", op="<=", value=65),
                 Condition(feature="is_st", op="==", value=False),
                 Condition(feature="is_suspended", op="==", value=False),
             ]
@@ -73,6 +75,84 @@ MVP_RULES: list[StrategyRule] = [
         time_exit=TimeExitRule(max_holding_days=20),
         position=PositionRule(base_position_pct=0.08, max_position_pct=0.12),
         tags=["sector", "pullback", "swing"],
+    ),
+    StrategyRule(
+        id="R005",
+        name="缩量蓄势突破确认",
+        strategy_type=StrategyType.SWING,
+        status=RuleStatus.TESTING,
+        description="先观察强趋势里的缩量蓄势，避免追当天疯狂放量；次日突破信号日高点才进入。",
+        entry=ConditionGroup(
+            all=[
+                Condition(feature="sector_strength_score", op=">=", value=70),
+                Condition(feature="trend_score", op=">=", value=75),
+                Condition(feature="relative_strength_score", op=">=", value=55),
+                Condition(feature="sector_style", op="in", value=["theme", "growth_cycle"]),
+                Condition(feature="distance_to_20d_high", op="<=", value=0.08),
+                Condition(feature="distance_to_ma20", op=">=", value=-0.03),
+                Condition(feature="distance_to_ma20", op="<=", value=0.12),
+                Condition(feature="return_20d", op="<=", value=0.25),
+                Condition(feature="amount_ratio_5d", op="<=", value=1.0),
+                Condition(feature="close_position_in_range", op=">=", value=0.45),
+                Condition(feature="upper_shadow_pct", op="<=", value=0.05),
+                Condition(feature="volume_trap_risk_score", op="<=", value=45),
+                Condition(feature="is_st", op="==", value=False),
+                Condition(feature="is_suspended", op="==", value=False),
+            ]
+        ),
+        trigger=ConditionGroup(
+            all=[
+                Condition(field="price", op=">=", ref="entry_trigger_price"),
+            ]
+        ),
+        stop=StopRule(
+            type="composite",
+            params={"atr_multiple": 1.6, "structure_ref": "support_level", "mode": "tighter"},
+        ),
+        take_profit=TakeProfitRule(type="trailing", params={"drawdown_from_high_pct": 0.07}),
+        time_exit=TimeExitRule(max_holding_days=16, exit_if_no_new_high_days=4),
+        position=PositionRule(base_position_pct=0.06, max_position_pct=0.10),
+        tags=["contraction", "anti-trap", "breakout-confirmation"],
+    ),
+    StrategyRule(
+        id="R006",
+        name="高强度趋势延续",
+        strategy_type=StrategyType.SWING,
+        status=RuleStatus.TESTING,
+        description="用于液冷、通信、PCB 等强题材趋势段，要求趋势强、不过分高位、波动可控。",
+        entry=ConditionGroup(
+            all=[
+                Condition(feature="sector_style", op="in", value=["theme", "growth_cycle"]),
+                Condition(feature="sector_strength_score", op=">=", value=65),
+                Condition(feature="trend_score", op=">=", value=100),
+                Condition(feature="relative_strength_score", op=">=", value=55),
+                Condition(feature="return_20d", op=">=", value=0.08),
+                Condition(feature="return_20d", op="<=", value=0.30),
+                Condition(feature="distance_to_ma10", op=">=", value=-0.02),
+                Condition(feature="distance_to_ma10", op="<=", value=0.12),
+                Condition(feature="distance_to_ma20", op="<=", value=0.18),
+                Condition(feature="amount_ratio_5d", op="<=", value=1.2),
+                Condition(feature="volume_trap_risk_score", op="<=", value=60),
+                Condition(feature="is_st", op="==", value=False),
+                Condition(feature="is_suspended", op="==", value=False),
+            ]
+        ),
+        trigger=ConditionGroup(
+            all=[
+                Condition(field="price", op=">=", ref="entry_trigger_price"),
+            ]
+        ),
+        stop=StopRule(
+            type="composite",
+            params={"atr_multiple": 1.8, "structure_ref": "support_level"},
+        ),
+        take_profit=TakeProfitRule(
+            type="target_then_trailing",
+            params={"take_profit_1_r": 1.5, "take_profit_2_r": 3.0, "drawdown_from_high_pct": 0.10},
+        ),
+        time_exit=TimeExitRule(max_holding_days=12),
+        position=PositionRule(base_position_pct=0.05, max_position_pct=0.09),
+        tags=["theme", "trend-continuation", "swing"],
     ),
     StrategyRule(
         id="R003",

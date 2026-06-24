@@ -71,6 +71,18 @@ def build_trade_parameters(
     if rule.id == "R001":
         entry_reference_price = breakout
         entry_reason = "breakout_level"
+    elif rule.id == "R005":
+        signal_high = _float(context, "high", close) or close
+        entry_reference_price = max(close, signal_high)
+        entry_reason = "signal_day_high_confirmation"
+    elif rule.id == "R002":
+        ma5 = _float(context, "ma5", close) or close
+        entry_reference_price = max(close, ma5)
+        entry_reason = "pullback_confirm_reference"
+    elif rule.id == "R006":
+        ma10 = _float(context, "ma10", close) or close
+        entry_reference_price = max(close, ma10)
+        entry_reason = "trend_continuation_reference"
     elif rule.id == "R004":
         ma20 = _float(context, "ma20", close) or close
         entry_reference_price = min(close, ma20 * 1.02)
@@ -80,7 +92,11 @@ def build_trade_parameters(
         entry_reason = "close_reference"
     entry_trigger_price = entry_reference_price * (1 + profile.breakout_buffer_pct)
 
-    atr_stop = entry_trigger_price - atr * profile.atr_stop_multiple if atr else entry_trigger_price * 0.95
+    atr_stop = (
+        entry_trigger_price - atr * profile.atr_stop_multiple
+        if atr
+        else entry_trigger_price * 0.95
+    )
     structure_stop = None
     if support:
         structure_stop = support * (1 - profile.structure_stop_buffer_pct)

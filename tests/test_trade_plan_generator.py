@@ -124,3 +124,114 @@ def test_trade_evidence_uses_profile_thresholds() -> None:
     evidence = plans[0].entry_condition["evidence"]
     assert "high_position_volume_spike" not in evidence["risk_flags"]
     assert evidence["thresholds"]["high_volume_percentile"] == 95.0
+
+
+def test_contraction_breakout_rule_requires_dry_up_before_confirmation() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R005")
+    context = {
+        "symbol": "002837",
+        "trade_date": "2026-06-23",
+        "close": 82.0,
+        "high": 84.0,
+        "ma5": 80.0,
+        "atr_14": 4.0,
+        "breakout_level": 85.0,
+        "support_level": 76.0,
+        "sector_strength_score": 78,
+        "sector_style": "theme",
+        "trend_score": 100,
+        "relative_strength_score": 65,
+        "amount_percentile_60d": 55,
+        "amount_ratio_5d": 0.82,
+        "recent_amount_ratio_20d": 0.9,
+        "return_20d": 0.12,
+        "distance_to_20d_high": -0.03,
+        "distance_to_ma20": 0.04,
+        "close_position_in_range": 0.62,
+        "upper_shadow_pct": 0.025,
+        "volume_trap_risk_score": 40,
+        "risk_score": 0,
+        "is_st": False,
+        "is_suspended": False,
+    }
+
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=[rule],
+        feature_contexts=[context],
+    )
+
+    assert len(plans) == 1
+    assert plans[0].rule_id == "R005"
+    assert plans[0].entry_trigger_price == pytest.approx(84.0)
+
+
+def test_contraction_breakout_rule_rejects_hot_volume_trap() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R005")
+    context = {
+        "symbol": "600183",
+        "trade_date": "2026-06-23",
+        "close": 120.0,
+        "high": 124.0,
+        "atr_14": 6.0,
+        "support_level": 112.0,
+        "sector_style": "theme",
+        "sector_strength_score": 80,
+        "trend_score": 100,
+        "relative_strength_score": 75,
+        "return_20d": 0.42,
+        "distance_to_20d_high": -0.02,
+        "distance_to_ma20": 0.18,
+        "amount_ratio_5d": 1.4,
+        "close_position_in_range": 0.35,
+        "upper_shadow_pct": 0.06,
+        "volume_trap_risk_score": 70,
+        "risk_score": 0,
+        "is_st": False,
+        "is_suspended": False,
+    }
+
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=[rule],
+        feature_contexts=[context],
+    )
+
+    assert plans == []
+
+
+def test_trend_continuation_rule_uses_theme_context() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R006")
+    context = {
+        "symbol": "603083",
+        "trade_date": "2026-06-23",
+        "close": 238.0,
+        "ma10": 220.0,
+        "atr_14": 16.0,
+        "support_level": 200.0,
+        "sector_style": "theme",
+        "sector_strength_score": 75,
+        "trend_score": 100,
+        "relative_strength_score": 68,
+        "return_20d": 0.18,
+        "distance_to_ma10": 0.08,
+        "distance_to_ma20": 0.12,
+        "amount_ratio_5d": 1.0,
+        "volume_trap_risk_score": 60,
+        "risk_score": 0,
+        "is_st": False,
+        "is_suspended": False,
+    }
+
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=[rule],
+        feature_contexts=[context],
+    )
+
+    assert len(plans) == 1
+    assert plans[0].rule_id == "R006"
+    assert plans[0].entry_trigger_price == pytest.approx(238.0)

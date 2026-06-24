@@ -32,3 +32,9 @@ def test_compute_stock_daily_features_basic_values() -> None:
     assert latest["atr_pct"] is not None
     assert latest["amount_percentile_60d"] == 100
     assert latest["trend_score"] == 75
+    assert latest["amount_ratio_5d"] is not None
+    assert latest["recent_amount_ratio_20d"] is not None
+    assert latest["close_position_in_range"] == 0.5
+    assert latest["upper_shadow_pct"] > 0
+    assert latest["pullback_to_ma20_pct"] is not None
+    assert latest["volume_trap_risk_score"] is not None
