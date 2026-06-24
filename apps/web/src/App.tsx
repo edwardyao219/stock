@@ -22,6 +22,8 @@ import {
 } from "./api";
 import { StrategyEvidenceChart } from "./StrategyEvidenceChart";
 
+const AUTO_REFRESH_MS = 15_000;
+
 const sourceLabels: Record<string, string> = {
   auto: "系统筛选",
   manual: "手动关注",
@@ -154,10 +156,20 @@ function paperWinRate(stock: WorkspaceStock) {
   return wins / closedCount;
 }
 
+function rowTradeLabel(trade: PaperTrade | null) {
+  if (!trade) return "-";
+  return trade.status === "open" ? "持仓中" : tradeStatusText(trade.status);
+}
+
 function todayText(offsetDays = 0) {
   const value = new Date();
   value.setDate(value.getDate() + offsetDays);
   return value.toISOString().slice(0, 10);
+}
+
+function timeText(value: Date | null) {
+  if (!value) return "-";
+  return value.toLocaleTimeString("zh-CN", { hour12: false });
 }
 
 export function App() {
@@ -182,7 +194,10 @@ export function App() {
   const [pipelineResult, setPipelineResult] = useState<PipelineRunResult | null>(null);
   const [expandedPipelineSteps, setExpandedPipelineSteps] = useState<Record<string, boolean>>({});
   const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selected = useMemo(
@@ -206,8 +221,12 @@ export function App() {
     });
   }, [stocks, query, sourceFilter]);
 
-  async function loadWorkspace() {
-    setLoading(true);
+  async function loadWorkspace(options: { silent?: boolean } = {}) {
+    if (options.silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const nextStocks = await fetchWorkspaceStocks();
@@ -216,10 +235,15 @@ export function App() {
         if (current && nextStocks.some((item) => item.symbol === current)) return current;
         return nextStocks[0]?.symbol ?? null;
       });
+      setLastRefreshedAt(new Date());
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "加载失败");
     } finally {
-      setLoading(false);
+      if (options.silent) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   }
 
@@ -276,6 +300,15 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!autoRefresh) return undefined;
+    const timer = window.setInterval(() => {
+      loadWorkspace({ silent: true });
+      if (selectedSymbol) loadCandles(selectedSymbol);
+    }, AUTO_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [autoRefresh, selectedSymbol]);
+
+  useEffect(() => {
     if (selected?.symbol) loadCandles(selected.symbol);
     setTradeDialogOpen(false);
   }, [selected?.symbol]);
@@ -311,10 +344,21 @@ export function App() {
             </button>
           ))}
         </nav>
-        <button className="refresh-button" type="button" onClick={loadWorkspace}>
-          <RefreshCw size={16} />
-          刷新
-        </button>
+        <div className="header-actions">
+          <label className="auto-refresh-toggle">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(event) => setAutoRefresh(event.target.checked)}
+            />
+            <span>自动刷新</span>
+            <small>{refreshing ? "更新中" : `上次 ${timeText(lastRefreshedAt)}`}</small>
+          </label>
+          <button className="refresh-button" type="button" onClick={() => loadWorkspace()}>
+            <RefreshCw size={16} />
+            刷新
+          </button>
+        </div>
       </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
@@ -553,46 +597,53 @@ export function App() {
             </div>
             {loading ? <div className="empty">加载中</div> : null}
             {!loading && !filteredStocks.length ? <div className="empty">暂无股票</div> : null}
-            {filteredStocks.map((item) => (
-              <button
-                key={item.symbol}
-                className={`stock-row ${selected?.symbol === item.symbol ? "selected" : ""} ${
-                  hasOpenAutoTrade(item) ? "has-open-trade" : ""
-                }`}
-                type="button"
-                onClick={() => setSelectedSymbol(item.symbol)}
-              >
-                <span>
-                  <strong>{item.symbol}</strong>
-                  <small>{item.name ?? "未命名"} {item.industry ? ` / ${item.industry}` : ""}</small>
-                </span>
-                <span className={`source-pill ${item.source.includes("auto") ? "auto" : "manual"}`}>
-                  {sourceLabels[item.source] ?? item.source}
-                </span>
-                <span>
-                  <em className={(item.return_5d ?? 0) >= 0 ? "up" : "down"}>{pct(item.return_5d)}</em>
-                  <small>20日 {pct(item.return_20d)}</small>
-                </span>
-                <span>
-                  <strong>
-                    {primaryPaperTrade(item)
-                      ? `${hasOpenAutoTrade(item) ? "自动买入" : tradeStatusText(primaryPaperTrade(item)?.status)} ${pct(
-                          tradeReturnPct(primaryPaperTrade(item), item.latest_close),
-                        )}`
-                      : latestPlan(item)
-                        ? planStatusText(latestPlan(item)?.status)
-                        : "-"}
-                  </strong>
-                  <small>
-                    {primaryPaperTrade(item)
-                      ? `实时 ${price(primaryPaperTrade(item)?.current_price)} / 已平${paperClosedCount(item)}笔`
-                      : latestPlan(item)
-                        ? `触发价 ${price(latestPlan(item)?.entry_trigger_price)}`
-                        : "无模拟"}
-                  </small>
-                </span>
-              </button>
-            ))}
+            {filteredStocks.map((item) => {
+              const rowTrade = primaryPaperTrade(item);
+              const rowPlan = latestPlan(item);
+              const rowReturn = tradeReturnPct(rowTrade, item.latest_close);
+              return (
+                <button
+                  key={item.symbol}
+                  className={`stock-row ${selected?.symbol === item.symbol ? "selected" : ""} ${
+                    hasOpenAutoTrade(item) ? "has-open-trade" : ""
+                  }`}
+                  type="button"
+                  onClick={() => setSelectedSymbol(item.symbol)}
+                >
+                  <span>
+                    <strong>{item.symbol}</strong>
+                    <small>{item.name ?? "未命名"} {item.industry ? ` / ${item.industry}` : ""}</small>
+                    <small>{item.sector_style ?? "未分类"} / 胜率 {pct(paperWinRate(item))}</small>
+                  </span>
+                  <span className={`source-pill ${item.source.includes("auto") ? "auto" : "manual"}`}>
+                    {sourceLabels[item.source] ?? item.source}
+                  </span>
+                  <span>
+                    <em className={(item.return_5d ?? 0) >= 0 ? "up" : "down"}>{pct(item.return_5d)}</em>
+                    <small>20日 {pct(item.return_20d)} / 收盘 {price(item.latest_close)}</small>
+                  </span>
+                  <span className="trade-cell">
+                    <strong className={(rowReturn ?? 0) >= 0 ? "up" : "down"}>
+                      {rowTrade ? `${rowTradeLabel(rowTrade)} ${pct(rowReturn)}` : rowPlan ? planStatusText(rowPlan.status) : "-"}
+                    </strong>
+                    <small>
+                      {rowTrade
+                        ? `实时 ${price(rowTrade.current_price)} / 买入 ${price(rowTrade.entry_price)}`
+                        : rowPlan
+                          ? `触发 ${price(rowPlan.entry_trigger_price)} / 置信 ${price(rowPlan.confidence_score)}`
+                          : "无交易计划"}
+                    </small>
+                    <small>
+                      {rowTrade
+                        ? `止损 ${price(rowTrade.current_stop)} / 止盈 ${price(rowTrade.take_profit_1)}`
+                        : rowPlan
+                          ? `止损 ${price(rowPlan.initial_stop)} / 止盈 ${price(rowPlan.take_profit_1)}`
+                          : `已平 ${paperClosedCount(item)}笔`}
+                    </small>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -637,33 +688,51 @@ export function App() {
                 </div>
                 {selectedTrade ? (
                   <div className="active-trade-card">
-                    <div>
-                      <span>{selectedTrade.status === "open" ? "当前持仓" : "最近一笔"}</span>
-                      <strong>
-                        {selectedTrade.rule_id} / {tradeStatusText(selectedTrade.status)} /{" "}
+                    <div className="active-trade-head">
+                      <div>
+                        <span>{selectedTrade.status === "open" ? "当前持仓" : "最近一笔"}</span>
+                        <strong>
+                          {selectedTrade.rule_id} / {tradeStatusText(selectedTrade.status)}
+                        </strong>
+                      </div>
+                      <strong className={(selectedTradeReturn ?? 0) >= 0 ? "up" : "down"}>
                         {pct(selectedTradeReturn)}
                       </strong>
                     </div>
-                    <p>
-                      买入 {selectedTrade.entry_date} @ {price(selectedTrade.entry_price)}，
-                      卖出 {selectedTrade.exit_date ?? "未卖出"} @ {price(selectedTrade.exit_price)}
-                    </p>
-                    {selectedTrade.status === "open" ? (
-                      <p className="live-trade-line">
-                        实时价 {price(selectedTrade.current_price)} / 当前浮盈{" "}
-                        {pct(selectedTrade.current_pnl_pct)} / 当前止损{" "}
-                        {price(selectedTrade.current_stop)} / 第一止盈{" "}
-                        {price(selectedTrade.take_profit_1)}
-                        {selectedTrade.quote_time ? ` / 快照 ${selectedTrade.quote_time}` : ""}
-                      </p>
-                    ) : null}
-                    <p>
+                    <div className="trade-metric-grid">
+                      <div>
+                        <span>买入</span>
+                        <strong>{price(selectedTrade.entry_price)}</strong>
+                        <small>{selectedTrade.entry_date}</small>
+                      </div>
+                      <div>
+                        <span>{selectedTrade.status === "open" ? "实时价" : "卖出"}</span>
+                        <strong>{price(selectedTrade.status === "open" ? selectedTrade.current_price : selectedTrade.exit_price)}</strong>
+                        <small>{selectedTrade.status === "open" ? selectedTrade.quote_time ?? "-" : selectedTrade.exit_date ?? "-"}</small>
+                      </div>
+                      <div>
+                        <span>止损</span>
+                        <strong>{price(selectedTrade.current_stop)}</strong>
+                        <small>止盈 {price(selectedTrade.take_profit_1)}</small>
+                      </div>
+                      <div>
+                        <span>顶峰</span>
+                        <strong>{pct(selectedTrade.mfe_pct)}</strong>
+                        <small>最大浮亏 {pct(selectedTrade.mae_pct)}</small>
+                      </div>
+                      <div>
+                        <span>最高 / 最低</span>
+                        <strong>{price(selectedTrade.highest_price)}</strong>
+                        <small>{price(selectedTrade.lowest_price)}</small>
+                      </div>
+                      <div>
+                        <span>胜率 / 已平</span>
+                        <strong>{pct(paperWinRate(selected))}</strong>
+                        <small>{paperClosedCount(selected)} 笔</small>
+                      </div>
+                    </div>
+                    <p className="trade-note-line">
                       数量 {selectedTrade.quantity} / 持有 {selectedTrade.holding_days}天 /
-                      最高 {price(selectedTrade.highest_price)} / 最低 {price(selectedTrade.lowest_price)} /
-                      顶峰浮盈 {pct(selectedTrade.mfe_pct)} / 最大浮亏 {pct(selectedTrade.mae_pct)}
-                    </p>
-                    <p>
-                      胜率 {pct(paperWinRate(selected))} / 已平 {paperClosedCount(selected)}笔 /
                       退出原因 {exitReasonText(selectedTrade.exit_reason)}
                     </p>
                   </div>

@@ -58,6 +58,13 @@ button {
   gap: 18px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 .page-nav {
   display: flex;
   gap: 8px;
@@ -127,6 +134,35 @@ button {
   align-items: center;
   gap: 8px;
   padding: 0 14px;
+}
+
+.auto-refresh-toggle {
+  border: 1px solid #cbd4df;
+  border-radius: 7px;
+  background: #fff;
+  color: #17202b;
+  min-height: 36px;
+  padding: 0 10px;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 7px;
+}
+
+.auto-refresh-toggle input {
+  margin: 0;
+}
+
+.auto-refresh-toggle span {
+  font-size: 13px;
+  color: #17202b;
+}
+
+.auto-refresh-toggle small {
+  grid-column: 2;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .error-banner {
@@ -487,7 +523,7 @@ button {
 .stock-table-head,
 .stock-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1.4fr) 110px minmax(120px, 1fr) minmax(160px, 1fr);
+  grid-template-columns: minmax(170px, 1.35fr) 96px minmax(150px, 1fr) minmax(220px, 1.45fr);
   gap: 12px;
   align-items: center;
 }
@@ -507,6 +543,24 @@ button {
   background: #fff;
   color: #17202b;
   padding: 12px;
+}
+
+.stock-row > span,
+.trade-cell {
+  min-width: 0;
+}
+
+.trade-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.trade-cell strong,
+.stock-row strong,
+.stock-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stock-row.selected {
@@ -694,7 +748,7 @@ button {
 .active-trade-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .active-trade-card span {
@@ -709,10 +763,49 @@ button {
   margin-top: 2px;
 }
 
-.live-trade-line {
+.active-trade-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.active-trade-head > strong {
+  font-size: 24px;
+  white-space: nowrap;
+}
+
+.trade-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.trade-metric-grid div {
+  border: 1px solid #e1e8ef;
   border-radius: 7px;
-  background: #edf8f1;
-  color: #17623a;
+  background: #f8fafc;
+  padding: 9px 10px;
+  min-width: 0;
+}
+
+.trade-metric-grid strong {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.trade-metric-grid small {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.trade-note-line {
+  border-radius: 7px;
+  background: #f6f8fb;
+  color: #475569;
   padding: 8px 10px;
 }
 

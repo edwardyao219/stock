@@ -111,6 +111,30 @@ def _alert(
     )
 
 
+def _plan_alert(
+    *,
+    account_id: int,
+    plan: TradePlan,
+    quote: RealtimeQuoteRow,
+    alert_type: str,
+    severity: str,
+    message: str,
+    price: Decimal | None,
+) -> RealtimePaperAlert:
+    return RealtimePaperAlert(
+        account_id=account_id,
+        position_id=None,
+        symbol=plan.symbol,
+        alert_type=alert_type,
+        severity=severity,
+        message=message,
+        alert_time=quote.quote_time.isoformat(timespec="seconds"),
+        price=_float(price),
+        current_stop=_float(plan.initial_stop),
+        pnl_pct=None,
+    )
+
+
 def _target_symbols(db, account_id: int, trade_date: date) -> set[str]:
     symbols = {position.symbol for position in load_open_positions(db, account_id)}
     symbols.update(plan.symbol for plan in load_trade_plans_for_trade_date(db, trade_date))
@@ -245,6 +269,49 @@ def _realtime_exit_signal(
     return True, position.current_stop, "stop_loss"
 
 
+def _entry_quality_rejection_reason(
+    plan: TradePlan,
+    quote: RealtimeQuoteRow,
+    trigger_price: Decimal,
+) -> str | None:
+    price = _decimal(quote.price)
+    open_price = _decimal(quote.open)
+    high = _decimal(quote.high)
+    low = _decimal(quote.low)
+    pre_close = _decimal(quote.pre_close)
+    if price is None:
+        return "missing_price"
+
+    if pre_close is not None and pre_close > 0:
+        pct_change = price / pre_close - Decimal("1")
+        if pct_change >= Decimal("0.085") and plan.rule_id != "OBS001":
+            return "intraday_gain_too_hot"
+
+        limit_up = (pre_close * _limit_ratio(plan.symbol)).quantize(Decimal("0.0001"))
+        if high is not None and high >= limit_up * Decimal("0.998") and price < limit_up:
+            return "near_limit_up_not_sealed"
+
+    if high is not None and high > 0:
+        effective_low = low or price
+        close_position = (
+            (price - effective_low) / (high - effective_low)
+            if high > effective_low
+            else Decimal("1")
+        )
+        pullback_from_high = high / price - Decimal("1")
+        if pullback_from_high >= Decimal("0.025") and price <= trigger_price * Decimal("1.01"):
+            return "failed_breakout_pullback"
+        if close_position < Decimal("0.35") and high > trigger_price:
+            return "weak_close_position_after_trigger"
+
+    if open_price is not None and pre_close is not None and pre_close > 0:
+        gap_up_pct = open_price / pre_close - Decimal("1")
+        if gap_up_pct >= Decimal("0.04") and price < open_price:
+            return "gap_up_faded_below_open"
+
+    return None
+
+
 def _execute_realtime_exit(
     db,
     account,
@@ -319,6 +386,21 @@ def _execute_realtime_entry(
 
     if price < trigger_price:
         return False, None
+
+    rejection_reason = _entry_quality_rejection_reason(plan, quote, trigger_price)
+    if rejection_reason:
+        return False, _plan_alert(
+            account_id=account.id,
+            plan=plan,
+            quote=quote,
+            alert_type="paper_entry_deferred",
+            severity="medium",
+            message=(
+                f"{plan.symbol} 到达计划触发区，但盘中入场质量不足，"
+                f"暂缓买入：{rejection_reason}。"
+            ),
+            price=price,
+        )
 
     initial_stop = _decimal(plan.initial_stop)
     if initial_stop is not None and initial_stop >= price:

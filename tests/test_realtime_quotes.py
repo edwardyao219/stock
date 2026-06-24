@@ -6,7 +6,11 @@ from sqlalchemy.orm import sessionmaker
 
 from services.collector.akshare_client import RealtimeQuoteRow, fetch_sina_realtime_quotes
 from services.collector.repository import upsert_realtime_quotes
-from services.engine.paper.realtime import _realtime_exit_signal, _update_position_from_quote
+from services.engine.paper.realtime import (
+    _entry_quality_rejection_reason,
+    _realtime_exit_signal,
+    _update_position_from_quote,
+)
 from services.shared.database import Base
 from services.shared.models import (
     PaperPosition,
@@ -26,6 +30,23 @@ def _quote(symbol: str = "000001") -> RealtimeQuoteRow:
         open=Decimal("10.1000"),
         high=Decimal("11.0000"),
         low=Decimal("10.2000"),
+        pre_close=Decimal("10.0000"),
+        pct_change=Decimal("3.0000"),
+        volume=Decimal("100000"),
+        amount=Decimal("103000000"),
+        turnover_rate=Decimal("1.2000"),
+    )
+
+
+def _entry_quote(symbol: str = "000001") -> RealtimeQuoteRow:
+    return RealtimeQuoteRow(
+        symbol=symbol,
+        trade_date="2026-06-24",
+        quote_time=datetime(2026, 6, 24, 10, 5),
+        price=Decimal("10.3000"),
+        open=Decimal("10.1000"),
+        high=Decimal("10.3500"),
+        low=Decimal("10.0800"),
         pre_close=Decimal("10.0000"),
         pct_change=Decimal("3.0000"),
         volume=Decimal("100000"),
@@ -206,7 +227,7 @@ def test_realtime_monitor_can_execute_exit_and_create_review(monkeypatch) -> Non
     result = realtime.monitor_paper_positions_realtime(
         trade_date="2026-06-24",
         account_name="default",
-        quotes=[_quote()],
+        quotes=[_entry_quote()],
         quote_time=datetime(2026, 6, 24, 10, 5),
         execute_exits=True,
     )
@@ -258,7 +279,7 @@ def test_realtime_monitor_can_execute_entry_from_plan(monkeypatch) -> None:
     result = realtime.monitor_paper_positions_realtime(
         trade_date="2026-06-24",
         account_name="default",
-        quotes=[_quote()],
+        quotes=[_entry_quote()],
         quote_time=datetime(2026, 6, 24, 10, 5),
         execute_entries=True,
         execute_exits=False,
@@ -274,3 +295,111 @@ def test_realtime_monitor_can_execute_entry_from_plan(monkeypatch) -> None:
     assert position.entry_price == Decimal("10.3000")
     assert trade.side == "buy"
     assert plan.status == "executed"
+
+
+def test_entry_quality_rejects_failed_breakout_pullback() -> None:
+    plan = TradePlan(
+        plan_date=date(2026, 6, 23),
+        trade_date=date(2026, 6, 24),
+        symbol="000001",
+        rule_id="R006",
+        strategy_type="swing",
+        sector_code=None,
+        entry_condition_json={},
+        entry_trigger_price=Decimal("10.2000"),
+        max_gap_up_pct=Decimal("0.0600"),
+        trailing_drawdown_pct=Decimal("0.0600"),
+        initial_stop=Decimal("9.7000"),
+        take_profit_1=Decimal("10.8000"),
+        take_profit_2=None,
+        max_holding_days=5,
+        position_size=Decimal("0.1000"),
+        confidence_score=Decimal("80.0000"),
+        risk_notes=None,
+        status="planned",
+    )
+    quote = RealtimeQuoteRow(
+        symbol="000001",
+        trade_date="2026-06-24",
+        quote_time=datetime(2026, 6, 24, 10, 5),
+        price=Decimal("10.2500"),
+        open=Decimal("10.1000"),
+        high=Decimal("10.7000"),
+        low=Decimal("10.1500"),
+        pre_close=Decimal("10.0000"),
+        pct_change=Decimal("2.5000"),
+        volume=Decimal("100000"),
+        amount=Decimal("103000000"),
+        turnover_rate=Decimal("1.2000"),
+    )
+
+    reason = _entry_quality_rejection_reason(plan, quote, Decimal("10.2000"))
+
+    assert reason == "failed_breakout_pullback"
+
+
+def test_realtime_monitor_defers_entry_when_intraday_quality_is_weak(monkeypatch) -> None:
+    from services.engine.paper import realtime
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    monkeypatch.setattr(realtime, "SessionLocal", session)
+
+    with session() as db:
+        db.add(
+            TradePlan(
+                plan_date=date(2026, 6, 23),
+                trade_date=date(2026, 6, 24),
+                symbol="000001",
+                rule_id="R006",
+                strategy_type="swing",
+                sector_code=None,
+                entry_condition_json={},
+                entry_trigger_price=Decimal("10.2000"),
+                max_gap_up_pct=Decimal("0.0600"),
+                trailing_drawdown_pct=Decimal("0.0600"),
+                initial_stop=Decimal("9.7000"),
+                take_profit_1=Decimal("10.8000"),
+                take_profit_2=None,
+                max_holding_days=5,
+                position_size=Decimal("0.1000"),
+                confidence_score=Decimal("80.0000"),
+                risk_notes=None,
+                status="planned",
+            )
+        )
+        db.commit()
+
+    weak_quote = RealtimeQuoteRow(
+        symbol="000001",
+        trade_date="2026-06-24",
+        quote_time=datetime(2026, 6, 24, 10, 5),
+        price=Decimal("10.2500"),
+        open=Decimal("10.1000"),
+        high=Decimal("10.7000"),
+        low=Decimal("10.1500"),
+        pre_close=Decimal("10.0000"),
+        pct_change=Decimal("2.5000"),
+        volume=Decimal("100000"),
+        amount=Decimal("103000000"),
+        turnover_rate=Decimal("1.2000"),
+    )
+    result = realtime.monitor_paper_positions_realtime(
+        trade_date="2026-06-24",
+        account_name="default",
+        quotes=[weak_quote],
+        quote_time=datetime(2026, 6, 24, 10, 5),
+        execute_entries=True,
+        execute_exits=False,
+    )
+
+    with session() as db:
+        assert db.query(PaperPosition).count() == 0
+        assert db.query(PaperTrade).count() == 0
+        plan = db.query(TradePlan).one()
+
+    assert result.executed_entries == 0
+    assert plan.status == "planned"
+    assert [alert.alert_type for alert in result.alerts] == ["paper_entry_deferred"]
