@@ -63,6 +63,10 @@ def build_trade_evidence(
     trend_score = _score(context.get("trend_score"))
     sector_strength = _score(context.get("sector_strength_score"))
     sector_confidence = _score(context.get("sector_sample_confidence"), 0.0)
+    sector_breadth = _score(context.get("sector_breadth_score"))
+    sector_momentum = _score(context.get("sector_momentum_score"))
+    sector_fund_flow_score = _score(context.get("sector_fund_flow_score"))
+    moneyflow_support_score = _score(context.get("moneyflow_support_score"))
     risk_score = _score(context.get("risk_score"))
     atr_percentile = _score(context.get("atr_pct_percentile_60d"))
     fundamental_score = _score(context.get("fundamental_score"))
@@ -137,6 +141,73 @@ def build_trade_evidence(
         )
 
     if (
+        sector_breadth >= _threshold(active_thresholds, "sector_breadth_min", 55.0)
+        and sector_momentum >= _threshold(active_thresholds, "sector_momentum_min", 55.0)
+    ):
+        tags.append(
+            EvidenceTag(
+                name="sector_breadth_momentum_confirmation",
+                direction="support",
+                severity="low",
+                rationale="板块广度和动量一起抬升，个股更像跟随主线而不是独立波动。",
+                values={
+                    "sector_breadth_score": sector_breadth,
+                    "sector_momentum_score": sector_momentum,
+                },
+            )
+        )
+    elif sector_breadth <= _threshold(active_thresholds, "weak_sector_breadth", 45.0):
+        tags.append(
+            EvidenceTag(
+                name="sector_breadth_divergence",
+                direction="risk",
+                severity="low",
+                rationale="板块广度不够时，单票强势更容易变成孤立冲高。",
+                values={
+                    "sector_breadth_score": sector_breadth,
+                    "sector_momentum_score": sector_momentum,
+                },
+            )
+        )
+
+    if (
+        sector_fund_flow_score >= _threshold(active_thresholds, "sector_fund_flow_score", 58.0)
+        and moneyflow_support_score >= _threshold(active_thresholds, "stock_moneyflow_score", 54.0)
+    ):
+        tags.append(
+            EvidenceTag(
+                name="fund_flow_confirmation",
+                direction="support",
+                severity="low",
+                rationale="行业资金和个股净流向同时偏正，说明信号不完全是空心上涨。",
+                values={
+                    "sector_fund_flow_score": sector_fund_flow_score,
+                    "moneyflow_support_score": moneyflow_support_score,
+                    "sector_fund_flow_rate": _float(context.get("sector_fund_flow_rate")),
+                    "net_mf_amount": _float(context.get("net_mf_amount")),
+                },
+            )
+        )
+    elif (
+        sector_fund_flow_score <= _threshold(active_thresholds, "weak_sector_fund_flow_score", 42.0)
+        and moneyflow_support_score <= _threshold(active_thresholds, "weak_stock_moneyflow_score", 45.0)
+    ):
+        tags.append(
+            EvidenceTag(
+                name="fund_flow_divergence",
+                direction="risk",
+                severity="low",
+                rationale="行业和个股资金都偏弱时，走势延续性要打折看待。",
+                values={
+                    "sector_fund_flow_score": sector_fund_flow_score,
+                    "moneyflow_support_score": moneyflow_support_score,
+                    "sector_fund_flow_rate": _float(context.get("sector_fund_flow_rate")),
+                    "net_mf_amount": _float(context.get("net_mf_amount")),
+                },
+            )
+        )
+
+    if (
         trend_score >= _threshold(active_thresholds, "trend_alignment_score", 75.0)
         and risk_score <= _threshold(active_thresholds, "trend_alignment_max_risk", 35.0)
     ):
@@ -146,6 +217,16 @@ def build_trade_evidence(
                 direction="support",
                 severity="medium",
                 rationale="均线趋势和风险分数同时支持，说明技术形态相对顺势。",
+                values={"trend_score": trend_score, "risk_score": risk_score},
+            )
+        )
+    elif trend_score >= _threshold(active_thresholds, "trend_alignment_score", 75.0) - 5.0:
+        tags.append(
+            EvidenceTag(
+                name="trend_alignment",
+                direction="support",
+                severity="low",
+                rationale="趋势结构基本顺势，但还没到足够强的确认级别。",
                 values={"trend_score": trend_score, "risk_score": risk_score},
             )
         )
@@ -212,6 +293,10 @@ def build_trade_evidence(
             "amount_percentile_60d": amount_percentile,
             "trend_score": trend_score,
             "sector_strength_score": sector_strength,
+            "sector_breadth_score": sector_breadth,
+            "sector_momentum_score": sector_momentum,
+            "sector_fund_flow_score": sector_fund_flow_score,
+            "moneyflow_support_score": moneyflow_support_score,
             "risk_score": risk_score,
             "atr_pct_percentile_60d": atr_percentile,
             "fundamental_score": fundamental_score,

@@ -1,3 +1,6 @@
+import inspect
+
+from services.engine.backtest import daily
 from services.engine.backtest.daily import run_daily_rule_backtest
 from services.engine.backtest.models import DailyBacktestInput, FeatureSnapshot
 from services.engine.features.daily import BarInput
@@ -80,6 +83,45 @@ def test_run_daily_rule_backtest_skips_gap_up_above_limit() -> None:
     )
 
     assert trades == []
+
+
+def test_run_daily_rule_backtest_does_not_exit_on_same_bar_profit_and_stop_flip() -> None:
+    bars = [
+        BarInput("000001", "2026-01-01", 10.0, 10.4, 9.8, 10.0, None, 1000),
+        BarInput("000001", "2026-01-02", 10.05, 10.9, 10.0, 10.7, 10.0, 2000),
+        BarInput("000001", "2026-01-03", 10.6, 10.78, 10.2, 10.3, 10.7, 2500),
+    ]
+    features = [
+        FeatureSnapshot(
+            symbol="000001",
+            trade_date="2026-01-01",
+            context=_breakout_context(),
+        )
+    ]
+
+    trades = run_daily_rule_backtest(
+        DailyBacktestInput(symbol="000001", bars=bars, features=features),
+        MVP_RULES[0],
+        fee_rate=0,
+        slippage_rate=0,
+    )
+
+    assert len(trades) == 1
+    assert trades[0].exit_date in {"2026-01-02", "2026-01-03"}
+    assert trades[0].exit_reason in {"time_exit", "trailing_take_profit"}
+
+
+def test_run_daily_rule_backtest_uses_precomputed_date_indexes() -> None:
+    indexed_path_source = "\n".join(
+        inspect.getsource(item)
+        for item in [
+            daily._next_trade_date,
+            daily._exit_trade,
+            daily.run_daily_rule_backtest,
+        ]
+    )
+
+    assert ".index(" not in indexed_path_source
 
 
 def _breakout_context() -> dict[str, object]:

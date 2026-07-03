@@ -18,6 +18,8 @@ from services.engine.risk.repository import (
 from services.engine.rules.seed_rules import MVP_RULES
 from services.shared.database import SessionLocal
 
+MAIN_TRADE_STRATEGY_TYPES = {"long_term", "swing"}
+
 
 def generate_and_store_trade_plans(
     plan_date: str,
@@ -45,13 +47,16 @@ def generate_and_store_trade_plans(
             symbols=target_symbols,
             limit=limit,
         )
+        feature_date_obj = date.fromisoformat(effective_feature_date)
 
         def learning_loader(rule, context, signal_tags):
             return load_plan_learning_adjustments(
                 db,
                 rule_id=rule.id,
+                symbol=context.get("symbol"),
                 sector_code=context.get("sector_code") or context.get("industry"),
                 signal_tags=signal_tags,
+                feature_date=feature_date_obj,
             )
 
         plans = generate_trade_plans(
@@ -67,6 +72,7 @@ def generate_and_store_trade_plans(
                 style=context.get("style"),
             ),
             learning_adjustment_loader=learning_loader if use_learning_adjustments else None,
+            allowed_strategy_types=MAIN_TRADE_STRATEGY_TYPES,
         )
         written = upsert_trade_plans(db, plans)
         db.commit()

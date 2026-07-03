@@ -36,10 +36,10 @@ class DingTalkNotifier:
     def _signed_url(self) -> str:
         if not self.secret:
             return self.webhook_url
-        timestamp = str(round(time.time() * 1000))
+        timestamp = str(int(time.time() * 1000))
         payload = f"{timestamp}\n{self.secret}".encode()
         digest = hmac.new(self.secret.encode(), payload, hashlib.sha256).digest()
-        sign = quote_plus(base64.b64encode(digest))
+        sign = quote_plus(base64.b64encode(digest).decode("utf-8"))
         joiner = "&" if "?" in self.webhook_url else "?"
         return f"{self.webhook_url}{joiner}timestamp={timestamp}&sign={sign}"
 

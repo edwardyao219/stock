@@ -27,6 +27,32 @@ export interface RecommendationSummary {
   pending: number;
 }
 
+export interface MechanicalReview {
+  report_date: string | null;
+  report_type: string;
+  title: string;
+  content_md: string;
+  metrics: Record<string, unknown>;
+  found: boolean;
+}
+
+export interface MonthlySummary {
+  month: string;
+  paper_review_count: number;
+  backtest_trade_count: number;
+  winning_reviews: number;
+  losing_reviews: number;
+  total_pnl: number;
+  avg_review_return: number | null;
+  avg_backtest_return: number | null;
+  top_symbols: Record<string, unknown>[];
+  top_rules: Record<string, unknown>[];
+  factor_insights: Record<string, unknown>[];
+  sector_opportunities: Record<string, unknown>[];
+  excluded_symbols: string[];
+  content_md: string;
+}
+
 export interface Candle {
   time: string;
   open: number;
@@ -39,6 +65,111 @@ export interface Candle {
   ma10: number | null;
   ma20: number | null;
   ma60: number | null;
+}
+
+export interface MarketOverview {
+  trade_date: string | null;
+  stock_count: number;
+  up_count: number;
+  down_count: number;
+  flat_count: number;
+  up_ratio: number | null;
+  avg_change_pct: number | null;
+  total_amount: number | null;
+  amount_change_pct: number | null;
+  active_security_count: number;
+  coverage_ratio: number | null;
+  is_full_market: boolean;
+  message: string;
+  indexes: MarketIndex[];
+}
+
+export interface MarketIndex {
+  code: string;
+  name: string;
+  quote_date: string | null;
+  price: number | null;
+  change_pct: number | null;
+  amount: number | null;
+  source: string;
+}
+
+export interface DataHealthIssue {
+  code: string;
+  severity: string;
+  message: string;
+  metric: string;
+  value: number | null;
+  threshold: number | null;
+}
+
+export interface DataHealth {
+  trade_date: string | null;
+  status: string;
+  daily_bar_count: number;
+  feature_count: number;
+  previous_daily_bar_count: number;
+  amount_missing_ratio: number | null;
+  previous_amount_missing_ratio: number | null;
+  amount_ratio_5d_median: number | null;
+  amount_ratio_5d_p10: number | null;
+  volume_confirmation_median: number | null;
+  amount_volume_multiplier_median: number | null;
+  previous_amount_volume_multiplier_median: number | null;
+  issues: DataHealthIssue[];
+}
+
+export interface SectorOverviewItem {
+  sector_code: string;
+  sector_name: string;
+  canonical_sector_name: string | null;
+  trade_date: string | null;
+  month_start_date: string | null;
+  month_rank: number | null;
+  monthly_return_pct: number | null;
+  day_change_pct: number | null;
+  amount: number | null;
+  fund_flow_net_amount: number | null;
+  fund_flow_rate: number | null;
+  sector_strength_score: number | null;
+  sector_breadth_score: number | null;
+  sector_momentum_score: number | null;
+  sector_stock_count: number | null;
+  sector_up_count: number | null;
+}
+
+export interface SectorOverview {
+  trade_date: string | null;
+  month_start_date: string | null;
+  feature_trade_date: string | null;
+  moneyflow_trade_date: string | null;
+  feature_sector_count: number;
+  overview_sector_count: number;
+  feature_coverage_ratio: number | null;
+  sectors: SectorOverviewItem[];
+  monthly_rank: SectorOverviewItem[];
+  activity_rank: SectorOverviewItem[];
+  continuity_rank: SectorOverviewItem[];
+}
+
+export interface SectorCatalystItem {
+  sector_name: string;
+  catalyst_score: number;
+  catalyst_label: string;
+  keywords: string[];
+  related_sectors: string[];
+  source_titles: string[];
+  risk_notes: string[];
+}
+
+export interface SectorCatalysts {
+  as_of: string;
+  source_count: number;
+  catalysts: SectorCatalystItem[];
+  message: string;
+  snapshot_id: number | null;
+  snapshot_trade_date: string | null;
+  stored: boolean;
 }
 
 export interface WorkspacePlan {
@@ -118,6 +249,12 @@ export interface WorkspaceStock {
   source: string;
   manual_note: string | null;
   manual_tags: string[];
+  candidate_rank: number | null;
+  candidate_score: number | null;
+  candidate_tier: "core_action" | "watch_wait" | "risk_reject" | null;
+  candidate_tier_label: string | null;
+  candidate_tier_reason: string | null;
+  feature_date: string | null;
   latest_trade_date: string | null;
   latest_close: number | null;
   current_price: number | null;
@@ -125,9 +262,282 @@ export interface WorkspaceStock {
   quote_time: string | null;
   return_5d: number | null;
   return_20d: number | null;
+  trend_score: number | null;
+  relative_strength_score: number | null;
+  sector_strength_score: number | null;
+  volume_confirmation_score: number | null;
+  risk_score: number | null;
+  overheat_score: number | null;
+  volume_trap_risk_score: number | null;
+  distance_to_ma20: number | null;
+  amount_percentile_60d: number | null;
+  amount_ratio_5d: number | null;
+  pullback_volume_ratio: number | null;
+  ma20_slope_20d: number | null;
+  ma60_slope_20d: number | null;
+  ma_alignment_score: number | null;
+  trend_quality_score: number | null;
+  route_score: number | null;
+  route_label: string | null;
+  route_reason: string | null;
   plans: WorkspacePlan[];
   paper_trade_summaries: PaperTradeSummary[];
   recent_paper_trades: PaperTrade[];
+  manual_refresh?: ManualRefresh | null;
+}
+
+export interface IntradayCandidate {
+  symbol: string;
+  name: string | null;
+  sector: string | null;
+  quote_time: string;
+  price: number | null;
+  day_change_pct: number | null;
+  candidate_rank: number | null;
+  candidate_score: number | null;
+  intraday_state: string;
+  intraday_label: string;
+  intraday_score: number;
+  review_window: string;
+  review_window_label: string;
+  sector_signal: string;
+  sector_signal_label: string;
+  sector_quality_score: number;
+  sector_quality_label: string;
+  selection_tier: string;
+  selection_tier_label: string;
+  selection_reason: string;
+  summary: string;
+  theme_signal_label: string | null;
+  theme_signal_reason: string | null;
+  caution_reasons: string[];
+  support_flags: string[];
+  risk_flags: string[];
+}
+
+export interface CandidateBatch {
+  auto_feature_date: string | null;
+  auto_hold_until: string | null;
+  source_item_count: number;
+  usable_item_count: number;
+  current_auto_candidate_count: number;
+  manual_focus_count: number;
+  stale_auto_candidate_count: number;
+}
+
+export interface IntradayCandidateList {
+  trade_date: string;
+  as_of: string | null;
+  pool_name: string;
+  candidate_count: number;
+  candidate_batch: CandidateBatch;
+  candidates: IntradayCandidate[];
+}
+
+export interface IntradayCandidateSnapshot extends IntradayCandidateList {
+  stage: string;
+  stage_label: string;
+}
+
+export interface IntradaySnapshotLearning {
+  symbol: string;
+  name: string | null;
+  sector: string | null;
+  from_stage: string;
+  from_stage_label: string;
+  to_stage: string;
+  to_stage_label: string;
+  from_state: string;
+  from_label: string;
+  to_state: string;
+  to_label: string;
+  from_score: number;
+  to_score: number;
+  score_delta: number;
+  verdict: string;
+  verdict_label: string;
+  reason: string;
+}
+
+export interface IntradaySectorVerdict {
+  sector: string;
+  transition_count: number;
+  weakened_count: number;
+  repaired_count: number;
+  held_strength_count: number;
+  stayed_weak_count: number;
+}
+
+export interface IntradaySnapshotLearningSummary {
+  sample_days: number;
+  transition_count: number;
+  verdict_counts: Record<string, number>;
+  sector_verdicts: IntradaySectorVerdict[];
+  pattern_notes: string[];
+}
+
+export interface IntradayCandidateSnapshotList {
+  trade_date: string;
+  pool_name: string;
+  snapshots: IntradayCandidateSnapshot[];
+  learning: IntradaySnapshotLearning[];
+  learning_summary: IntradaySnapshotLearningSummary | null;
+}
+
+export interface ManualRefresh {
+  symbol: string;
+  security_rows: number;
+  daily_rows: number;
+  feature_rows: number;
+  sector_rows: number;
+  fundamental_ok: number;
+  formal_plan_rows: number;
+  watch_plan_rows: number;
+  feature_date: string | null;
+  warnings: string[];
+}
+
+export interface StrategyFitRecommendation {
+  id: number;
+  priority: string;
+  target_type: string;
+  target_name: string;
+  action: string;
+  rationale: string;
+  proposed: Record<string, unknown>;
+  status: string;
+}
+
+export interface StrategyFitMetric {
+  rule_id: string;
+  scope_type: string;
+  scope_value: string;
+  trade_count: number;
+  win_rate: number;
+  avg_return: number;
+  profit_factor: number;
+  avg_mfe: number;
+  avg_mae: number;
+  fit_status: string;
+  summary: string;
+  recommendations: StrategyFitRecommendation[];
+}
+
+export interface StrategyFitRule {
+  rule_id: string;
+  overall: StrategyFitMetric;
+  sectors: StrategyFitMetric[];
+  symbols: StrategyFitMetric[];
+}
+
+export interface StrategyFitReport {
+  report_date: string | null;
+  rules: StrategyFitRule[];
+}
+
+export interface ReplayReturnSummary {
+  sample_count: number;
+  avg_return: number | null;
+  win_rate: number | null;
+  total_return: number | null;
+  exit_reasons?: Record<string, number>;
+}
+
+export interface ReplayHorizonSummary {
+  raw: ReplayReturnSummary;
+  guarded: ReplayReturnSummary;
+}
+
+export interface ReplayMonthlyHorizonSummary {
+  raw: ReplayReturnSummary;
+  guarded: ReplayReturnSummary;
+}
+
+export interface ReplayStylePreference {
+  preferred_horizon: number;
+  preferred_metric: string;
+  sample_count: number;
+  avg_return: number | null;
+  total_return: number | null;
+  actionable: boolean;
+  reason: string;
+}
+
+export interface ReplayCountItem {
+  count: number;
+}
+
+export interface ReplaySectorCount extends ReplayCountItem {
+  sector: string;
+}
+
+export interface ReplayStyleCount extends ReplayCountItem {
+  style: string;
+}
+
+export interface ReplaySelectionModeCount extends ReplayCountItem {
+  selection_mode: string;
+}
+
+export interface ReplayScopeSummary {
+  start_date: string;
+  end_date: string;
+  processed_days: number;
+  candidate_count: number;
+  excluded_symbols: string[];
+  warning_days: number;
+  top_sectors: ReplaySectorCount[];
+  style_counts: ReplayStyleCount[];
+  selection_mode_counts: ReplaySelectionModeCount[];
+  horizons: Record<number, ReplayHorizonSummary>;
+  style_horizons: Record<number, Record<string, ReplayHorizonSummary>>;
+  selection_mode_horizons: Record<number, Record<string, ReplayHorizonSummary>>;
+  style_horizon_preferences: Record<string, ReplayStylePreference>;
+  monthly_horizons: Record<number, Record<string, ReplayMonthlyHorizonSummary>>;
+  monthly_style_horizons: Record<number, Record<string, Record<string, ReplayHorizonSummary>>>;
+  monthly_selection_mode_horizons: Record<
+    number,
+    Record<string, Record<string, ReplayHorizonSummary>>
+  >;
+}
+
+export interface LowDimensionalReplayReport extends ReplayScopeSummary {}
+
+export interface CandidateReplayDiagnosisScopeRow {
+  scope: string;
+  label: string;
+  candidate_count: number;
+  sample_count: number;
+  avg_return: number | null;
+  win_rate: number | null;
+  total_return: number | null;
+}
+
+export interface CandidateReplayDiagnosis {
+  horizon: number;
+  primary_scope: string;
+  primary_scope_label: string;
+  policy_label: string;
+  ding_policy: string;
+  summary: string;
+  scope_rows: CandidateReplayDiagnosisScopeRow[];
+  reasons: string[];
+  monthly_posture: {
+    month: string | null;
+    posture: string;
+    posture_label: string;
+    summary: string;
+    scope_rows: Omit<CandidateReplayDiagnosisScopeRow, "candidate_count">[];
+    reasons: string[];
+  };
+}
+
+export interface CandidateReplayEffectReport {
+  start_date: string;
+  end_date: string;
+  scopes: Record<string, ReplayScopeSummary>;
+  discovery_cache_dir: string | null;
+  diagnosis: CandidateReplayDiagnosis;
 }
 
 export type PipelineStage = "daily" | "prepare" | "intraday" | "after-close";
@@ -160,10 +570,89 @@ export interface PipelineRunPayload {
   dry_run_exits?: boolean;
 }
 
+export interface HistoricalReplayDay {
+  trade_date: string;
+  next_trade_date: string | null;
+  feature_rows: number;
+  sector_rows: number;
+  contexts: number;
+  candidates: number;
+  plans: number;
+  written_plans: number;
+  opened: number;
+  closed: number;
+  skipped: number;
+  paper_reviews: number;
+  backtest_trades: number;
+  paper_learning: number;
+  backtest_learning: number;
+  messages: string[];
+}
+
+export interface HistoricalReplayAccountSummary {
+  initial_cash: number;
+  cash: number;
+  market_value: number;
+  equity: number;
+  total_return_pct: number;
+  realized_pnl: number;
+  open_positions: number;
+  closed_positions: number;
+  win_rate: number | null;
+  avg_closed_return_pct: number | null;
+}
+
+export interface HistoricalReplayResult {
+  start_date: string;
+  end_date: string;
+  account: string;
+  symbols: string[];
+  processed_days: number;
+  generated_plans: number;
+  opened: number;
+  closed: number;
+  skipped: number;
+  account_summary: HistoricalReplayAccountSummary;
+  days: HistoricalReplayDay[];
+}
+
+export interface HistoricalReplayPayload {
+  start_date: string;
+  end_date: string;
+  symbols: string[];
+  account?: string;
+  initial_cash?: number;
+  limit?: number;
+  use_learning_adjustments?: boolean;
+  generate_learning?: boolean;
+  dry_run?: boolean;
+}
+
 function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
   return {
     ...item,
     manual_tags: item.manual_tags ?? [],
+    candidate_rank: item.candidate_rank ?? null,
+    candidate_score: item.candidate_score ?? null,
+    candidate_tier: item.candidate_tier ?? null,
+    candidate_tier_label: item.candidate_tier_label ?? null,
+    candidate_tier_reason: item.candidate_tier_reason ?? null,
+    feature_date: item.feature_date ?? null,
+    trend_score: item.trend_score ?? null,
+    relative_strength_score: item.relative_strength_score ?? null,
+    sector_strength_score: item.sector_strength_score ?? null,
+    volume_confirmation_score: item.volume_confirmation_score ?? null,
+    risk_score: item.risk_score ?? null,
+    overheat_score: item.overheat_score ?? null,
+    volume_trap_risk_score: item.volume_trap_risk_score ?? null,
+    distance_to_ma20: item.distance_to_ma20 ?? null,
+    amount_percentile_60d: item.amount_percentile_60d ?? null,
+    amount_ratio_5d: item.amount_ratio_5d ?? null,
+    pullback_volume_ratio: item.pullback_volume_ratio ?? null,
+    ma20_slope_20d: item.ma20_slope_20d ?? null,
+    ma60_slope_20d: item.ma60_slope_20d ?? null,
+    ma_alignment_score: item.ma_alignment_score ?? null,
+    trend_quality_score: item.trend_quality_score ?? null,
     plans: (item.plans ?? []).map((plan) => ({ ...plan, evidence: plan.evidence ?? [] })),
     paper_trade_summaries: item.paper_trade_summaries ?? [],
     recent_paper_trades: item.recent_paper_trades ?? [],
@@ -194,6 +683,15 @@ export function fetchRecommendationSummary() {
   return request<RecommendationSummary>("/parameter-recommendations/summary");
 }
 
+export function fetchMechanicalReview() {
+  return request<MechanicalReview>("/paper-learning/mechanical-review");
+}
+
+export function fetchMonthlySummary(month: string) {
+  const params = new URLSearchParams({ month });
+  return request<MonthlySummary>(`/paper-learning/monthly-summary?${params.toString()}`);
+}
+
 export function updateRecommendationDecision(
   id: number,
   status: DecisionStatus,
@@ -209,22 +707,94 @@ export function fetchCandles(symbol: string) {
   return request<Candle[]>(`/market/candles/${symbol}?limit=240`);
 }
 
-export function fetchWorkspaceStocks(poolName = "experiment") {
+export function fetchMarketOverview(live = false) {
+  const params = new URLSearchParams();
+  if (live) params.set("live", "true");
+  return request<MarketOverview>(`/market/overview${params.size ? `?${params.toString()}` : ""}`);
+}
+
+export function fetchSectorOverview() {
+  return request<SectorOverview>("/market/sectors/overview");
+}
+
+export function fetchSectorCatalysts() {
+  return request<SectorCatalysts>("/market/sectors/catalysts");
+}
+
+export function fetchDataHealth(tradeDate?: string | null) {
+  const params = new URLSearchParams();
+  if (tradeDate) params.set("trade_date", tradeDate);
+  return request<DataHealth>(`/market/data-health${params.size ? `?${params.toString()}` : ""}`);
+}
+
+export function fetchWorkspaceStocks(poolName = "experiment", includeGrowthBoard = false) {
   const params = new URLSearchParams({ pool_name: poolName });
+  if (includeGrowthBoard) params.set("include_growth_board", "true");
   return request<WorkspaceStock[]>(`/workspace/stocks?${params.toString()}`).then((items) =>
     items.map(normalizeWorkspaceStock),
   );
 }
 
-export function addManualStock(symbol: string, note: string, tags: string[]) {
+export function refreshWorkspaceStocks(poolName = "experiment", includeGrowthBoard = false) {
+  const params = new URLSearchParams({ pool_name: poolName });
+  if (includeGrowthBoard) params.set("include_growth_board", "true");
+  return request<WorkspaceStock[]>(`/workspace/refresh?${params.toString()}`, {
+    method: "POST",
+  }).then((items) => items.map(normalizeWorkspaceStock));
+}
+
+export function fetchIntradayCandidates(
+  poolName = "experiment",
+  includeGrowthBoard = false,
+  refreshQuotes = false,
+) {
+  const params = new URLSearchParams({ pool_name: poolName });
+  if (includeGrowthBoard) params.set("include_growth_board", "true");
+  if (refreshQuotes) params.set("refresh_quotes", "true");
+  return request<IntradayCandidateList>(`/workspace/intraday-candidates?${params.toString()}`);
+}
+
+export function fetchIntradayCandidateSnapshots(
+  poolName = "experiment",
+  includeGrowthBoard = false,
+  lookbackDays = 5,
+) {
+  const params = new URLSearchParams({ pool_name: poolName });
+  params.set("lookback_days", String(lookbackDays));
+  if (includeGrowthBoard) params.set("include_growth_board", "true");
+  return request<IntradayCandidateSnapshotList>(
+    `/workspace/intraday-candidate-snapshots?${params.toString()}`,
+  );
+}
+
+export function fetchStrategyFit() {
+  return request<StrategyFitReport>("/rules/strategy-fit?min_samples=1&per_scope_limit=20");
+}
+
+export function fetchLowDimensionalReplay() {
+  return request<LowDimensionalReplayReport>("/rules/low-dimensional-replay");
+}
+
+export function fetchCandidateReplayEffect() {
+  return request<CandidateReplayEffectReport>("/rules/candidate-replay-effect");
+}
+
+export function addManualStock(symbol: string, note: string, tags: string[], poolName = "experiment") {
   return request<WorkspaceStock>("/workspace/manual-stocks", {
     method: "POST",
-    body: JSON.stringify({ symbol, note: note || null, tags }),
+    body: JSON.stringify({ symbol, note: note || null, tags, pool_name: poolName }),
   }).then(normalizeWorkspaceStock);
 }
 
 export function runPipelineStage(payload: PipelineRunPayload) {
   return request<PipelineRunResult>("/jobs/pipeline/run", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function runHistoricalReplay(payload: HistoricalReplayPayload) {
+  return request<HistoricalReplayResult>("/jobs/historical-replay/run", {
     method: "POST",
     body: JSON.stringify(payload),
   });

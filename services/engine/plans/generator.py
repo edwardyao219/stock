@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from dataclasses import dataclass
 from typing import Any
 
@@ -7,6 +8,7 @@ from services.engine.plans.evidence import build_trade_evidence
 from services.engine.plans.learning_adjustments import apply_plan_learning_adjustments
 from services.engine.risk.profiles import DEFAULT_RISK_PROFILE, RiskProfile
 from services.engine.risk.trade_parameters import build_trade_parameters
+from services.engine.signals.route import build_signal_route
 from services.engine.rules.evaluator import evaluate_group
 from services.engine.rules.models import StrategyRule
 
@@ -39,6 +41,25 @@ def _safe_float(value: Any, default: float | None = None) -> float | None:
     return float(value)
 
 
+def _feature_date(context: dict[str, Any]) -> date | None:
+    trade_date = context.get("trade_date")
+    if not trade_date:
+        return None
+    try:
+        return date.fromisoformat(str(trade_date))
+    except ValueError:
+        return None
+
+
+def _strategy_priority(strategy_type: str) -> int:
+    mapping = {
+        "long_term": 3,
+        "swing": 2,
+        "short_term": 0,
+    }
+    return mapping.get(strategy_type, 0)
+
+
 def _fundamental_adjustment(context: dict[str, Any]) -> float:
     verdict = context.get("fundamental_verdict")
     score = _safe_float(context.get("fundamental_score"), 50.0) or 50.0
@@ -57,6 +78,18 @@ def _build_plan_from_context(
     risk_profile: RiskProfile,
     learning_adjustment_loader: Any | None = None,
 ) -> TradePlanCandidate:
+    route = build_signal_route(context)
+    context = {
+        **context,
+        "route_score": route.route_score,
+        "route_label": route.route_label,
+        "route_reason": route.route_reason,
+        "route_trend_score": route.trend_score,
+        "route_participation_score": route.participation_score,
+        "route_risk_score": route.risk_score,
+        "route_momentum_score": route.momentum_score,
+        "route_components": route.route_components,
+    }
     params = build_trade_parameters(rule=rule, context=context, profile=risk_profile)
     evidence = build_trade_evidence(context, risk_profile.evidence_thresholds)
     learning_recommendations = []
@@ -67,27 +100,40 @@ def _build_plan_from_context(
             [*evidence["support_flags"], *evidence["risk_flags"]],
         )
         params, learning_confidence_delta, applied_learning_adjustments = (
-            apply_plan_learning_adjustments(params, learning_recommendations)
+            apply_plan_learning_adjustments(
+                params,
+                learning_recommendations,
+                feature_date=_feature_date(context),
+            )
         )
     else:
         learning_confidence_delta = 0.0
         applied_learning_adjustments = []
 
     distance_to_20d_high = abs(_safe_float(context.get("distance_to_20d_high"), 0.0) or 0.0)
-    risk_score = _safe_float(context.get("risk_score"), 50.0) or 50.0
+    route_score = _safe_float(context.get("route_score"), 50.0) or 50.0
+    route_trend_score = _safe_float(context.get("route_trend_score"), 50.0) or 50.0
+    route_participation_score = _safe_float(context.get("route_participation_score"), 50.0) or 50.0
+    route_risk_score = _safe_float(context.get("route_risk_score"), 50.0) or 50.0
     sector_strength_score = _safe_float(context.get("sector_strength_score"), 50.0) or 50.0
+    sector_leadership_score = _safe_float(context.get("sector_leadership_score"), 50.0) or 50.0
+    sector_continuity_score = _safe_float(context.get("sector_trend_continuity_score"), 50.0) or 50.0
+    sector_resilience_score = _safe_float(context.get("sector_trend_resilience_score"), 50.0) or 50.0
 
     confidence_score = max(
         0.0,
         min(
             100.0,
             (
-                (_safe_float(context.get("trend_score"), 50.0) or 50.0) * 0.30
-                + (_safe_float(context.get("volume_score"), 50.0) or 50.0) * 0.20
-                + (_safe_float(context.get("relative_strength_score"), 50.0) or 50.0) * 0.20
-                + sector_strength_score * 0.15
+                route_score * 0.32
+                + route_trend_score * 0.23
+                + route_participation_score * 0.15
+                + sector_strength_score * 0.08
+                + sector_leadership_score * 0.07
+                + sector_continuity_score * 0.06
+                + sector_resilience_score * 0.05
                 + (100.0 - min(distance_to_20d_high * 500, 100.0)) * 0.10
-                + (100.0 - risk_score) * 0.05
+                + (100.0 - route_risk_score) * 0.05
                 + _fundamental_adjustment(context)
                 + learning_confidence_delta
             ),
@@ -131,9 +177,18 @@ def generate_trade_plans(
     risk_profile: RiskProfile = DEFAULT_RISK_PROFILE,
     risk_profile_selector: Any | None = None,
     learning_adjustment_loader: Any | None = None,
+    allowed_strategy_types: set[str] | None = None,
 ) -> list[TradePlanCandidate]:
     """Generate trade plans from enabled rules and feature snapshots."""
-    active_rules = [rule for rule in rules if rule.strategy_type.value != "filter"]
+    active_rules = [
+        rule
+        for rule in rules
+        if rule.strategy_type.value != "filter"
+        and (
+            allowed_strategy_types is None
+            or rule.strategy_type.value in allowed_strategy_types
+        )
+    ]
     plans: list[TradePlanCandidate] = []
     for context in feature_contexts or []:
         for rule in active_rules:
@@ -151,4 +206,11 @@ def generate_trade_plans(
                         learning_adjustment_loader,
                     )
                 )
-    return sorted(plans, key=lambda item: item.confidence_score, reverse=True)
+    return sorted(
+        plans,
+        key=lambda item: (
+            _strategy_priority(item.strategy_type),
+            item.confidence_score,
+        ),
+        reverse=True,
+    )

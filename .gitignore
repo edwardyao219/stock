@@ -6,12 +6,16 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.idea/
+.tmp/
 node_modules/
 .next/
 dist/
 build/
 coverage/
 *.log
+logs/
+celerybeat-schedule.db*
 data/
 reports/
 

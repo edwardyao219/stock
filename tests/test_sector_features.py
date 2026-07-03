@@ -49,4 +49,7 @@ def test_compute_sector_features_groups_stock_contexts_by_industry() -> None:
     assert by_sector["银行"]["sector_sample_confidence"] == 0.2
     assert by_sector["白酒"]["sector_sample_confidence"] == 0.1
     assert by_sector["银行"]["sector_strength_score"] > 65
+    assert by_sector["银行"]["sector_trend_continuity_score"] > 60
+    assert by_sector["银行"]["sector_trend_resilience_score"] > 50
     assert by_sector["白酒"]["sector_strength_score"] > by_sector["银行"]["sector_strength_score"]
+    assert by_sector["白酒"]["sector_trend_continuity_score"] > by_sector["银行"]["sector_trend_continuity_score"]

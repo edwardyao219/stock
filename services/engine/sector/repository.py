@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,4 +31,19 @@ def seed_sector_profiles(db: Session) -> int:
 def load_sector_profile(db: Session, sector_name: str | None) -> SectorProfile | None:
     if not sector_name:
         return None
-    return db.execute(select(SectorProfile).where(SectorProfile.sector_name == sector_name)).scalar_one_or_none()
+    return db.execute(
+        select(SectorProfile).where(SectorProfile.sector_name == sector_name)
+    ).scalar_one_or_none()
+
+
+def load_sector_profile_map(
+    db: Session,
+    sector_names: Sequence[str | None],
+) -> dict[str, SectorProfile]:
+    unique_names = sorted({name for name in sector_names if name})
+    if not unique_names:
+        return {}
+    rows = db.execute(
+        select(SectorProfile).where(SectorProfile.sector_name.in_(unique_names))
+    ).scalars()
+    return {row.sector_name: row for row in rows}

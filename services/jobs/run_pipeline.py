@@ -3,6 +3,7 @@ from pprint import pprint
 
 from services.jobs.pipeline import (
     prepare_next_trade_session,
+    resolve_next_trade_date,
     run_after_close_session,
     run_daily_research_pipeline,
     run_intraday_trade_session,
@@ -19,22 +20,25 @@ def main() -> None:
         default="daily",
     )
     parser.add_argument("--trade-date", default=today)
-    parser.add_argument("--next-trade-date", default=today)
+    parser.add_argument("--next-trade-date", default=None)
     parser.add_argument("--limit", type=int, default=200)
     parser.add_argument("--account", default="default")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--full-market-sync", action="store_true")
     parser.add_argument("--disable-learning-adjustments", action="store_true")
     parser.add_argument("--dry-run-entries", action="store_true")
     parser.add_argument("--dry-run-exits", action="store_true")
     args = parser.parse_args()
+    next_trade_date = args.next_trade_date or resolve_next_trade_date(args.trade_date)
 
     if args.stage == "prepare":
         result = prepare_next_trade_session(
             args.trade_date,
-            args.next_trade_date,
+            next_trade_date,
             limit=args.limit,
             use_learning_adjustments=not args.disable_learning_adjustments,
             force=args.force,
+            full_market_sync=args.full_market_sync,
         )
     elif args.stage == "intraday":
         result = run_intraday_trade_session(
@@ -47,12 +51,14 @@ def main() -> None:
     elif args.stage == "after-close":
         result = run_after_close_session(
             args.trade_date,
-            args.next_trade_date,
+            next_trade_date,
             limit=args.limit,
             account=args.account,
+            use_learning_adjustments=not args.disable_learning_adjustments,
+            full_market_sync=args.full_market_sync,
         )
     else:
-        result = run_daily_research_pipeline(args.trade_date, args.next_trade_date)
+        result = run_daily_research_pipeline(args.trade_date, next_trade_date)
     pprint(result.to_dict())
 
 

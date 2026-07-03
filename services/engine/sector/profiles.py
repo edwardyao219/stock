@@ -85,6 +85,15 @@ DEFAULT_SECTOR_PROFILES = [
         risk_notes="通信设备题材弹性大，冲高回落和高位放量需要重点过滤。",
     ),
     SectorProfileConfig(
+        sector_name="光学光电子",
+        sector_style="growth_cycle",
+        analysis_framework="tech_growth_cycle",
+        default_strategy_type="swing",
+        preferred_holding_style="trend_with_catalyst",
+        key_drivers=["LED/MiniLED景气", "显示面板周期", "下游库存", "毛利率", "成交额强度"],
+        risk_notes="光学光电子偏成长周期，适合等趋势和量能确认，避免弱基本面下追高。",
+    ),
+    SectorProfileConfig(
         sector_name="有色金属",
         sector_style="cyclical",
         analysis_framework="commodity_cycle",

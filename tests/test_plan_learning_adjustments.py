@@ -11,8 +11,8 @@ from services.shared.database import Base
 from services.shared.models import ParameterRecommendation
 
 
-def _context() -> dict:
-    return {
+def _context(**overrides) -> dict:
+    context = {
         "symbol": "000001",
         "trade_date": "2026-06-23",
         "close": 10.0,
@@ -30,11 +30,13 @@ def _context() -> dict:
         "is_st": False,
         "is_suspended": False,
     }
+    context.update(overrides)
+    return context
 
 
 def _add_recommendation(db, **overrides) -> ParameterRecommendation:
     payload = {
-        "report_date": date(2026, 1, 10),
+        "report_date": date(2026, 6, 23),
         "rule_id": "R001",
         "scope_type": "rule",
         "scope_value": "R001",
@@ -120,3 +122,201 @@ def test_learning_adjustments_can_reduce_position_and_require_confirmation() -> 
     assert plan.position_size == pytest.approx(0.05)
     assert plan.confidence_score < 80
     assert "learned extra confirmation required before entry" in plan.risk_notes
+
+
+def test_backtest_learning_adjustments_match_symbol_scope() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        _add_recommendation(
+            db,
+            source_report_type="backtest_learning_review",
+            scope_type="symbol",
+            scope_value="000001",
+            target_type="entry_filter",
+            target_name="backtest_scope_quality",
+            action="reduce_priority_or_require_confirmation",
+            proposed_json={
+                "position_size_pct_multiplier": 0.5,
+                "priority_score_delta": -4,
+                "require_extra_confirmation": True,
+                "source_rule_id": "R001",
+            },
+        )
+
+        recommendations = load_plan_learning_adjustments(
+            db,
+            rule_id="R001",
+            symbol="000001",
+            sector_code="银行",
+            signal_tags=[],
+        )
+
+    assert len(recommendations) == 1
+    assert recommendations[0].scope_type == "symbol"
+
+
+def test_backtest_learning_adjustments_do_not_cross_rule_scope() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        _add_recommendation(
+            db,
+            source_report_type="backtest_learning_review",
+            scope_type="sector",
+            scope_value="银行",
+            target_type="entry_filter",
+            target_name="backtest_scope_quality",
+            action="reduce_priority_or_require_confirmation",
+            proposed_json={
+                "priority_score_delta": -4,
+                "source_rule_id": "R007",
+            },
+        )
+
+        recommendations = load_plan_learning_adjustments(
+            db,
+            rule_id="R001",
+            symbol="000001",
+            sector_code="银行",
+            signal_tags=[],
+        )
+
+    assert recommendations == []
+
+
+def test_backtest_learning_rule_filter_runs_before_limit() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        _add_recommendation(
+            db,
+            report_date=date(2026, 1, 9),
+            source_report_type="backtest_learning_review",
+            scope_type="sector",
+            scope_value="银行",
+            target_type="entry_filter",
+            target_name="backtest_scope_quality",
+            action="reduce_priority_or_require_confirmation",
+            proposed_json={
+                "priority_score_delta": -4,
+                "source_rule_id": "R001",
+            },
+        )
+        for index in range(25):
+            _add_recommendation(
+                db,
+                rule_id="R007",
+                report_date=date(2026, 1, 10),
+                source_report_type="backtest_learning_review",
+                scope_type="sector",
+                scope_value="银行",
+                target_type="entry_filter",
+                target_name=f"other_rule_{index}",
+                action="reduce_priority_or_require_confirmation",
+                proposed_json={
+                    "priority_score_delta": -4,
+                    "source_rule_id": "R007",
+                },
+            )
+
+        recommendations = load_plan_learning_adjustments(
+            db,
+            rule_id="R001",
+            symbol="000001",
+            sector_code="银行",
+            signal_tags=[],
+            limit=20,
+        )
+
+    assert len(recommendations) == 1
+    assert recommendations[0].proposed_json["source_rule_id"] == "R001"
+
+
+def test_learning_adjustments_decay_with_feature_date() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        _add_recommendation(
+            db,
+            report_date=date(2026, 6, 23),
+            scope_type="symbol",
+            scope_value="000001",
+            proposed_json={
+                "trailing_drawdown_pct_multiplier": 0.5,
+                "priority_score_delta": 4,
+                "source_rule_id": "R001",
+            },
+        )
+        _add_recommendation(
+            db,
+            report_date=date(2026, 5, 10),
+            scope_type="symbol",
+            scope_value="000002",
+            proposed_json={
+                "trailing_drawdown_pct_multiplier": 0.5,
+                "priority_score_delta": 4,
+                "source_rule_id": "R001",
+            },
+        )
+
+        plans = generate_trade_plans(
+            plan_date="2026-06-24",
+            trade_date="2026-06-25",
+            rules=MVP_RULES,
+            feature_contexts=[_context(symbol="000001"), _context(symbol="000002")],
+            learning_adjustment_loader=lambda rule, context, tags: load_plan_learning_adjustments(
+                db,
+                rule_id=rule.id,
+                symbol=context.get("symbol"),
+                sector_code=context.get("sector_code"),
+                signal_tags=tags,
+                feature_date=date(2026, 6, 23),
+            ),
+        )
+
+    recent_plan = next(item for item in plans if item.symbol == "000001")
+    old_plan = next(item for item in plans if item.symbol == "000002")
+
+    assert recent_plan.trailing_drawdown_pct == pytest.approx(0.03)
+    assert old_plan.trailing_drawdown_pct > recent_plan.trailing_drawdown_pct
+    assert recent_plan.confidence_score > old_plan.confidence_score
+    assert recent_plan.entry_condition["learning_adjustments"][0]["recency_weight"] == pytest.approx(1.0)
+    assert old_plan.entry_condition["learning_adjustments"][0]["recency_weight"] == pytest.approx(0.25)
+
+
+def test_learning_adjustments_skip_stale_items_with_feature_date() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        _add_recommendation(
+            db,
+            report_date=date(2026, 1, 10),
+            scope_type="symbol",
+            scope_value="000001",
+            proposed_json={
+                "trailing_drawdown_pct_multiplier": 0.5,
+                "source_rule_id": "R001",
+            },
+        )
+
+        recommendations = load_plan_learning_adjustments(
+            db,
+            rule_id="R001",
+            symbol="000001",
+            sector_code="银行",
+            signal_tags=[],
+            feature_date=date(2026, 6, 24),
+        )
+
+    assert recommendations == []

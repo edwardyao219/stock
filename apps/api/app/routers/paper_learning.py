@@ -10,6 +10,8 @@ from services.engine.paper.learning_repository import (
     load_learning_insights,
     load_recent_trade_reviews,
 )
+from services.engine.review.monthly_summary import generate_monthly_trade_summary
+from services.engine.review.repository import load_latest_review_report
 from services.shared.database import get_db
 from services.shared.models import PaperTradeReview
 
@@ -53,6 +55,32 @@ class PaperLearningOverviewResponse(BaseModel):
     latest_review_date: str | None
     insights: list[LearningInsightResponse]
     recent_reviews: list[TradeReviewResponse]
+
+
+class MechanicalReviewResponse(BaseModel):
+    report_date: str | None
+    report_type: str
+    title: str
+    content_md: str
+    metrics: dict[str, Any]
+    found: bool
+
+
+class MonthlySummaryResponse(BaseModel):
+    month: str
+    paper_review_count: int
+    backtest_trade_count: int
+    winning_reviews: int
+    losing_reviews: int
+    total_pnl: float
+    avg_review_return: float | None
+    avg_backtest_return: float | None
+    top_symbols: list[dict[str, Any]]
+    top_rules: list[dict[str, Any]]
+    factor_insights: list[dict[str, Any]]
+    sector_opportunities: list[dict[str, Any]]
+    excluded_symbols: list[str]
+    content_md: str
 
 
 def _review_to_response(item: PaperTradeReview) -> TradeReviewResponse:
@@ -117,3 +145,53 @@ def list_trade_reviews(
             offset=offset,
         )
     ]
+
+
+@router.get("/mechanical-review", response_model=MechanicalReviewResponse)
+def get_mechanical_review(
+    db: DbSession,
+    before_report_date: str | None = None,
+) -> MechanicalReviewResponse:
+    report = load_latest_review_report(
+        db,
+        "daily_mechanical",
+        before_report_date=before_report_date,
+    )
+    if report is None:
+        return MechanicalReviewResponse(
+            report_date=None,
+            report_type="daily_mechanical",
+            title="暂无盘后复盘",
+            content_md="",
+            metrics={},
+            found=False,
+        )
+    return MechanicalReviewResponse(
+        report_date=report.report_date.isoformat(),
+        report_type=report.report_type,
+        title=f"{report.report_date.isoformat()} 每日机械复盘",
+        content_md=report.content_md,
+        metrics=report.metrics_json or {},
+        found=True,
+    )
+
+
+@router.get("/monthly-summary", response_model=MonthlySummaryResponse)
+def get_monthly_summary(month: str) -> MonthlySummaryResponse:
+    summary = generate_monthly_trade_summary(month)
+    return MonthlySummaryResponse(
+        month=summary.month,
+        paper_review_count=summary.paper_review_count,
+        backtest_trade_count=summary.backtest_trade_count,
+        winning_reviews=summary.winning_reviews,
+        losing_reviews=summary.losing_reviews,
+        total_pnl=summary.total_pnl,
+        avg_review_return=summary.avg_review_return,
+        avg_backtest_return=summary.avg_backtest_return,
+        top_symbols=summary.top_symbols,
+        top_rules=summary.top_rules,
+        factor_insights=summary.factor_insights,
+        sector_opportunities=summary.sector_opportunities,
+        excluded_symbols=summary.excluded_symbols,
+        content_md=summary.content_md,
+    )

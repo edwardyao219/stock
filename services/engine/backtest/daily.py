@@ -10,10 +10,13 @@ def _index_by_date(items: list[BarInput]) -> dict[str, BarInput]:
     return {item.trade_date: item for item in items}
 
 
-def _next_trade_date(dates: list[str], current: str) -> str | None:
-    try:
-        index = dates.index(current)
-    except ValueError:
+def _next_trade_date(
+    dates: list[str],
+    date_to_index: dict[str, int],
+    current: str,
+) -> str | None:
+    index = date_to_index.get(current)
+    if index is None:
         return None
     if index + 1 >= len(dates):
         return None
@@ -24,6 +27,7 @@ def _exit_trade(
     rule: StrategyRule,
     bars_by_date: dict[str, BarInput],
     dates: list[str],
+    date_to_index: dict[str, int],
     entry_index: int,
     entry_price: float,
     initial_stop: float | None,
@@ -32,6 +36,7 @@ def _exit_trade(
     max_holding_days = rule.time_exit.max_holding_days or 5
     highest = entry_price
     lowest = entry_price
+    trailing_active = False
     exit_date = dates[entry_index]
     exit_price = entry_price
     exit_reason = "time_exit"
@@ -47,8 +52,6 @@ def _exit_trade(
         low = float(bar.low)
         close = float(bar.close)
 
-        highest = max(highest, high)
-        lowest = min(lowest, low)
         exit_date = date
         exit_price = close
 
@@ -57,7 +60,7 @@ def _exit_trade(
             exit_reason = "stop_loss"
             break
 
-        if take_profit_1 is not None and high >= take_profit_1:
+        if trailing_active and take_profit_1 is not None:
             trailing_pct = float(rule.take_profit.params.get("drawdown_from_high_pct", 0.06))
             trailing_stop = highest * (1 - trailing_pct)
             if low <= trailing_stop:
@@ -65,12 +68,18 @@ def _exit_trade(
                 exit_reason = "trailing_take_profit"
                 break
 
+        highest = max(highest, high)
+        lowest = min(lowest, low)
+
+        if take_profit_1 is not None and high >= take_profit_1:
+            trailing_active = True
+
         if holding_offset + 1 >= max_holding_days:
             exit_reason = "time_exit"
             exit_price = close
             break
 
-    holding_days = dates.index(exit_date) - entry_index + 1
+    holding_days = date_to_index[exit_date] - entry_index + 1
     mfe_pct = highest / entry_price - 1
     mae_pct = lowest / entry_price - 1
     return exit_date, exit_price, holding_days, mfe_pct, mae_pct, exit_reason
@@ -109,18 +118,19 @@ def run_daily_rule_backtest(
     bars = sorted(data.bars, key=lambda item: item.trade_date)
     features = sorted(data.features, key=lambda item: item.trade_date)
     dates = [bar.trade_date for bar in bars]
+    date_to_index = {trade_date: index for index, trade_date in enumerate(dates)}
     bars_by_date = _index_by_date(bars)
     trades: list[BacktestTrade] = []
     next_available_index = 0
 
     for snapshot in features:
         signal_date = snapshot.trade_date
-        if signal_date not in dates:
+        signal_index = date_to_index.get(signal_date)
+        if signal_index is None:
             continue
-        signal_index = dates.index(signal_date)
         if signal_index < next_available_index:
             continue
-        entry_date = _next_trade_date(dates, signal_date)
+        entry_date = _next_trade_date(dates, date_to_index, signal_date)
         if entry_date is None:
             continue
 
@@ -135,7 +145,7 @@ def run_daily_rule_backtest(
         if not plans:
             continue
 
-        entry_index = dates.index(entry_date)
+        entry_index = date_to_index[entry_date]
         entry_bar = bars_by_date[entry_date]
         plan = plans[0]
         signal_bar = bars_by_date[signal_date]
@@ -157,6 +167,7 @@ def run_daily_rule_backtest(
             rule=rule,
             bars_by_date=bars_by_date,
             dates=dates,
+            date_to_index=date_to_index,
             entry_index=entry_index,
             entry_price=entry_price,
             initial_stop=initial_stop,
@@ -164,7 +175,7 @@ def run_daily_rule_backtest(
         )
         exit_price = exit_price * (1 - slippage_rate)
         pnl_pct = exit_price / entry_price - 1 - fee_rate * 2
-        next_available_index = dates.index(exit_date) + 1
+        next_available_index = date_to_index[exit_date] + 1
 
         trades.append(
             BacktestTrade(

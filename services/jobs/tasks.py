@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+from services.engine.review.mechanical import generate_daily_mechanical_review
+from services.engine.review.monthly_summary import generate_monthly_trade_summary
 from services.jobs.celery_app import celery_app
 from services.jobs.pipeline import (
     prepare_next_trade_session,
+    resolve_next_trade_date,
     run_after_close_session,
     run_daily_research_pipeline,
     run_intraday_trade_session,
 )
+from services.notifications.dispatcher import dispatch_monthly_trade_summary
 from services.shared.time import now_local
 
 
 @celery_app.task(name="services.jobs.tasks.pre_market_check")
 def pre_market_check() -> dict[str, str]:
     today = now_local().date().isoformat()
-    result = prepare_next_trade_session(today, today)
+    result = prepare_next_trade_session(today, resolve_next_trade_date(today))
     return result.to_dict()
 
 
@@ -68,8 +72,33 @@ def run_paper_simulation_task() -> dict[str, str]:
 
 @celery_app.task(name="services.jobs.tasks.monitor_paper_positions_realtime_task")
 def monitor_paper_positions_realtime_task() -> dict[str, object]:
-    today = now_local().date().isoformat()
-    return run_intraday_trade_session(today).to_dict()
+    current_time = now_local()
+    today = current_time.date().isoformat()
+    return run_intraday_trade_session(today, as_of=current_time).to_dict()
+
+
+@celery_app.task(name="services.jobs.tasks.paper_midday_snapshot_task")
+def paper_midday_snapshot_task() -> dict[str, object]:
+    current_time = now_local()
+    today = current_time.date().isoformat()
+    return run_intraday_trade_session(
+        today,
+        stage="midday_snapshot",
+        as_of=current_time,
+        force=True,
+    ).to_dict()
+
+
+@celery_app.task(name="services.jobs.tasks.paper_late_session_snapshot_task")
+def paper_late_session_snapshot_task() -> dict[str, object]:
+    current_time = now_local()
+    today = current_time.date().isoformat()
+    return run_intraday_trade_session(
+        today,
+        stage="late_session_snapshot",
+        as_of=current_time,
+        force=True,
+    ).to_dict()
 
 
 @celery_app.task(name="services.jobs.tasks.run_rule_regression_task")
@@ -98,7 +127,35 @@ def run_rule_regression_task() -> dict[str, str]:
 @celery_app.task(name="services.jobs.tasks.generate_daily_review_task")
 def generate_daily_review_task() -> dict[str, str]:
     today = now_local().date().isoformat()
-    return run_after_close_session(today, today).to_dict()
+    review = generate_daily_mechanical_review(today)
+    return {
+        "trade_date": today,
+        "status": "ok",
+        "message": review.title,
+    }
+
+
+@celery_app.task(name="services.jobs.tasks.send_monthly_trade_summary_task")
+def send_monthly_trade_summary_task(month: str = "2026-06") -> dict[str, str]:
+    summary = generate_monthly_trade_summary(month)
+    results = dispatch_monthly_trade_summary(summary.content_md)
+    status = "ok" if results else "skipped"
+    return {
+        "month": month,
+        "status": status,
+        "message": f"{month} 交易总结",
+    }
+
+
+@celery_app.task(name="services.jobs.tasks.run_after_close_session_task")
+def run_after_close_session_task() -> dict[str, object]:
+    today = now_local().date()
+    next_trade_date = resolve_next_trade_date(today.isoformat())
+    return run_after_close_session(
+        today.isoformat(),
+        next_trade_date,
+        full_market_sync=True,
+    ).to_dict()
 
 
 @celery_app.task(name="services.jobs.tasks.run_daily_research_pipeline_task")

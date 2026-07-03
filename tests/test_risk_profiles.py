@@ -48,6 +48,30 @@ def test_compound_rule_uses_profile_holding_period() -> None:
     assert params.trailing_drawdown_pct == 0.10
 
 
+def test_persistent_mainline_widens_trailing_drawdown_without_changing_stop_model() -> None:
+    params = build_trade_parameters(
+        rule=MVP_RULES[0],
+        context={
+            "symbol": "600001",
+            "close": 10.0,
+            "atr_14": 0.3,
+            "breakout_level": 10.2,
+            "support_level": 9.4,
+            "sector_trend_continuity_score": 74,
+            "sector_breadth_score": 78,
+            "sector_trend_resilience_score": 70,
+            "volume_confirmation_score": 68,
+            "price_volume_trend_score": 68,
+            "overheat_score": 25,
+            "volume_trap_risk_score": 40,
+        },
+    )
+
+    assert params.trailing_drawdown_pct == 0.09
+    assert params.initial_stop == 9.75
+    assert params.evidence["trailing_drawdown_model"] == "persistent_mainline"
+
+
 def test_seed_risk_profiles_backfills_evidence_thresholds() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

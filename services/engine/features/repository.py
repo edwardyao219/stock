@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
-from typing import Iterable
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from services.engine.features.daily import BarInput, StockFeatureRow
 from services.engine.features.sector import SectorFeatureRow
 from services.shared.models import DailyBar, SectorFeatureDaily, Security, StockFeatureDaily
 from services.shared.upsert import upsert_rows
+
+SECTOR_FEATURE_UPSERT_CHUNK_SIZE = 1000
 
 
 def _float(value: Decimal | None) -> float | None:
@@ -105,7 +107,12 @@ def load_stock_feature_contexts(
     return contexts
 
 
-def upsert_sector_features(db: Session, feature_rows: Iterable[SectorFeatureRow]) -> int:
+def upsert_sector_features(
+    db: Session,
+    feature_rows: Iterable[SectorFeatureRow],
+    *,
+    chunk_size: int = SECTOR_FEATURE_UPSERT_CHUNK_SIZE,
+) -> int:
     rows = [
         {
             "sector_code": item.sector_code,
@@ -116,10 +123,16 @@ def upsert_sector_features(db: Session, feature_rows: Iterable[SectorFeatureRow]
     ]
     if not rows:
         return 0
-    return upsert_rows(
-        db,
-        SectorFeatureDaily,
-        rows,
-        update_columns=["features"],
-        constraint="uq_sector_features_code_date",
-    )
+    trade_dates = sorted({row["trade_date"] for row in rows})
+    db.execute(delete(SectorFeatureDaily).where(SectorFeatureDaily.trade_date.in_(trade_dates)))
+    total = 0
+    safe_chunk_size = max(1, chunk_size)
+    for index in range(0, len(rows), safe_chunk_size):
+        total += upsert_rows(
+            db,
+            SectorFeatureDaily,
+            rows[index : index + safe_chunk_size],
+            update_columns=["features"],
+            constraint="uq_sector_features_code_date",
+        )
+    return total

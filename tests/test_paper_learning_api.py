@@ -5,9 +5,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from apps.api.app.main import create_app
-from apps.api.app.routers.paper_learning import get_learning_overview, list_trade_reviews
+from apps.api.app.routers.paper_learning import (
+    get_learning_overview,
+    get_mechanical_review,
+    get_monthly_summary,
+    list_trade_reviews,
+)
 from services.shared.database import Base
-from services.shared.models import PaperTradeReview
+from services.shared.models import PaperTradeReview, ReviewReport
 
 
 def _session_with_reviews():
@@ -49,6 +54,8 @@ def test_paper_learning_routes_are_registered() -> None:
 
     assert "/paper-learning/overview" in schema["paths"]
     assert "/paper-learning/reviews" in schema["paths"]
+    assert "/paper-learning/mechanical-review" in schema["paths"]
+    assert "/paper-learning/monthly-summary" in schema["paths"]
 
 
 def test_get_learning_overview_returns_insights_and_reviews() -> None:
@@ -71,3 +78,88 @@ def test_list_trade_reviews_filters_symbol() -> None:
     assert len(payload) == 3
     assert payload[0].signal_tags == ["trend_alignment"]
     db.close()
+
+
+def test_get_mechanical_review_returns_latest_report() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(
+            ReviewReport(
+                report_date=date(2026, 1, 10),
+                report_type="daily_mechanical",
+                scope="market",
+                generator="mechanical",
+                content_md="# 每日机械复盘\n\n## 昨日候选今日回看\n\n- 000001 表现稳定",
+                metrics_json={"trade_plan_count": 1},
+            )
+        )
+        db.commit()
+
+        payload = get_mechanical_review(db=db)
+
+    assert payload.found is True
+    assert payload.report_date == "2026-01-10"
+    assert "000001" in payload.content_md
+
+
+def test_get_monthly_summary_returns_web_only_payload(monkeypatch) -> None:
+    class _Summary:
+        month = "2026-06"
+        paper_review_count = 3
+        backtest_trade_count = 9
+        winning_reviews = 2
+        losing_reviews = 1
+        total_pnl = 0.12
+        avg_review_return = 0.04
+        avg_backtest_return = 0.03
+        top_symbols = [{"symbol": "600360", "name": "华微电子", "return": 0.08}]
+        top_rules = [{"rule_id": "R007", "avg_return": 0.05}]
+        factor_insights = [{"factor_name": "价量趋势", "avg_return": 0.051}]
+        sector_opportunities = [{"sector": "半导体", "avg_return": 0.12}]
+        excluded_symbols = ["000001"]
+        content_md = "# 2026-06 交易总结"
+
+    monkeypatch.setattr(
+        "apps.api.app.routers.paper_learning.generate_monthly_trade_summary",
+        lambda month: _Summary(),
+    )
+
+    payload = get_monthly_summary(month="2026-06")
+
+    assert payload.month == "2026-06"
+    assert payload.paper_review_count == 3
+    assert payload.backtest_trade_count == 9
+    assert payload.total_pnl == 0.12
+    assert payload.factor_insights[0]["factor_name"] == "价量趋势"
+    assert payload.content_md.startswith("# 2026-06")
+
+
+def test_get_monthly_summary_allows_missing_average_returns(monkeypatch) -> None:
+    class _Summary:
+        month = "2026-06"
+        paper_review_count = 0
+        backtest_trade_count = 0
+        winning_reviews = 0
+        losing_reviews = 0
+        total_pnl = 0.0
+        avg_review_return = None
+        avg_backtest_return = None
+        top_symbols = []
+        top_rules = []
+        factor_insights = []
+        sector_opportunities = []
+        excluded_symbols = ["000001"]
+        content_md = "# 2026-06 交易总结"
+
+    monkeypatch.setattr(
+        "apps.api.app.routers.paper_learning.generate_monthly_trade_summary",
+        lambda month: _Summary(),
+    )
+
+    payload = get_monthly_summary(month="2026-06")
+
+    assert payload.avg_review_return is None
+    assert payload.avg_backtest_return is None

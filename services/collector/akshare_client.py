@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import os
+import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -83,6 +87,38 @@ def _akshare() -> Any:
     return ak
 
 
+_PROXY_ENV_KEYS = (
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+)
+
+
+@contextmanager
+def _without_proxy_env():
+    previous = {key: os.environ.pop(key, None) for key in _PROXY_ENV_KEYS}
+    original_session = requests.Session
+
+    class _NoProxySession(original_session):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.trust_env = False
+
+    requests.Session = _NoProxySession
+    requests.sessions.Session = _NoProxySession
+    try:
+        yield
+    finally:
+        requests.Session = original_session
+        requests.sessions.Session = original_session
+        for key, value in previous.items():
+            if value is not None:
+                os.environ[key] = value
+
+
 def _decimal(value: Any) -> Decimal | None:
     if value is None or pd.isna(value):
         return None
@@ -120,7 +156,8 @@ def _first(raw: dict[str, Any], *keys: str) -> Any:
 
 def fetch_trade_dates() -> list[str]:
     ak = _akshare()
-    df = ak.tool_trade_date_hist_sina()
+    with _without_proxy_env():
+        df = ak.tool_trade_date_hist_sina()
     if "trade_date" in df.columns:
         column = "trade_date"
     else:
@@ -130,11 +167,16 @@ def fetch_trade_dates() -> list[str]:
 
 def fetch_a_share_securities() -> list[AShareSecurity]:
     ak = _akshare()
-    df = ak.stock_zh_a_spot_em()
+    try:
+        with _without_proxy_env():
+            df = ak.stock_zh_a_spot_em()
+    except Exception:
+        with _without_proxy_env():
+            df = ak.stock_info_a_code_name()
     securities: list[AShareSecurity] = []
     for row in df.to_dict("records"):
-        symbol = str(row.get("代码", "")).strip()
-        name = str(row.get("名称", "")).strip()
+        symbol = str(_first(row, "代码", "code") or "").strip()
+        name = str(_first(row, "名称", "name") or "").strip()
         if not symbol or not name:
             continue
         securities.append(
@@ -148,6 +190,55 @@ def fetch_a_share_securities() -> list[AShareSecurity]:
     return securities
 
 
+def fetch_stock_security(symbol: str) -> AShareSecurity:
+    ak = _akshare()
+    try:
+        with _without_proxy_env():
+            df = ak.stock_individual_info_em(symbol=symbol)
+        raw = {
+            str(item.get("item") or item.get("项目") or ""): item.get("value") or item.get("值")
+            for item in df.to_dict("records")
+        }
+        name = str(raw.get("股票简称") or raw.get("简称") or raw.get("名称") or "").strip()
+        if name:
+            return AShareSecurity(
+                symbol=symbol,
+                name=name,
+                exchange=_exchange_for_symbol(symbol),
+                is_st="ST" in name.upper(),
+            )
+    except Exception:
+        pass
+
+    return fetch_eastmoney_stock_security(symbol)
+
+
+def fetch_eastmoney_stock_security(symbol: str) -> AShareSecurity:
+    secid = f"{'1' if symbol.startswith('6') else '0'}.{symbol}"
+    session = requests.Session()
+    session.trust_env = False
+    response = session.get(
+        "https://push2.eastmoney.com/api/qt/stock/get",
+        params={
+            "fields": "f57,f58,f107,f127,f128,f129",
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+            "secid": secid,
+        },
+        timeout=12,
+    )
+    response.raise_for_status()
+    data = response.json().get("data") or {}
+    name = str(data.get("f58") or "").strip()
+    if not name:
+        raise ValueError(f"No security metadata returned for {symbol}")
+    return AShareSecurity(
+        symbol=str(data.get("f57") or symbol).strip(),
+        name=name,
+        exchange=_exchange_for_symbol(symbol),
+        is_st="ST" in name.upper(),
+    )
+
+
 def fetch_realtime_quotes(
     symbols: set[str] | None = None,
     quote_time: datetime | None = None,
@@ -155,7 +246,8 @@ def fetch_realtime_quotes(
     ak = _akshare()
     current_time = quote_time or datetime.utcnow()
     try:
-        df = ak.stock_zh_a_spot_em()
+        with _without_proxy_env():
+            df = ak.stock_zh_a_spot_em()
     except Exception:
         if symbols:
             return fetch_sina_realtime_quotes(symbols=symbols, quote_time=current_time)
@@ -243,7 +335,8 @@ def fetch_sina_realtime_quotes(
 
 def fetch_industry_boards() -> list[IndustryBoard]:
     ak = _akshare()
-    df = ak.stock_board_industry_name_em()
+    with _without_proxy_env():
+        df = ak.stock_board_industry_name_em()
     boards: list[IndustryBoard] = []
     for raw in df.to_dict("records"):
         name = str(_first(raw, "板块名称", "名称", "行业名称") or "").strip()
@@ -256,7 +349,8 @@ def fetch_industry_boards() -> list[IndustryBoard]:
 
 def fetch_industry_constituents(board: IndustryBoard) -> list[IndustryConstituent]:
     ak = _akshare()
-    df = ak.stock_board_industry_cons_em(symbol=board.name)
+    with _without_proxy_env():
+        df = ak.stock_board_industry_cons_em(symbol=board.name)
     constituents: list[IndustryConstituent] = []
     for raw in df.to_dict("records"):
         symbol = str(_first(raw, "代码", "股票代码") or "").strip()
@@ -279,15 +373,19 @@ def fetch_industry_constituents(board: IndustryBoard) -> list[IndustryConstituen
 def fetch_stock_daily_bars(symbol: str, start_date: str, end_date: str) -> list[DailyBarRow]:
     ak = _akshare()
     try:
-        df = ak.stock_zh_a_hist(
-            symbol=symbol,
-            period="daily",
-            start_date=start_date,
-            end_date=end_date,
-            adjust="qfq",
-        )
+        with _without_proxy_env():
+            df = ak.stock_zh_a_hist(
+                symbol=symbol,
+                period="daily",
+                start_date=start_date,
+                end_date=end_date,
+                adjust="qfq",
+            )
     except Exception:
-        return fetch_eastmoney_stock_daily_bars(symbol, start_date, end_date)
+        try:
+            return fetch_sina_stock_daily_bars(symbol, start_date, end_date)
+        except Exception:
+            return fetch_eastmoney_stock_daily_bars(symbol, start_date, end_date)
     return _daily_bars_from_dataframe(symbol, df)
 
 
@@ -367,14 +465,66 @@ def fetch_eastmoney_stock_daily_bars(
     return rows
 
 
+def fetch_sina_stock_daily_bars(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+) -> list[DailyBarRow]:
+    sina_symbol = f"{_market_prefix_for_symbol(symbol)}{symbol}"
+    if not sina_symbol:
+        return []
+    session = requests.Session()
+    session.trust_env = False
+    response = session.get(
+        "https://quotes.sina.cn/cn/api/jsonp_v2.php/var%20_data=/CN_MarketDataService.getKLineData",
+        params={"symbol": sina_symbol, "scale": "240", "ma": "no", "datalen": "1500"},
+        headers={"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"},
+        timeout=12,
+    )
+    response.raise_for_status()
+    match = re.search(r"var _data=\((.*)\);?", response.text, flags=re.S)
+    if not match:
+        return []
+    raw_rows = json.loads(match.group(1))
+    rows: list[DailyBarRow] = []
+    previous_close: Decimal | None = None
+    parsed_start = datetime.strptime(start_date, "%Y%m%d").date()
+    parsed_end = datetime.strptime(end_date, "%Y%m%d").date()
+    for raw in raw_rows:
+        trade_date = datetime.strptime(str(raw.get("day")), "%Y-%m-%d").date()
+        if trade_date < parsed_start or trade_date > parsed_end:
+            continue
+        close = _decimal(raw.get("close"))
+        if close is None:
+            continue
+        volume = _decimal(raw.get("volume"))
+        rows.append(
+            DailyBarRow(
+                symbol=symbol,
+                trade_date=trade_date.isoformat(),
+                open=_decimal(raw.get("open")) or close,
+                high=_decimal(raw.get("high")) or close,
+                low=_decimal(raw.get("low")) or close,
+                close=close,
+                pre_close=previous_close,
+                volume=volume,
+                amount=None,
+                turnover_rate=None,
+            )
+        )
+        previous_close = close
+    return rows
+
+
 def fetch_index_daily_bars(symbol: str, start_date: str, end_date: str) -> list[IndexDailyRow]:
     ak = _akshare()
-    df = ak.index_zh_a_hist(
-        symbol=symbol,
-        period="daily",
-        start_date=start_date,
-        end_date=end_date,
-    )
+    with _without_proxy_env():
+        df = ak.index_zh_a_hist(
+            symbol=symbol,
+            period="daily",
+            start_date=start_date,
+            end_date=end_date,
+        )
     rows: list[IndexDailyRow] = []
     for raw in df.to_dict("records"):
         close = _decimal(raw.get("收盘"))

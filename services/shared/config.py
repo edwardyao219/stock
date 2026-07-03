@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     notification_channels: str = ""
     dingtalk_webhook_url: str | None = None
     dingtalk_secret: str | None = None
+    tushare_proxy_url: str | None = None
+    tushare_auth_code: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

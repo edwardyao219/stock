@@ -4,7 +4,19 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON, TypeDecorator
 
@@ -35,6 +47,13 @@ class PortableJSON(TypeDecorator):
         import json
 
         return json.loads(value)
+
+
+class LargePortableJSON(PortableJSON):
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "mysql":
+            return dialect.type_descriptor(mysql.LONGTEXT())
+        return super().load_dialect_impl(dialect)
 
 
 class Security(Base):
@@ -126,6 +145,87 @@ class SectorDaily(Base):
     relative_strength: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4))
 
 
+class TushareDaily(Base):
+    __tablename__ = "tushare_daily"
+    __table_args__ = (UniqueConstraint("ts_code", "trade_date", name="uq_tushare_daily_code_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts_code: Mapped[str] = mapped_column(String(16), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    open: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    high: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    low: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    close: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    pre_close: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    change: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    pct_chg: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    vol: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+
+
+class TushareDailyBasic(Base):
+    __tablename__ = "tushare_daily_basic"
+    __table_args__ = (
+        UniqueConstraint("ts_code", "trade_date", name="uq_tushare_daily_basic_code_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts_code: Mapped[str] = mapped_column(String(16), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    turnover_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    volume_ratio: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    pe_ttm: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6))
+    pb: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6))
+    total_mv: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 6))
+    circ_mv: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 6))
+
+
+class TushareStkLimit(Base):
+    __tablename__ = "tushare_stk_limit"
+    __table_args__ = (UniqueConstraint("ts_code", "trade_date", name="uq_tushare_stk_limit_code_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts_code: Mapped[str] = mapped_column(String(16), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    up_limit: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    down_limit: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+
+
+class TushareMoneyflow(Base):
+    __tablename__ = "tushare_moneyflow"
+    __table_args__ = (UniqueConstraint("ts_code", "trade_date", name="uq_tushare_moneyflow_code_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts_code: Mapped[str] = mapped_column(String(16), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    buy_sm_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    sell_sm_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    buy_md_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    sell_md_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    buy_lg_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    sell_lg_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    buy_elg_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    sell_elg_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    net_mf_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+
+
+class TushareMoneyflowIndDc(Base):
+    __tablename__ = "tushare_moneyflow_ind_dc"
+    __table_args__ = (
+        UniqueConstraint("trade_date", "content_type", "ts_code", name="uq_tushare_moneyflow_ind_dc"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    content_type: Mapped[str] = mapped_column(String(16), index=True)
+    ts_code: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[Optional[str]] = mapped_column(String(64))
+    pct_change: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    close: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    net_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    net_amount_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+
+
 class StockFeatureDaily(Base):
     __tablename__ = "stock_features_daily"
     __table_args__ = (
@@ -148,6 +248,78 @@ class SectorFeatureDaily(Base):
     sector_code: Mapped[str] = mapped_column(String(32), index=True)
     trade_date: Mapped[date] = mapped_column(Date, index=True)
     features: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
+
+
+class LowDimensionalFeatureSnapshot(Base):
+    __tablename__ = "low_dimensional_feature_snapshots"
+    __table_args__ = (
+        UniqueConstraint("symbol", "trade_date", name="uq_low_dim_symbol_date"),
+        Index("ix_low_dim_trade_sector_strength", "trade_date", "sector_strength_score"),
+        Index("ix_low_dim_symbol_date", "symbol", "trade_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    sector: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    trend_score: Mapped[Optional[float]] = mapped_column(Float)
+    trend_quality_score: Mapped[Optional[float]] = mapped_column(Float)
+    relative_strength_score: Mapped[Optional[float]] = mapped_column(Float)
+    volume_confirmation_score: Mapped[Optional[float]] = mapped_column(Float)
+    price_volume_trend_score: Mapped[Optional[float]] = mapped_column(Float)
+    sector_strength_score: Mapped[Optional[float]] = mapped_column(Float)
+    sector_avg_return_20d: Mapped[Optional[float]] = mapped_column(Float)
+    sector_positive_20d_rate: Mapped[Optional[float]] = mapped_column(Float)
+    sector_breadth_score: Mapped[Optional[float]] = mapped_column(Float)
+    sector_trend_continuity_score: Mapped[Optional[float]] = mapped_column(Float)
+    sector_trend_resilience_score: Mapped[Optional[float]] = mapped_column(Float)
+    sector_stock_count: Mapped[Optional[float]] = mapped_column(Float)
+    return_5d: Mapped[Optional[float]] = mapped_column(Float)
+    return_20d: Mapped[Optional[float]] = mapped_column(Float)
+    distance_to_ma20: Mapped[Optional[float]] = mapped_column(Float)
+    distance_to_20d_low: Mapped[Optional[float]] = mapped_column(Float)
+    max_drawdown_20d: Mapped[Optional[float]] = mapped_column(Float)
+    overheat_score: Mapped[Optional[float]] = mapped_column(Float)
+    volume_trap_risk_score: Mapped[Optional[float]] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CandidateDiscoverySnapshot(Base):
+    __tablename__ = "candidate_discovery_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "cache_version",
+            "signal_date",
+            "next_trade_date",
+            "candidate_limit",
+            "include_fundamentals",
+            name="uq_candidate_discovery_snapshot_key",
+        ),
+        Index("ix_candidate_discovery_signal_date", "signal_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cache_version: Mapped[str] = mapped_column(String(32), index=True)
+    signal_date: Mapped[date] = mapped_column(Date, index=True)
+    next_trade_date: Mapped[date] = mapped_column(Date, index=True)
+    candidate_limit: Mapped[int] = mapped_column(Integer)
+    include_fundamentals: Mapped[bool] = mapped_column(Boolean, default=True)
+    discovery_json: Mapped[dict[str, Any]] = mapped_column(LargePortableJSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class MarketMessageSnapshot(Base):
+    __tablename__ = "market_message_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    snapshot_time: Mapped[datetime] = mapped_column(DateTime, index=True)
+    source_count: Mapped[int] = mapped_column(Integer, default=0)
+    message: Mapped[str] = mapped_column(Text)
+    raw_messages_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    catalysts_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class SectorProfile(Base):
@@ -262,6 +434,8 @@ class ParameterRecommendation(Base):
     __table_args__ = (
         UniqueConstraint(
             "report_date",
+            "source_report_type",
+            "rule_id",
             "scope_type",
             "scope_value",
             "target_type",

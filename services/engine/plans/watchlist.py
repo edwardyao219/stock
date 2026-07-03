@@ -52,11 +52,11 @@ def _build_watch_plan_row(
         0.0,
         min(
             100.0,
-            (_float(context, "trend_score", 50.0) or 50.0) * 0.30
-            + (_float(context, "volume_score", 50.0) or 50.0) * 0.20
-            + (_float(context, "relative_strength_score", 50.0) or 50.0) * 0.20
-            + (_float(context, "sector_strength_score", 50.0) or 50.0) * 0.15
-            + (100.0 - (_float(context, "risk_score", 50.0) or 50.0)) * 0.15,
+            (_float(context, "route_score", 50.0) or 50.0) * 0.40
+            + (_float(context, "route_trend_score", _float(context, "trend_score", 50.0)) or 50.0) * 0.22
+            + (_float(context, "route_participation_score", _float(context, "volume_score", 50.0)) or 50.0) * 0.18
+            + (_float(context, "sector_strength_score", 50.0) or 50.0) * 0.10
+            + (100.0 - (_float(context, "route_risk_score", _float(context, "risk_score", 50.0)) or 50.0)) * 0.10,
         ),
     )
 
@@ -93,11 +93,12 @@ def generate_watchlist_observation_plans(
     trade_date: str,
     pool_name: str = "experiment",
     feature_date: str | None = None,
+    symbols: list[str] | None = None,
 ) -> dict[str, int | str]:
     parsed_plan_date = date.fromisoformat(plan_date)
     parsed_trade_date = date.fromisoformat(trade_date)
-    symbols = list_pool_symbols(db, pool_name=pool_name)
-    if not symbols:
+    target_symbols = symbols if symbols is not None else list_pool_symbols(db, pool_name=pool_name)
+    if not target_symbols:
         return {"symbols": 0, "contexts": 0, "plans": 0, "written": 0, "feature_date": ""}
 
     effective_feature_date = feature_date
@@ -116,7 +117,7 @@ def generate_watchlist_observation_plans(
             & (DailyBar.trade_date == StockFeatureDaily.trade_date),
         )
         .where(StockFeatureDaily.trade_date == parsed_feature_date)
-        .where(StockFeatureDaily.symbol.in_(symbols))
+        .where(StockFeatureDaily.symbol.in_(target_symbols))
         .where(Security.is_active.is_(True))
         .order_by(StockFeatureDaily.symbol)
     )
@@ -155,7 +156,7 @@ def generate_watchlist_observation_plans(
         constraint="uq_trade_plans_daily_rule",
     )
     return {
-        "symbols": len(symbols),
+        "symbols": len(target_symbols),
         "contexts": len(contexts),
         "plans": len(rows),
         "written": written,

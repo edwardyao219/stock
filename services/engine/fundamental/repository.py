@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -117,6 +118,47 @@ def load_latest_valuation_snapshot(
     return db.execute(stmt).scalar_one_or_none()
 
 
+def _fundamental_presence_filter():
+    return (
+        (FundamentalSnapshot.revenue_growth.is_not(None))
+        | (FundamentalSnapshot.profit_growth.is_not(None))
+        | (FundamentalSnapshot.roe.is_not(None))
+        | (FundamentalSnapshot.gross_margin.is_not(None))
+        | (FundamentalSnapshot.net_margin.is_not(None))
+        | (FundamentalSnapshot.debt_ratio.is_not(None))
+    )
+
+
+def _valuation_presence_filter():
+    return (FundamentalSnapshot.pb.is_not(None)) | (FundamentalSnapshot.pe_ttm.is_not(None))
+
+
+def _latest_snapshots_by_symbol(
+    db: Session,
+    symbols: Sequence[str],
+    as_of_date: date,
+    presence_filter,
+) -> dict[str, FundamentalSnapshot]:
+    unique_symbols = sorted({symbol for symbol in symbols if symbol})
+    if not unique_symbols:
+        return {}
+    rows = db.execute(
+        select(FundamentalSnapshot)
+        .where(FundamentalSnapshot.symbol.in_(unique_symbols))
+        .where(FundamentalSnapshot.available_date <= as_of_date)
+        .where(presence_filter)
+        .order_by(
+            FundamentalSnapshot.symbol,
+            desc(FundamentalSnapshot.available_date),
+            desc(FundamentalSnapshot.report_date),
+        )
+    ).scalars()
+    snapshots: dict[str, FundamentalSnapshot] = {}
+    for row in rows:
+        snapshots.setdefault(row.symbol, row)
+    return snapshots
+
+
 def snapshot_to_context(snapshot: FundamentalSnapshot | None) -> dict[str, float | str | None]:
     if snapshot is None:
         return {}
@@ -131,6 +173,44 @@ def snapshot_to_context(snapshot: FundamentalSnapshot | None) -> dict[str, float
         },
         "fundamental_extra": snapshot.extra_json or {},
     }
+
+
+def load_fundamental_context_map(
+    db: Session,
+    symbols: Sequence[str],
+    as_of_date: date,
+) -> dict[str, dict[str, Any]]:
+    unique_symbols = sorted({symbol for symbol in symbols if symbol})
+    if not unique_symbols:
+        return {}
+
+    fundamental_snapshots = _latest_snapshots_by_symbol(
+        db,
+        unique_symbols,
+        as_of_date,
+        _fundamental_presence_filter(),
+    )
+    valuation_snapshots = _latest_snapshots_by_symbol(
+        db,
+        unique_symbols,
+        as_of_date,
+        _valuation_presence_filter(),
+    )
+
+    contexts: dict[str, dict[str, Any]] = {}
+    for symbol in unique_symbols:
+        context = snapshot_to_context(fundamental_snapshots.get(symbol))
+        valuation_snapshot = valuation_snapshots.get(symbol)
+        if valuation_snapshot is not None:
+            valuation_context = snapshot_to_context(valuation_snapshot)
+            for field in VALUATION_FIELDS:
+                if valuation_context.get(field) is not None:
+                    context[field] = valuation_context[field]
+            context["valuation_date"] = valuation_snapshot.available_date.isoformat()
+            context["valuation_extra"] = valuation_snapshot.extra_json or {}
+        if context:
+            contexts[symbol] = context
+    return contexts
 
 
 def load_fundamental_context(db: Session, symbol: str, as_of_date: date) -> dict[str, Any]:

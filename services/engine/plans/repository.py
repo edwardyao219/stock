@@ -7,8 +7,17 @@ from typing import Any
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
-from services.engine.plans.context import build_strategy_context, load_sector_feature_map
+from services.engine.fundamental.repository import load_fundamental_context_map
+from services.engine.plans.context import (
+    _ts_code_for_symbol,
+    build_strategy_context,
+    load_sector_feature_map,
+    load_tushare_daily_basic_map,
+    load_tushare_industry_moneyflow_map,
+    load_tushare_moneyflow_map,
+)
 from services.engine.plans.generator import TradePlanCandidate
+from services.engine.sector.repository import load_sector_profile_map
 from services.shared.models import DailyBar, Security, StockFeatureDaily, TradePlan
 from services.shared.upsert import upsert_rows
 
@@ -35,6 +44,7 @@ def load_feature_contexts(
     feature_date: str,
     symbols: list[str] | None = None,
     limit: int | None = None,
+    include_fundamentals: bool = True,
 ) -> list[dict[str, Any]]:
     target_date = _date(feature_date)
     stmt = (
@@ -56,15 +66,37 @@ def load_feature_contexts(
 
     sector_feature_map = load_sector_feature_map(db, target_date)
 
+    rows = list(db.execute(stmt))
+    ts_codes = [_ts_code_for_symbol(security) for _feature_row, security, _bar in rows]
+    symbols = [feature_row.symbol for feature_row, _security, _bar in rows]
+    sector_codes = [security.industry for _feature_row, security, _bar in rows]
+
+    tushare_daily_basic_map = load_tushare_daily_basic_map(db, ts_codes, target_date)
+    tushare_moneyflow_map = load_tushare_moneyflow_map(db, ts_codes, target_date)
+    industry_moneyflow_map = load_tushare_industry_moneyflow_map(
+        db,
+        sector_codes,
+        target_date,
+    )
+    fundamental_context_map = (
+        load_fundamental_context_map(db, symbols, target_date) if include_fundamentals else {}
+    )
+    sector_profile_map = load_sector_profile_map(db, sector_codes)
+
     contexts: list[dict[str, Any]] = []
-    for feature_row, security, bar in db.execute(stmt):
+    for feature_row, security, bar in rows:
         contexts.append(
             build_strategy_context(
                 db,
                 feature_row,
                 security,
                 bar,
-                sector_feature_map,
+                sector_feature_map=sector_feature_map,
+                tushare_daily_basic_map=tushare_daily_basic_map,
+                tushare_moneyflow_map=tushare_moneyflow_map,
+                industry_moneyflow_map=industry_moneyflow_map,
+                fundamental_context_map=fundamental_context_map,
+                sector_profile_map=sector_profile_map,
             )
         )
     return contexts

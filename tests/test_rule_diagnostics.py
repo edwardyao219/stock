@@ -48,8 +48,8 @@ def test_diagnose_rule_performance_reduces_weak_rule() -> None:
     assert diagnostic.confidence == "high"
     assert any("收紧止损" in item for item in diagnostic.suggestions)
     assert any(
-        item.target_name == "banking_compound_valuation"
-        and item.proposed["candidate_dividend_yield_min"] == 0.04
+        item.target_name == "monthly_sector_trend_quality"
+        and item.proposed["candidate_sector_strength_score_min"] == 72
         for item in diagnostic.parameter_suggestions
     )
 
@@ -93,7 +93,7 @@ def test_diagnose_rule_performance_preserves_payoff_ratio() -> None:
 
     assert diagnostic.status == "observe"
     assert any(
-        item.target_name == "banking_compound_take_profit"
+        item.target_name == "monthly_sector_trend_take_profit"
         and item.proposed["prefer_position_rebalance"] is True
         for item in diagnostic.parameter_suggestions
     )

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from services.collector.akshare_client import (
@@ -158,6 +159,23 @@ def upsert_realtime_quotes(db: Session, quotes: list[RealtimeQuoteRow]) -> int:
         ],
         constraint="uq_realtime_quotes_symbol_time",
     )
+
+
+def load_recent_realtime_quotes(
+    db: Session,
+    symbol: str,
+    *,
+    trade_date: date | None = None,
+    before: datetime | None = None,
+    limit: int = 3,
+) -> list[RealtimeQuote]:
+    stmt = select(RealtimeQuote).where(RealtimeQuote.symbol == symbol)
+    if trade_date is not None:
+        stmt = stmt.where(RealtimeQuote.trade_date == trade_date)
+    if before is not None:
+        stmt = stmt.where(RealtimeQuote.quote_time < before)
+    stmt = stmt.order_by(desc(RealtimeQuote.quote_time)).limit(max(1, limit))
+    return list(db.execute(stmt).scalars())
 
 
 def upsert_industry_constituents(db: Session, constituents: list[IndustryConstituent]) -> int:

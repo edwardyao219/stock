@@ -1,17 +1,29 @@
-from services.notifications.dispatcher import dispatch_paper_alerts, format_paper_alert_text
+from services.notifications.dispatcher import (
+    build_candidate_tiers,
+    dispatch_candidate_screening,
+    dispatch_monthly_trade_summary,
+    dispatch_paper_alerts,
+    filter_hot_sector_candidates,
+    format_candidate_screening_text,
+    format_paper_alert_text,
+    select_action_candidates,
+    select_long_action_candidates,
+)
 from services.shared.config import get_settings
 
 
 def _alert() -> dict:
     return {
-        "symbol": "000001",
+        "symbol": "603083",
         "alert_type": "stop_loss_touched",
         "severity": "high",
         "price": 10.3,
         "current_stop": 10.34,
         "pnl_pct": -0.01,
         "alert_time": "2026-06-24T10:05:00",
-        "message": "000001 盘中触及纸面止损/跟踪止损。",
+        "message": "603083 盘中触及纸面止损/跟踪止损。",
+        "strategy_type": "swing",
+        "reasons": ["板块20日主线扩散较好"],
     }
 
 
@@ -19,18 +31,1133 @@ def test_format_paper_alert_text_contains_alert_context() -> None:
     text = format_paper_alert_text([_alert()])
 
     assert "股票纸面交易预警" in text
-    assert "000001 stop_loss_touched" in text
+    assert "603083 swing stop_loss_touched" in text
     assert "盘中触及纸面止损" in text
+
+
+def test_format_paper_alert_text_filters_non_hot_short_term_alert() -> None:
+    payload = _alert()
+    payload["symbol"] = "000002"
+    payload["message"] = "000002 历史测试预警"
+    payload["strategy_type"] = "short_term"
+    payload["reasons"] = []
+
+    text = format_paper_alert_text([payload])
+
+    assert "000002" not in text
+    assert text.strip() == "股票纸面交易预警"
+
+
+def test_dispatch_paper_alerts_skips_non_hot_short_term_alert(monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("NOTIFICATION_CHANNELS", "dingtalk")
+    monkeypatch.setenv("DINGTALK_WEBHOOK_URL", "")
+    payload = _alert()
+    payload["symbol"] = "000002"
+    payload["strategy_type"] = "short_term"
+    payload["reasons"] = []
+
+    results = dispatch_paper_alerts([payload])
+
+    assert results == []
+    get_settings.cache_clear()
+
+
+def test_format_paper_alert_text_contains_intraday_snapshot() -> None:
+    payload = _alert()
+    payload["intraday_snapshot"] = {
+        "label": "放量分歧",
+        "session_change_pct": -0.012,
+        "open_gap_pct": 0.045,
+        "change_from_open_pct": -0.053,
+        "intraday_high_gain_pct": 0.082,
+        "pullback_from_high_pct": 0.095,
+        "range_position": 0.18,
+        "volume_pressure_ratio": 1.6,
+        "failed_near_limit_up": False,
+        "spike_reversed_to_red": True,
+    }
+
+    text = format_paper_alert_text([payload])
+
+    assert "盘中快照：放量分歧" in text
+    assert "开盘+4.5%" in text
+    assert "最高+8.2%" in text
+    assert "回撤+9.5%" in text
+    assert "冲高翻绿" in text
+
+
+def test_format_candidate_screening_text_contains_reasons() -> None:
+    text = format_candidate_screening_text(
+        {
+            "requested_feature_date": "2026-06-24",
+            "feature_date": "2026-06-24",
+            "feature_coverage_ratio": 0.958,
+            "universe_size": 100,
+            "market_regime": "weak_trend",
+            "market_regime_snapshot": {
+                "trend_score": 42.0,
+                "breadth_score": 35.0,
+                "emotion_score": 30.0,
+                "emotion_gate": "risk_off",
+            },
+            "emotion_gate": {
+                "state": "risk_off",
+                "position_scale": 0.0,
+                "notes": ["市场情绪偏弱，不新开仓或只保留观察。"],
+            },
+            "retired": 1,
+            "sector_focus": [
+                {
+                    "sector": "通信设备",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "603083",
+                    "name": "剑桥科技",
+                    "sector": "通信设备",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.5,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "reasons": ["入选层级：正式策略命中", "板块20日主线扩散较好", "趋势强度领先"],
+                    "risk_flags": ["过热分数偏高72.0"],
+                }
+            ],
+        }
+    )
+
+    assert "盘后股票候选" in text
+    assert "请求日 2026-06-24" in text
+    assert "特征日 2026-06-24" in text
+    assert "覆盖 95.8%" in text
+    assert "市场环境：weak_trend" not in text
+    assert "情绪阀门：risk_off | 仓位系数 0.0" not in text
+    assert "603083 剑桥科技 通信设备 正式策略命中 第82.5分" in text
+    assert "趋势强度领先" in text
+    assert "过热分数偏高72.0" in text
+
+
+def test_format_candidate_screening_text_keeps_dingtalk_stock_only() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "market_regime": "weak_trend",
+            "market_regime_snapshot": {
+                "trend_score": 42.0,
+                "breadth_score": 35.0,
+                "emotion_score": 30.0,
+            },
+            "emotion_gate": {
+                "state": "risk_off",
+                "position_scale": 0.0,
+                "notes": ["市场情绪偏弱，不新开仓或只保留观察。"],
+            },
+            "market_participation_snapshot": {
+                "participation_score": 35,
+                "liquidity_score": 45,
+                "leadership_rate": 12,
+            },
+            "sector_groups": [{"sector": "半导体", "count": 3, "avg_score": 81.2}],
+            "sector_focus": [
+                {
+                    "sector": "半导体",
+                    "focus_score": 74,
+                    "continuity_score": 75,
+                    "resilience_score": 68.2,
+                    "leadership_score": 74.8,
+                    "avg_return_20d_pct": 10,
+                    "positive_ratio": 0.65,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "603061",
+                    "name": "金海通",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 80.7,
+                    "selected_rule_id": "R007",
+                    "selected_rule_name": "趋势量能确认",
+                    "selected_strategy_type": "swing",
+                    "reasons": ["板块主线地位靠前", "趋势量能确认"],
+                    "risk_flags": [],
+                }
+            ],
+        }
+    )
+
+    assert "盘后股票候选" in text
+    assert "603061 金海通 半导体" in text
+    assert "市场环境" not in text
+    assert "情绪阀门" not in text
+    assert "资金参与" not in text
+    assert "板块分布" not in text
+    assert "板块观察" not in text
+
+
+def test_format_candidate_screening_text_prioritizes_long_term_candidates() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "sector_focus": [
+                {
+                    "sector": "PCB",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                },
+                {
+                    "sector": "通信设备",
+                    "focus_score": 68,
+                    "continuity_score": 66,
+                    "avg_return_20d_pct": 8.5,
+                    "positive_ratio": 0.60,
+                },
+            ],
+            "candidates": [
+                {
+                    "symbol": "600183",
+                    "name": "长期回调票",
+                    "sector": "PCB",
+                    "selection_mode": "formal_strategy",
+                    "score": 86.4,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["先看板块主线", "板块20日主线扩散较好"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "603083",
+                    "name": "短线候选",
+                    "sector": "通信设备",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.5,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "selected_strategy_type": "short_term",
+                    "reasons": ["板块20日主线扩散较好", "趋势强度领先"],
+                    "risk_flags": [],
+                },
+            ],
+        }
+    )
+
+    assert "长期/波段主池" in text
+    assert "短线观察池" in text
+    assert "600183 长期回调票 PCB 中期趋势 正式策略命中 第86.4分" in text
+    assert "603083 短线候选 通信设备 短线观察 正式策略命中 第82.5分" in text
+    assert text.index("600183 长期回调票") < text.index("短线观察池")
+
+
+def test_format_candidate_screening_text_uses_action_candidates_when_present() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-30",
+            "universe_size": 5000,
+            "retired": 0,
+            "sector_focus": [
+                {
+                    "sector": "半导体",
+                    "focus_score": 76,
+                    "continuity_score": 74,
+                    "avg_return_20d_pct": 11,
+                    "positive_ratio": 0.66,
+                }
+            ],
+            "action_candidates": [
+                {
+                    "symbol": "002156",
+                    "name": "通富微电",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 84.9,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["低维主线：板块趋势和个股强度共振", "科技成长主线顺势"],
+                    "risk_flags": [],
+                }
+            ],
+            "star_candidates": [
+                {
+                    "symbol": "688802",
+                    "name": "沐曦股份",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 90.5,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["科技成长主线顺势"],
+                    "risk_flags": [],
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "002156",
+                    "name": "通富微电",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 84.9,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["低维主线：板块趋势和个股强度共振", "科技成长主线顺势"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "600900",
+                    "name": "高位观察",
+                    "sector": "火力发电",
+                    "selection_mode": "formal_strategy",
+                    "score": 92.0,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "selected_strategy_type": "swing",
+                    "reasons": ["板块20日主线扩散较好"],
+                    "risk_flags": ["距离MA20偏远17.00%"],
+                },
+                {
+                    "symbol": "688802",
+                    "name": "沐曦股份",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 90.5,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["科技成长主线顺势"],
+                    "risk_flags": [],
+                },
+            ],
+        }
+    )
+
+    assert "行动候选（普通版最多3只）" in text
+    assert "002156 通富微电 半导体" in text
+    assert "600900" not in text
+    assert "688802" not in text
+    assert "观察池 3 只在 Web" in text
+    assert "科创池 1 只在 Web" in text
+
+
+def test_format_candidate_screening_text_prefers_long_action_candidates() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-30",
+            "universe_size": 5000,
+            "retired": 0,
+            "sector_focus": [
+                {
+                    "sector": "半导体",
+                    "focus_score": 76,
+                    "continuity_score": 74,
+                    "avg_return_20d_pct": 11,
+                    "positive_ratio": 0.66,
+                }
+            ],
+            "long_action_candidates": [
+                {
+                    "symbol": "600002",
+                    "name": "中期强者",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.0,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["中期强者：相对强度或板块扩散足够强"],
+                    "risk_flags": [],
+                }
+            ],
+            "action_candidates": [
+                {
+                    "symbol": "002156",
+                    "name": "普通行动",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 84.9,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "selected_strategy_type": "short_term",
+                    "reasons": ["低维主线：板块趋势和个股强度共振"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "600002",
+                    "name": "中期强者",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.0,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["中期强者：相对强度或板块扩散足够强"],
+                    "risk_flags": [],
+                },
+            ],
+            "candidates": [],
+        }
+    )
+
+    assert "中期行动候选（最多3只）" in text
+    assert "600002 中期强者 半导体" in text
+    assert "002156" not in text
+    assert "普通行动候选 2 只在 Web" in text
+
+
+def test_format_candidate_screening_text_prefers_core_action_tier() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "sector_focus": [
+                {
+                    "sector": "半导体",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                }
+            ],
+            "candidate_tiers": {
+                "core_action": [
+                    {
+                        "symbol": "600002",
+                        "name": "核心票",
+                        "sector": "半导体",
+                        "selection_mode": "formal_strategy",
+                        "score": 82.0,
+                        "selected_rule_id": "R004",
+                        "selected_rule_name": "板块中期趋势跟随",
+                        "selected_strategy_type": "long_term",
+                        "reasons": ["中期强者：相对强度或板块扩散足够强"],
+                        "risk_flags": [],
+                        "tier_reason": "板块和个股趋势同时在线，作为核心行动候选。",
+                    }
+                ],
+                "watch_wait": [
+                    {
+                        "symbol": "002156",
+                        "name": "观察票",
+                        "sector": "半导体",
+                        "selection_mode": "formal_strategy",
+                        "score": 84.9,
+                        "selected_strategy_type": "swing",
+                        "reasons": ["低维主线：板块趋势和个股强度共振"],
+                        "risk_flags": ["距离MA20偏远17.00%"],
+                    }
+                ],
+                "risk_reject": [],
+            },
+            "action_candidates": [
+                {
+                    "symbol": "002156",
+                    "name": "观察票",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 84.9,
+                    "selected_strategy_type": "swing",
+                    "reasons": ["低维主线：板块趋势和个股强度共振"],
+                    "risk_flags": [],
+                }
+            ],
+            "candidates": [],
+        }
+    )
+
+    assert "核心行动候选" in text
+    assert "600002 核心票" in text
+    assert "002156 观察票" not in text
+
+
+def test_select_action_candidates_keeps_low_noise_normal_pool_without_filling_risky() -> None:
+    candidates = [
+        {
+            "symbol": "002156",
+            "selection_mode": "formal_strategy",
+            "score": 84.9,
+            "selected_strategy_type": "long_term",
+            "reasons": ["低维主线：板块趋势和个股强度共振"],
+            "risk_flags": [],
+        },
+        {
+            "symbol": "600584",
+            "selection_mode": "formal_strategy",
+            "score": 82.0,
+            "selected_strategy_type": "swing",
+            "reasons": ["板块中期趋势延续性较好"],
+            "risk_flags": [],
+        },
+        {
+            "symbol": "600900",
+            "selection_mode": "formal_strategy",
+            "score": 92.0,
+            "selected_strategy_type": "swing",
+            "reasons": ["板块20日主线扩散较好"],
+            "risk_flags": ["距离MA20偏远17.00%"],
+        },
+        {
+            "symbol": "688802",
+            "selection_mode": "formal_strategy",
+            "score": 90.0,
+            "selected_strategy_type": "long_term",
+            "reasons": ["科技成长主线顺势"],
+            "risk_flags": [],
+        },
+    ]
+
+    selected = select_action_candidates({"candidates": candidates}, candidates, max_items=3)
+
+    assert [item["symbol"] for item in selected] == ["002156", "600584"]
+
+
+def test_select_action_candidates_prefers_long_horizon_strength_reason() -> None:
+    candidates = [
+        {
+            "symbol": "600001",
+            "selection_mode": "formal_strategy",
+            "score": 91.0,
+            "selected_strategy_type": "short_term",
+            "reasons": ["趋势+相对强度因子仍有支撑"],
+            "risk_flags": [],
+        },
+        {
+            "symbol": "600002",
+            "sector": "半导体",
+            "selection_mode": "formal_strategy",
+            "score": 82.0,
+            "selected_strategy_type": "short_term",
+            "reasons": ["中期强者：相对强度或板块扩散足够强"],
+            "risk_flags": [],
+        },
+    ]
+
+    selected = select_action_candidates({"candidates": candidates}, candidates, max_items=1)
+
+    assert [item["symbol"] for item in selected] == ["600002"]
+
+
+def test_select_long_action_candidates_requires_market_participation() -> None:
+    candidates = [
+        {
+            "symbol": "600002",
+            "sector": "半导体",
+            "selection_mode": "formal_strategy",
+            "score": 82.0,
+            "selected_strategy_type": "long_term",
+            "reasons": ["中期强者：相对强度或板块扩散足够强"],
+            "risk_flags": [],
+        }
+    ]
+
+    weak_discovery = {
+        "candidates": candidates,
+        "market_participation_snapshot": {
+            "participation_score": 41.0,
+            "liquidity_score": 31.0,
+        },
+    }
+    strong_discovery = {
+        "candidates": candidates,
+        "market_participation_snapshot": {
+            "participation_score": 48.0,
+            "liquidity_score": 38.0,
+        },
+    }
+
+    assert select_long_action_candidates(weak_discovery, candidates, max_items=3) == []
+    assert [
+        item["symbol"]
+        for item in select_long_action_candidates(strong_discovery, candidates, max_items=3)
+    ] == ["600002"]
+
+
+def test_select_long_action_candidates_requires_trend_style_context() -> None:
+    candidates = [
+        {
+            "symbol": "600001",
+            "sector": "食品饮料",
+            "sector_style": "consumer_quality",
+            "selection_mode": "formal_strategy",
+            "score": 99.0,
+            "selected_strategy_type": "long_term",
+            "reasons": ["中期强者：相对强度或板块扩散足够强"],
+            "risk_flags": [],
+        },
+        {
+            "symbol": "600002",
+            "sector": "半导体",
+            "sector_style": "growth_cycle",
+            "selection_mode": "formal_strategy",
+            "score": 82.0,
+            "selected_strategy_type": "long_term",
+            "reasons": ["中期强者：相对强度或板块扩散足够强"],
+            "risk_flags": [],
+        },
+        {
+            "symbol": "600003",
+            "sector": "综合类",
+            "sector_style": "unknown",
+            "selection_mode": "formal_strategy",
+            "score": 98.0,
+            "selected_strategy_type": "long_term",
+            "reasons": ["中期强者：相对强度或板块扩散足够强"],
+            "risk_flags": [],
+        },
+    ]
+    discovery = {
+        "candidates": candidates,
+        "market_participation_snapshot": {
+            "participation_score": 55.0,
+            "liquidity_score": 45.0,
+        },
+    }
+
+    selected = select_long_action_candidates(discovery, candidates, max_items=3)
+
+    assert [item["symbol"] for item in selected] == ["600002"]
+
+
+def test_build_candidate_tiers_separates_core_watch_and_risk() -> None:
+    candidates = [
+        {
+            "symbol": "600002",
+            "name": "中期强者",
+            "sector": "半导体",
+            "suggested_horizon_days": 10,
+            "horizon_reason": "风格周期：growth_cycle偏10日观察，科技成长先看承接延续",
+            "selection_mode": "formal_strategy",
+            "score": 82.0,
+            "selected_strategy_type": "long_term",
+            "reasons": ["中期强者：相对强度或板块扩散足够强"],
+            "risk_flags": [],
+        },
+        {
+            "symbol": "002156",
+            "name": "等待回踩",
+            "sector": "半导体",
+            "suggested_horizon_days": 10,
+            "horizon_reason": "风格周期：growth_cycle偏10日观察，科技成长先看承接延续",
+            "selection_mode": "formal_strategy",
+            "score": 84.9,
+            "selected_strategy_type": "swing",
+            "reasons": ["低维主线：板块趋势和个股强度共振"],
+            "risk_flags": ["距离MA20偏远17.00%"],
+        },
+        {
+            "symbol": "600673",
+            "name": "潜力观察",
+            "sector": "综合类",
+            "selection_mode": "potential_watch",
+            "score": 91.0,
+            "selected_strategy_type": "watch_breakout",
+            "reasons": ["潜力观察：个股启动但板块未确认，只观察不行动"],
+            "risk_flags": [],
+        },
+        {
+            "symbol": "600900",
+            "name": "过热样本",
+            "sector": "电力",
+            "selection_mode": "formal_strategy",
+            "score": 92.0,
+            "selected_strategy_type": "swing",
+            "reasons": ["趋势+相对强度因子仍有支撑"],
+            "risk_flags": ["过热分数偏高78.0", "放量诱多风险"],
+        },
+    ]
+    discovery = {
+        "candidates": candidates,
+        "action_candidates": [candidates[0]],
+        "long_action_candidates": [candidates[0]],
+    }
+
+    tiers = build_candidate_tiers(discovery)
+
+    assert [item["symbol"] for item in tiers["core_action"]] == ["600002"]
+    assert [item["symbol"] for item in tiers["watch_wait"]] == ["002156", "600673"]
+    assert [item["symbol"] for item in tiers["risk_reject"]] == ["600900"]
+    assert tiers["core_action"][0]["candidate_tier"] == "core_action"
+    assert "核心行动" in tiers["core_action"][0]["candidate_tier_label"]
+    assert "10日观察" in tiers["core_action"][0]["tier_reason"]
+    assert "等回踩" in tiers["watch_wait"][0]["tier_reason"]
+    assert "10日观察" in tiers["watch_wait"][0]["tier_reason"]
+    assert "风险" in tiers["risk_reject"][0]["candidate_tier_label"]
+
+
+def test_build_candidate_tiers_explains_when_core_action_is_empty() -> None:
+    candidates = [
+        {
+            "symbol": "002669",
+            "sector": "化工原料",
+            "selection_mode": "potential_watch",
+            "selected_strategy_type": "watch_breakout",
+            "score": 66.9,
+            "risk_flags": [],
+            "reasons": ["潜力观察：个股启动但板块未确认，只观察不行动"],
+        },
+        {
+            "symbol": "600360",
+            "sector": "半导体",
+            "selection_mode": "observation",
+            "selected_strategy_type": "watch_breakout",
+            "score": 67.0,
+            "risk_flags": ["板块20日涨幅/扩散已偏拥挤", "放量诱多风险61.5"],
+            "reasons": ["入选层级：观察候选"],
+        },
+    ]
+
+    tiers = build_candidate_tiers({"candidates": candidates}, candidates)
+
+    assert tiers["core_action"] == []
+    assert tiers["summary"]["core_block_reason"] == (
+        "没有核心行动：候选仍以潜力观察/买点未确认为主，正式票又带较重风险。"
+    )
+
+
+def test_filter_hot_sector_candidates_keeps_potential_watch_outside_hot_sector() -> None:
+    discovery = {
+        "sector_focus": [
+            {
+                "sector": "证券",
+                "focus_score": 76,
+                "continuity_score": 74,
+                "avg_return_20d_pct": 11,
+                "positive_ratio": 0.66,
+            }
+        ]
+    }
+    candidates = [
+        {
+            "symbol": "601066",
+            "sector": "证券",
+            "selection_mode": "formal_strategy",
+            "reasons": ["板块20日主线扩散较好"],
+        },
+        {
+            "symbol": "600673",
+            "sector": "综合类",
+            "selection_mode": "potential_watch",
+            "reasons": ["潜力观察：个股启动但板块未确认，只观察不行动"],
+        },
+        {
+            "symbol": "600000",
+            "sector": "银行",
+            "selection_mode": "observation",
+            "reasons": ["相对强度不弱"],
+        },
+    ]
+
+    filtered = filter_hot_sector_candidates(discovery, candidates)
+
+    assert [item["symbol"] for item in filtered] == ["601066", "600673"]
+
+
+def test_select_action_candidates_excludes_potential_watch() -> None:
+    candidates = [
+        {
+            "symbol": "002156",
+            "selection_mode": "formal_strategy",
+            "score": 84.9,
+            "selected_strategy_type": "long_term",
+            "reasons": ["低维主线：板块趋势和个股强度共振"],
+            "risk_flags": [],
+        },
+        {
+            "symbol": "600673",
+            "selection_mode": "potential_watch",
+            "score": 91.0,
+            "selected_strategy_type": "watch_breakout",
+            "reasons": ["潜力观察：个股启动但板块未确认，只观察不行动"],
+            "risk_flags": [],
+        },
+    ]
+
+    selected = select_action_candidates({"candidates": candidates}, candidates, max_items=3)
+
+    assert [item["symbol"] for item in selected] == ["002156"]
+
+
+def test_format_candidate_screening_text_includes_sector_distribution() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "sector_groups": [
+                {"sector": "半导体", "count": 3, "avg_score": 81.2},
+                {"sector": "化学制药", "count": 2, "avg_score": 76.5},
+            ],
+            "sector_focus": [
+                {
+                    "sector": "半导体",
+                    "continuity_score": 77.4,
+                    "resilience_score": 68.2,
+                    "leadership_score": 74.8,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "603061",
+                    "name": "金海通",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 80.7,
+                    "selected_rule_id": "R007",
+                    "selected_rule_name": "趋势量能确认",
+                    "selected_strategy_type": "swing",
+                    "reasons": ["板块主线地位靠前", "板块20日主线扩散较好"],
+                    "risk_flags": [],
+                }
+            ],
+        }
+    )
+
+    assert "板块分布：" not in text
+    assert "半导体 3只 / 均分81.2" not in text
+    assert "板块观察：" not in text
+    assert "半导体 月势77.4 / 韧性68.2 / 领头74.8" not in text
+    assert "603061 金海通 半导体" in text
+
+
+def test_format_candidate_screening_text_excludes_exploration_candidates() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "sector_focus": [
+                {
+                    "sector": "半导体",
+                    "focus_score": 74,
+                    "continuity_score": 75,
+                    "avg_return_20d_pct": 10,
+                    "positive_ratio": 0.65,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "002156",
+                    "name": "通富微电",
+                    "sector": "半导体",
+                    "selection_mode": "exploration",
+                    "score": 79.1,
+                    "selected_rule_id": "EXP001",
+                    "selected_rule_name": "强板块趋势探索",
+                    "selected_strategy_type": "watch_breakout",
+                    "reasons": ["板块20日主线扩散较好", "趋势+相对强度因子仍有支撑"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "603061",
+                    "name": "金海通",
+                    "sector": "半导体",
+                    "selection_mode": "observation",
+                    "score": 80.7,
+                    "selected_rule_id": "OBS001",
+                    "selected_rule_name": "观察候选",
+                    "selected_strategy_type": "watch_breakout",
+                    "reasons": ["板块20日主线扩散较好", "趋势和资金同向"],
+                    "risk_flags": [],
+                },
+            ],
+        }
+    )
+
+    assert "002156" not in text
+    assert "EXP001" not in text
+    assert "603061 金海通 半导体" in text
+
+
+def test_format_candidate_screening_text_marks_all_risky_candidates_as_watch_only() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "sector_focus": [
+                {
+                    "sector": "半导体",
+                    "focus_score": 74,
+                    "continuity_score": 75,
+                    "avg_return_20d_pct": 10,
+                    "positive_ratio": 0.65,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "603061",
+                    "name": "金海通",
+                    "sector": "半导体",
+                    "selection_mode": "observation",
+                    "score": 80.7,
+                    "selected_rule_id": "OBS001",
+                    "selected_rule_name": "观察候选",
+                    "selected_strategy_type": "watch_breakout",
+                    "reasons": ["板块20日主线扩散较好", "趋势和资金同向"],
+                    "risk_flags": ["今日涨幅较大10.00%"],
+                }
+            ],
+        }
+    )
+
+    assert "只做观察清单" in text
+
+
+def test_format_candidate_screening_text_surfaces_robust_factor_reasons() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "sector_focus": [
+                {
+                    "sector": "通信设备",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                },
+                {
+                    "sector": "专用设备",
+                    "focus_score": 66,
+                    "continuity_score": 68,
+                    "avg_return_20d_pct": 8.2,
+                    "positive_ratio": 0.58,
+                },
+            ],
+            "candidates": [
+                {
+                    "symbol": "603083",
+                    "name": "低噪音观察",
+                    "sector": "通信设备",
+                    "selection_mode": "formal_strategy",
+                    "score": 80.2,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "swing",
+                    "reasons": [
+                        "入选层级：正式策略命中",
+                        "路线 强路线 第78.8分",
+                        "路线判断：趋势和资金都在同一方向",
+                        "趋势78.0",
+                        "支撑：回调质量符合5月较稳因子，趋势+相对强度因子仍有支撑，板块中期趋势延续性较好",
+                    ],
+                    "risk_flags": [],
+                }
+            ],
+        }
+    )
+
+    assert "回调质量符合5月较稳因子" in text
+    assert "趋势+相对强度因子仍有支撑" in text
+    assert "板块中期趋势延续性较好" in text
+
+
+def test_format_candidate_screening_text_splits_star_market_candidates() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "candidates": [
+                {
+                    "symbol": "603083",
+                    "name": "普通候选",
+                    "sector": "通信设备",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.5,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "selected_strategy_type": "short_term",
+                    "reasons": ["板块20日主线扩散较好", "趋势强度领先"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "688003",
+                    "name": "科创候选",
+                    "sector": "专用设备",
+                    "selection_mode": "formal_strategy",
+                    "score": 75.4,
+                    "selected_rule_id": "R007",
+                    "selected_rule_name": "趋势量能确认",
+                    "selected_strategy_type": "short_term",
+                    "reasons": ["板块20日主线扩散较好", "趋势和资金同向"],
+                    "risk_flags": [],
+                },
+            ],
+        }
+    )
+
+    assert "长期/波段主池（普通版最多8只）" in text
+    assert "科创板高弹性池（最多10只）" in text
+    assert text.index("603083 普通候选") < text.index("科创板高弹性池")
+    assert text.index("688003 科创候选") > text.index("科创板高弹性池")
+
+
+def test_format_candidate_screening_text_keeps_only_formal_selection_tier_when_present() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "sector_focus": [
+                {
+                    "sector": "半导体",
+                    "focus_score": 74,
+                    "continuity_score": 75,
+                    "avg_return_20d_pct": 10,
+                    "positive_ratio": 0.65,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "603061",
+                    "name": "正式票",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "selection_tier": "formal",
+                    "score": 80.7,
+                    "selected_rule_id": "R007",
+                    "selected_rule_name": "趋势量能确认",
+                    "selected_strategy_type": "swing",
+                    "reasons": ["板块20日主线扩散较好", "趋势量能确认"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "603062",
+                    "name": "观察票",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "selection_tier": "watch",
+                    "score": 88.0,
+                    "selected_rule_id": "R007",
+                    "selected_rule_name": "趋势量能确认",
+                    "selected_strategy_type": "swing",
+                    "reasons": ["板块20日主线扩散较好", "等待确认"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "603063",
+                    "name": "暂缓票",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "selection_tier": "defer",
+                    "score": 90.0,
+                    "selected_rule_id": "R007",
+                    "selected_rule_name": "趋势量能确认",
+                    "selected_strategy_type": "swing",
+                    "reasons": ["板块20日主线扩散较好", "放量回落"],
+                    "risk_flags": ["放量回落"],
+                },
+            ],
+        }
+    )
+
+    assert "603061 正式票" in text
+    assert "603062 观察票" not in text
+    assert "603063 暂缓票" not in text
 
 
 def test_dispatch_paper_alerts_skips_unconfigured_dingtalk(monkeypatch) -> None:
     get_settings.cache_clear()
     monkeypatch.setenv("NOTIFICATION_CHANNELS", "dingtalk")
-    monkeypatch.delenv("DINGTALK_WEBHOOK_URL", raising=False)
+    monkeypatch.setenv("DINGTALK_WEBHOOK_URL", "")
 
     results = dispatch_paper_alerts([_alert()])
 
     assert len(results) == 1
     assert results[0].channel == "dingtalk"
     assert results[0].status == "skipped"
+    get_settings.cache_clear()
+
+
+def test_dispatch_candidate_screening_skips_unconfigured_dingtalk(monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("NOTIFICATION_CHANNELS", "dingtalk")
+    monkeypatch.setenv("DINGTALK_WEBHOOK_URL", "")
+
+    results = dispatch_candidate_screening(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "sector_focus": [
+                {
+                    "sector": "通信设备",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "603083",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.5,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "sector": "通信设备",
+                    "reasons": ["板块20日主线扩散较好", "趋势强度领先"],
+                    "risk_flags": [],
+                }
+            ],
+        }
+    )
+
+    assert len(results) == 1
+    assert results[0].status == "skipped"
+    get_settings.cache_clear()
+
+
+def test_dispatch_candidate_screening_sends_long_term_only_payload(monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("NOTIFICATION_CHANNELS", "dingtalk")
+    monkeypatch.setenv("DINGTALK_WEBHOOK_URL", "")
+
+    results = dispatch_candidate_screening(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "candidates": [
+                {
+                    "symbol": "600183",
+                    "selection_mode": "formal_strategy",
+                    "score": 86.4,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["先看板块主线"],
+                    "risk_flags": [],
+                }
+            ],
+        }
+    )
+
+    assert len(results) == 1
+    assert results[0].status == "skipped"
+    get_settings.cache_clear()
+
+
+def test_dispatch_monthly_trade_summary_is_web_only(monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("NOTIFICATION_CHANNELS", "dingtalk")
+    monkeypatch.setenv("DINGTALK_WEBHOOK_URL", "")
+
+    results = dispatch_monthly_trade_summary("6月交易总结")
+
+    assert results == []
     get_settings.cache_clear()

@@ -13,7 +13,11 @@ def evaluate_condition(condition: Condition, context: dict[str, Any]) -> bool:
     left = context.get(key)
     right = context.get(condition.ref) if condition.ref else condition.value
 
-    if left is None or right is None:
+    if left is None:
+        return False
+    if right is None:
+        if condition.op == "!=":
+            return True
         return False
 
     if condition.op == ">":
@@ -29,8 +33,12 @@ def evaluate_condition(condition: Condition, context: dict[str, Any]) -> bool:
     if condition.op == "!=":
         return left != right
     if condition.op == "in":
+        if not isinstance(right, (list, tuple, set, frozenset)):
+            return False
         return left in right
     if condition.op == "not_in":
+        if not isinstance(right, (list, tuple, set, frozenset)):
+            return False
         return left not in right
     return False
 

@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from services.shared.models import (
     DailyBar,
     PaperAccount,
-    PaperOrder,
     PaperPosition,
     PaperTrade,
     TradePlan,
@@ -30,18 +29,28 @@ def get_or_create_account(
     return account
 
 
-def load_trade_plans_for_trade_date(db: Session, trade_date: date) -> list[TradePlan]:
+def load_trade_plans_for_trade_date(
+    db: Session,
+    trade_date: date,
+    symbols: list[str] | None = None,
+) -> list[TradePlan]:
     stmt = (
         select(TradePlan)
         .where(TradePlan.trade_date == trade_date)
         .where(TradePlan.status == "planned")
         .order_by(TradePlan.confidence_score.desc())
     )
+    if symbols:
+        stmt = stmt.where(TradePlan.symbol.in_(symbols))
     return list(db.execute(stmt).scalars())
 
 
 def load_bar(db: Session, symbol: str, trade_date: date) -> DailyBar | None:
-    stmt = select(DailyBar).where(DailyBar.symbol == symbol).where(DailyBar.trade_date == trade_date)
+    stmt = (
+        select(DailyBar)
+        .where(DailyBar.symbol == symbol)
+        .where(DailyBar.trade_date == trade_date)
+    )
     return db.execute(stmt).scalar_one_or_none()
 
 

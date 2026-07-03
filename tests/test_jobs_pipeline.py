@@ -1,11 +1,31 @@
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 from services.collector.contracts import CollectionResult
-from services.jobs import pipeline
+from services.jobs import pipeline, tasks
+from services.jobs.celery_app import celery_app
+from services.shared.database import Base
+from services.shared.models import ResearchPoolItem
 
 
 def test_prepare_next_trade_session_runs_prepare_steps(monkeypatch) -> None:
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(pipeline, "_is_open_trade_date", lambda db, trade_date: True)
-    monkeypatch.setattr(pipeline, "_sync_daily_market_data_step", lambda trade_date: "synced")
+    monkeypatch.setattr(
+        pipeline,
+        "_sync_daily_market_data_step",
+        lambda trade_date, full_refresh=False: "synced",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_sync_sector_moneyflow_step",
+        lambda trade_date, lookback_open_days=8: pipeline.PipelineStepResult(
+            name="sync_sector_moneyflow",
+            status="ok",
+            detail=f"sector-flow:{trade_date}:{lookback_open_days}",
+            summary="sector-flow",
+        ),
+    )
     monkeypatch.setattr(
         pipeline,
         "_compute_features_step",
@@ -39,11 +59,12 @@ def test_prepare_next_trade_session_runs_prepare_steps(monkeypatch) -> None:
     assert result.stage == "prepare_next_session"
     assert [item.name for item in result.steps] == [
         "sync_daily_market_data",
+        "sync_sector_moneyflow",
         "sync_fundamentals",
         "compute_features",
         "generate_trade_plans",
     ]
-    assert result.steps[3].detail == "plans:2026-06-25:False"
+    assert result.steps[4].detail == "plans:2026-06-25:False"
 
 
 def test_sync_daily_market_data_step_returns_chinese_failure_summary(monkeypatch) -> None:
@@ -103,6 +124,205 @@ def test_sync_daily_market_data_step_defaults_to_lightweight_mode(monkeypatch) -
     assert result.summary == "已跳过全量同步"
 
 
+def test_compute_features_step_refreshes_low_dimensional_snapshot_cache(monkeypatch) -> None:
+    from datetime import date
+
+    from services.engine.backtest import walk_forward
+    from services.engine.features import sync as feature_sync
+
+    calls = []
+
+    monkeypatch.setattr(
+        feature_sync,
+        "compute_and_store_stock_features",
+        lambda **kwargs: calls.append(("stock", kwargs)) or {"symbols": 2, "rows": 2},
+    )
+    monkeypatch.setattr(
+        feature_sync,
+        "compute_and_store_sector_features",
+        lambda **kwargs: calls.append(("sector", kwargs)) or {"sectors": 1, "rows": 1},
+    )
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        walk_forward,
+        "sync_low_dimensional_feature_snapshots",
+        lambda db, *, start, end: calls.append(("cache", start, end)) or 2,
+    )
+
+    result = pipeline._compute_features_step("2026-06-24", limit=50)
+
+    assert calls == [
+        (
+            "stock",
+            {"start_date": date(2026, 6, 24), "end_date": date(2026, 6, 24), "limit": 50},
+        ),
+        ("sector", {"start_date": date(2026, 6, 24), "end_date": date(2026, 6, 24)}),
+        ("cache", date(2026, 6, 24), date(2026, 6, 24)),
+    ]
+    assert "2 条低维缓存" in result
+
+
+def test_celery_after_close_screening_runs_at_six_pm() -> None:
+    schedule = celery_app.conf.beat_schedule["paper-after-close-screening"]["schedule"]
+
+    assert schedule.hour == {18}
+    assert schedule.minute == {0}
+
+
+def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) -> None:
+    from datetime import datetime
+
+    captured = {}
+
+    class _Result:
+        def to_dict(self):
+            return {"status": "ok"}
+
+    def fake_run_after_close_session(trade_date, next_trade_date, **kwargs):
+        captured.update(
+            {
+                "trade_date": trade_date,
+                "next_trade_date": next_trade_date,
+                **kwargs,
+            }
+        )
+        return _Result()
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 30, 18, 0))
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-01")
+    monkeypatch.setattr(tasks, "run_after_close_session", fake_run_after_close_session)
+
+    result = tasks.run_after_close_session_task()
+
+    assert result == {"status": "ok"}
+    assert captured["trade_date"] == "2026-06-30"
+    assert captured["next_trade_date"] == "2026-07-01"
+    assert captured["full_market_sync"] is True
+
+
+def test_celery_intraday_schedule_matches_trading_windows() -> None:
+    schedule = celery_app.conf.beat_schedule["paper-intraday-screening"]["schedule"]
+
+    assert schedule.hour == {9, 10, 11, 13, 14}
+    assert schedule.minute == {0, 5, 10, 15, 20, 25, 30, 40, 45, 55}
+
+
+def test_celery_has_midday_and_late_session_snapshot_jobs() -> None:
+    midday_job = celery_app.conf.beat_schedule["paper-midday-snapshot"]
+    late_job = celery_app.conf.beat_schedule["paper-late-session-snapshot"]
+    midday = midday_job["schedule"]
+    late = late_job["schedule"]
+
+    assert midday.hour == {11}
+    assert midday.minute == {35}
+    assert midday_job["task"] == "services.jobs.tasks.paper_midday_snapshot_task"
+    assert late.hour == {14}
+    assert late.minute == {50}
+    assert late_job["task"] == "services.jobs.tasks.paper_late_session_snapshot_task"
+
+
+def test_intraday_session_passes_stage_and_as_of_to_monitor(monkeypatch) -> None:
+    from datetime import datetime
+
+    captured = {}
+
+    class _Result:
+        quotes = 3
+        executed_entries = 1
+        alerts = []
+        executed_exits = 0
+
+    def fake_monitor(**kwargs):
+        captured.update(kwargs)
+        return _Result()
+
+    monkeypatch.setattr(pipeline, "is_a_share_intraday_window", lambda: False)
+    monkeypatch.setattr(
+        "services.engine.paper.realtime.monitor_paper_positions_realtime",
+        fake_monitor,
+    )
+
+    result = pipeline.run_intraday_trade_session(
+        "2026-06-24",
+        force=True,
+        stage="midday_snapshot",
+        as_of=datetime(2026, 6, 24, 11, 35),
+    )
+
+    assert result.stage == "midday_snapshot"
+    assert result.steps[0].summary == "midday_snapshot @ 2026-06-24T11:35:00"
+    assert captured["quote_time"] == datetime(2026, 6, 24, 11, 35)
+    assert captured["snapshot_stage"] == "midday_snapshot"
+
+
+def test_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> None:
+    from datetime import datetime
+
+    captured = []
+
+    class _Result:
+        def __init__(self, stage: str) -> None:
+            self.stage = stage
+
+        def to_dict(self):
+            return {"stage": self.stage}
+
+    def fake_run(trade_date, **kwargs):
+        captured.append({"trade_date": trade_date, **kwargs})
+        return _Result(kwargs["stage"])
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 24, 14, 50))
+    monkeypatch.setattr(tasks, "run_intraday_trade_session", fake_run)
+
+    midday = tasks.paper_midday_snapshot_task()
+    late = tasks.paper_late_session_snapshot_task()
+
+    assert midday["stage"] == "midday_snapshot"
+    assert late["stage"] == "late_session_snapshot"
+    assert captured == [
+        {
+            "trade_date": "2026-06-24",
+            "stage": "midday_snapshot",
+            "as_of": datetime(2026, 6, 24, 14, 50),
+            "force": True,
+        },
+        {
+            "trade_date": "2026-06-24",
+            "stage": "late_session_snapshot",
+            "as_of": datetime(2026, 6, 24, 14, 50),
+            "force": True,
+        },
+    ]
+
+
+def test_resolve_next_trade_date_prefers_calendar_next_trade(monkeypatch) -> None:
+    class _CalendarItem:
+        next_trade_date = None
+
+    class _Db:
+        def get(self, model, current):
+            item = _CalendarItem()
+            item.next_trade_date = __import__("datetime").date(2026, 6, 29)
+            return item
+
+    assert pipeline.resolve_next_trade_date("2026-06-26", db=_Db()) == "2026-06-29"
+
+
+def test_resolve_next_trade_date_falls_back_to_next_weekday(monkeypatch) -> None:
+    class _Db:
+        def get(self, model, current):
+            return None
+
+        def execute(self, stmt):
+            class _Result:
+                def scalar_one_or_none(self):
+                    return None
+
+            return _Result()
+
+    assert pipeline.resolve_next_trade_date("2026-06-26", db=_Db()) == "2026-06-29"
+
+
 def test_intraday_session_skips_outside_window(monkeypatch) -> None:
     monkeypatch.setattr(pipeline, "is_a_share_intraday_window", lambda: False)
 
@@ -113,26 +333,900 @@ def test_intraday_session_skips_outside_window(monkeypatch) -> None:
     assert result.steps[0].detail == "当前不在 A 股盘中时段，已跳过实时监控。"
 
 
-def test_after_close_session_runs_review_learning_steps(monkeypatch) -> None:
+def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatch) -> None:
+    captured = {}
+
+    def fake_prepare_market_universe(trade_date, limit, sync_daily=False):
+        captured["sync_daily"] = sync_daily
+        return pipeline.PipelineStepResult(
+            name="prepare_market_feature_universe",
+            status="ok",
+            detail=f"universe:{limit}",
+        )
+
     monkeypatch.setattr(
         pipeline,
         "_run_daily_paper_simulation_step",
         lambda trade_date, account: f"paper:{account}",
     )
+    monkeypatch.setattr(
+        pipeline,
+        "_sync_sector_moneyflow_step",
+        lambda trade_date, lookback_open_days=8: pipeline.PipelineStepResult(
+            name="sync_sector_moneyflow",
+            status="ok",
+            detail=f"sector-flow:{trade_date}:{lookback_open_days}",
+            summary="sector-flow",
+        ),
+    )
     monkeypatch.setattr(pipeline, "_generate_paper_reviews_step", lambda trade_date: "reviews")
     monkeypatch.setattr(pipeline, "_run_rule_regression_step", lambda trade_date, limit: "backtest")
+    monkeypatch.setattr(
+        pipeline,
+        "_generate_backtest_learning_step",
+        lambda trade_date: "backtest-learning",
+    )
     monkeypatch.setattr(pipeline, "_generate_daily_review_step", lambda trade_date: "daily")
+    monkeypatch.setattr(
+        pipeline,
+        "_prepare_market_feature_universe_step",
+        fake_prepare_market_universe,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_discover_next_session_candidates_step",
+        lambda trade_date, next_trade_date, limit, use_learning_adjustments: (
+            pipeline.PipelineStepResult(
+                name="discover_next_session_candidates",
+                status="ok",
+                detail=f"candidates:{next_trade_date}:{use_learning_adjustments}",
+            )
+        ),
+    )
 
-    result = pipeline.run_after_close_session("2026-06-24", "2026-06-25", account="default")
+    result = pipeline.run_after_close_session(
+        "2026-06-24",
+        "2026-06-25",
+        account="default",
+        use_learning_adjustments=False,
+        full_market_sync=True,
+    )
 
     assert result.stage == "after_close"
     assert [item.name for item in result.steps] == [
+        "sync_sector_moneyflow",
+        "prepare_market_feature_universe",
+        "discover_next_session_candidates",
         "run_daily_paper_simulation",
         "generate_paper_trading_review",
         "run_rule_regression",
+        "generate_backtest_learning_review",
         "generate_daily_review",
     ]
-    assert result.steps[1].detail == "reviews"
+    assert result.steps[2].detail == "candidates:2026-06-25:False"
+    assert captured["sync_daily"] is True
+    assert result.steps[4].detail == "reviews"
+    assert result.steps[-1].detail == "daily"
+
+
+def test_sync_sector_moneyflow_step_summarizes_recent_backfill(monkeypatch) -> None:
+    monkeypatch.setattr(
+        pipeline,
+        "sync_recent_tushare_sector_moneyflow",
+        lambda trade_date, lookback_open_days=8: [
+            CollectionResult(
+                source="tushare_proxy",
+                dataset="moneyflow_ind_dc",
+                trade_date="2026-06-23",
+                rows=88,
+                status="ok",
+            ),
+            CollectionResult(
+                source="tushare_proxy",
+                dataset="moneyflow_ind_dc",
+                trade_date="2026-06-24",
+                rows=89,
+                status="ok",
+            ),
+        ],
+    )
+
+    result = pipeline._sync_sector_moneyflow_step("2026-06-24")
+
+    assert result.status == "ok"
+    assert result.summary == "板块资金流补齐完成"
+    assert "更新 2 个交易日" in result.detail
+
+
+def test_generate_daily_review_task_uses_mechanical_review(monkeypatch) -> None:
+    from datetime import datetime
+
+    class _Review:
+        title = "2026-06-24 每日机械复盘"
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("run_after_close_session should not be called here")
+
+    monkeypatch.setattr(tasks, "generate_daily_mechanical_review", lambda report_date: _Review())
+    monkeypatch.setattr(tasks, "run_after_close_session", fail_if_called)
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 24, 18, 30))
+
+    result = tasks.generate_daily_review_task()
+
+    assert result["trade_date"] == "2026-06-24"
+    assert result["status"] == "ok"
+    assert result["message"] == "2026-06-24 每日机械复盘"
+
+
+def test_discover_next_session_candidates_step_dispatches_screening_summary(monkeypatch) -> None:
+    captured = {}
+
+    def fake_discovery(db, **kwargs):
+        captured["discovery_kwargs"] = kwargs
+        return {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "universe_warning": "",
+            "sector_focus": [
+                {
+                    "sector": "通信设备",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "603083",
+                    "name": "剑桥科技",
+                    "sector": "通信设备",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.5,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "reasons": ["板块20日主线扩散较好", "趋势强度领先"],
+                    "risk_flags": [],
+                }
+            ],
+            "written": 1,
+            "retired": 0,
+        }
+
+    def fake_generate_and_store_trade_plans(**kwargs):
+        captured["plan_args"] = kwargs
+        return {"written": 1}
+
+    def fake_dispatch(discovery):
+        captured["discovery"] = discovery
+        return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        fake_dispatch,
+    )
+
+    result = pipeline._discover_next_session_candidates_step(
+        "2026-06-24",
+        "2026-06-25",
+        limit=10,
+        use_learning_adjustments=False,
+    )
+
+    assert result.name == "discover_next_session_candidates"
+    assert captured["discovery"]["candidates"][0]["symbol"] == "603083"
+    assert captured["plan_args"]["symbols"] == ["603083"]
+    assert result.details[0] == "钉钉提醒：dingtalk:ok"
+
+
+def test_discover_next_session_candidates_step_plans_action_candidates_only(monkeypatch) -> None:
+    captured = {}
+
+    def fake_discovery(db, **kwargs):
+        return {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "universe_warning": "",
+            "sector_focus": [
+                {
+                    "sector": "半导体",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "002156",
+                    "name": "通富微电",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 84.9,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["低维主线：板块趋势和个股强度共振"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "600900",
+                    "name": "高位观察",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 92.0,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "selected_strategy_type": "swing",
+                    "reasons": ["板块20日主线扩散较好"],
+                    "risk_flags": ["距离MA20偏远17.00%"],
+                },
+            ],
+            "written": 2,
+            "retired": 0,
+        }
+
+    def fake_generate_and_store_trade_plans(**kwargs):
+        captured["plan_args"] = kwargs
+        return {"written": len(kwargs["symbols"])}
+
+    def fake_dispatch(discovery):
+        captured["discovery"] = discovery
+        return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        fake_dispatch,
+    )
+
+    pipeline._discover_next_session_candidates_step(
+        "2026-06-24",
+        "2026-06-25",
+        limit=10,
+        use_learning_adjustments=False,
+    )
+
+    assert [item["symbol"] for item in captured["discovery"]["action_candidates"]] == ["002156"]
+    assert captured["plan_args"]["symbols"] == ["002156"]
+
+
+def test_discover_next_session_candidates_step_reports_empty_core_reason(monkeypatch) -> None:
+    def fake_discovery(db, **kwargs):
+        return {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "universe_warning": "",
+            "sector_focus": [],
+            "candidates": [
+                {
+                    "symbol": "002669",
+                    "name": "潜力票",
+                    "sector": "化工原料",
+                    "selection_mode": "potential_watch",
+                    "selected_strategy_type": "watch_breakout",
+                    "score": 66.9,
+                    "reasons": ["潜力观察：个股启动但板块未确认，只观察不行动"],
+                    "risk_flags": [],
+                }
+            ],
+            "written": 1,
+            "retired": 0,
+        }
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        lambda discovery: [],
+    )
+
+    result = pipeline._discover_next_session_candidates_step(
+        "2026-06-24",
+        "2026-06-25",
+        limit=10,
+        use_learning_adjustments=False,
+    )
+
+    assert any("没有核心行动：当前候选都是潜力观察" in item for item in result.details)
+
+
+def test_discover_next_session_candidates_step_plans_long_action_candidates_first(
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    def fake_discovery(db, **kwargs):
+        return {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "universe_warning": "",
+            "sector_focus": [
+                {
+                    "sector": "半导体",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "002156",
+                    "name": "普通行动",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 84.9,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "selected_strategy_type": "short_term",
+                    "reasons": ["低维主线：板块趋势和个股强度共振"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "600002",
+                    "name": "中期强者",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.0,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["中期强者：相对强度或板块扩散足够强"],
+                    "risk_flags": [],
+                },
+            ],
+            "written": 2,
+            "retired": 0,
+        }
+
+    def fake_generate_and_store_trade_plans(**kwargs):
+        captured["plan_args"] = kwargs
+        return {"written": len(kwargs["symbols"])}
+
+    def fake_dispatch(discovery):
+        captured["discovery"] = discovery
+        return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        fake_dispatch,
+    )
+
+    pipeline._discover_next_session_candidates_step(
+        "2026-06-24",
+        "2026-06-25",
+        limit=10,
+        use_learning_adjustments=False,
+    )
+
+    assert [item["symbol"] for item in captured["discovery"]["action_candidates"]] == [
+        "002156",
+        "600002",
+    ]
+    assert [item["symbol"] for item in captured["discovery"]["long_action_candidates"]] == [
+        "600002"
+    ]
+    assert [item["symbol"] for item in captured["discovery"]["candidate_tiers"]["core_action"]] == [
+        "600002"
+    ]
+    assert captured["plan_args"]["symbols"] == ["600002"]
+
+
+def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add_all(
+            [
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="603005",
+                    tags_json={
+                        "tags": [
+                            "after_close_candidate",
+                            "rank:1",
+                            "candidate_summary:旧原因",
+                            "candidate_pool:旧池",
+                        ]
+                    },
+                    status="active",
+                ),
+                ResearchPoolItem(
+                    pool_name="experiment_star",
+                    symbol="688003",
+                    tags_json={"tags": ["after_close_candidate", "rank:2"]},
+                    status="active",
+                ),
+            ]
+        )
+        db.commit()
+
+        pipeline._apply_candidate_tier_tags(
+            db,
+            pool_names=("experiment", "experiment_star"),
+            candidate_tiers={
+                "core_action": [
+                    {
+                        "symbol": "603005",
+                        "tier_reason": "板块和个股趋势同时在线，盘中仍看承接。",
+                    }
+                ],
+                "watch_wait": [
+                    {
+                        "symbol": "688003",
+                        "selection_mode": "potential_watch",
+                        "score": 72.0,
+                        "tier_reason": "趋势仍可跟踪，但还需要买点确认。",
+                        "reasons": [
+                            "潜力启动：20日涨幅仍低，今日向上启动，后续看承接确认",
+                            "板块20日主线扩散较好",
+                            "量能温和确认",
+                        ],
+                        "risk_flags": [],
+                    }
+                ],
+                "risk_reject": [],
+                "summary": {
+                    "core_block_reason": "没有核心行动：当前候选都是潜力观察，板块或买点还没确认。"
+                },
+            },
+        )
+        rows = {
+            item.symbol: item
+            for item in db.query(ResearchPoolItem).order_by(ResearchPoolItem.symbol).all()
+        }
+
+    assert "tier:core_action" in rows["603005"].tags_json["tags"]
+    assert "tier:watch_wait" in rows["688003"].tags_json["tags"]
+    assert any(
+        tag.startswith("tier_reason:板块和个股趋势同时在线")
+        for tag in rows["603005"].tags_json["tags"]
+    )
+    assert "candidate_summary:旧原因" not in rows["603005"].tags_json["tags"]
+    assert "candidate_pool:旧池" not in rows["603005"].tags_json["tags"]
+    assert (
+        "candidate_summary:没有核心行动：当前候选都是潜力观察，板块或买点还没确认。"
+        in rows["603005"].tags_json["tags"]
+    )
+    assert (
+        "candidate_summary:没有核心行动：当前候选都是潜力观察，板块或买点还没确认。"
+        in rows["688003"].tags_json["tags"]
+    )
+    assert "candidate_pool:expansion_confirm" in rows["688003"].tags_json["tags"]
+    assert any(
+        tag.startswith("candidate_pool_reason:扩散确认")
+        for tag in rows["688003"].tags_json["tags"]
+    )
+
+
+def test_discover_next_session_candidates_step_keeps_long_term_notifications(monkeypatch) -> None:
+    captured = {}
+
+    def fake_discovery(db, **kwargs):
+        return {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "universe_warning": "",
+            "sector_focus": [
+                {
+                    "sector": "通信设备",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "603083",
+                    "name": "长期回调票",
+                    "sector": "通信设备",
+                    "selection_mode": "formal_strategy",
+                    "score": 86.4,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["先看板块主线", "板块20日主线扩散较好"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "000001",
+                    "name": "历史噪音候选",
+                    "sector": "银行",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.5,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "selected_strategy_type": "short_term",
+                    "reasons": ["趋势强度领先"],
+                    "risk_flags": [],
+                },
+            ],
+            "written": 2,
+            "retired": 0,
+        }
+
+    def fake_generate_and_store_trade_plans(**kwargs):
+        captured["plan_args"] = kwargs
+        return {"written": 1}
+
+    def fake_dispatch(discovery):
+        captured["discovery"] = discovery
+        return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        fake_dispatch,
+    )
+
+    result = pipeline._discover_next_session_candidates_step(
+        "2026-06-24",
+        "2026-06-25",
+        limit=10,
+        use_learning_adjustments=False,
+    )
+
+    assert captured["plan_args"]["symbols"] == ["603083"]
+    assert result.details[0].startswith("钉钉提醒：")
+    assert captured["discovery"]["candidates"][0]["symbol"] == "603083"
+
+
+def test_discover_next_session_candidates_step_caps_limit_to_fifteen(monkeypatch) -> None:
+    calls = []
+
+    def fake_discovery(db, **kwargs):
+        calls.append(kwargs)
+        return {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "universe_warning": "",
+            "sector_focus": [
+                {
+                    "sector": "通信设备",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "603083",
+                    "name": "剑桥科技",
+                    "sector": "通信设备",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.5,
+                    "selected_rule_id": "R002",
+                    "selected_rule_name": "趋势突破",
+                    "reasons": ["板块20日主线扩散较好", "趋势强度领先"],
+                    "risk_flags": [],
+                }
+            ],
+            "written": 1,
+            "retired": 0,
+        }
+
+    def fake_generate_and_store_trade_plans(**kwargs):
+        return {"written": 1}
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        lambda discovery: [],
+    )
+
+    result = pipeline._discover_next_session_candidates_step(
+        "2026-06-24",
+        "2026-06-25",
+        limit=99,
+        use_learning_adjustments=False,
+    )
+
+    assert calls[0]["limit"] == 15
+    assert calls[1]["limit"] == 10
+    assert result.summary is not None
+    assert "有效上限 15" in result.summary
+
+
+def test_discover_next_session_candidates_step_skips_dingtalk_when_feature_date_falls_back(
+    monkeypatch,
+) -> None:
+    def fake_discovery(db, **kwargs):
+        return {
+            "feature_date": "2026-06-29",
+            "requested_feature_date": "2026-06-30",
+            "feature_coverage_ratio": 0.0004,
+            "universe_size": 3510,
+            "universe_warning": "",
+            "sector_focus": [],
+            "candidates": [
+                {
+                    "symbol": "600360",
+                    "name": "华微电子",
+                    "sector": "半导体",
+                    "selection_mode": "observation",
+                    "score": 77.06,
+                    "day_change_pct": 0.0707,
+                    "selected_rule_id": "OBS001",
+                    "selected_rule_name": "观察候选",
+                    "reasons": ["回退旧特征日"],
+                    "risk_flags": [],
+                }
+            ],
+            "written": 1,
+            "retired": 0,
+        }
+
+    def fail_dispatch(discovery):
+        raise AssertionError("stale feature-date candidates must not be pushed to DingTalk")
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_star_symbols", lambda db: [])
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        fail_dispatch,
+    )
+
+    result = pipeline._discover_next_session_candidates_step(
+        "2026-06-30",
+        "2026-07-01",
+        limit=99,
+        use_learning_adjustments=False,
+    )
+
+    assert result.status == "warning"
+    assert result.details[0] == (
+        "数据未补齐：请求特征日 2026-06-30，实际使用 2026-06-29，"
+        "覆盖率 0.0%。已跳过钉钉推送，避免重复发送旧盘面候选。"
+    )
+
+
+def test_discover_next_session_candidates_step_filters_star_candidates_with_star_focus(
+    monkeypatch,
+) -> None:
+    captured = {}
+    calls = []
+
+    def _candidate(symbol: str, sector: str) -> dict:
+        return {
+            "symbol": symbol,
+            "name": f"{symbol}候选",
+            "sector": sector,
+            "selection_mode": "formal_strategy",
+            "score": 82.5,
+            "selected_rule_id": "R004",
+            "selected_rule_name": "板块中期趋势跟随",
+            "selected_strategy_type": "long_term",
+            "reasons": ["板块20日主线扩散较好", "趋势强度领先"],
+            "risk_flags": [],
+        }
+
+    def fake_discovery(db, **kwargs):
+        calls.append(kwargs)
+        if kwargs.get("include_growth_board"):
+            return {
+                "feature_date": "2026-06-24",
+                "universe_size": 20,
+                "universe_warning": "",
+                "sector_focus": [
+                    {
+                        "sector": "半导体",
+                        "focus_score": 75,
+                        "continuity_score": 72,
+                        "avg_return_20d_pct": 10,
+                        "positive_ratio": 0.66,
+                    }
+                ],
+                "candidates": [
+                    _candidate("688001", "半导体"),
+                    _candidate("688002", "医药"),
+                ],
+                "written": 2,
+                "retired": 0,
+            }
+        return {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "universe_warning": "",
+            "sector_focus": [
+                {
+                    "sector": "通信设备",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                }
+            ],
+            "candidates": [
+                _candidate("603083", "通信设备"),
+                _candidate("688003", "半导体"),
+            ],
+            "written": 2,
+            "retired": 0,
+        }
+
+    def fake_dispatch(discovery):
+        captured["discovery"] = discovery
+        return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
+
+    def fake_generate_and_store_trade_plans(**kwargs):
+        captured["plan_args"] = kwargs
+        return {"written": len(kwargs["symbols"])}
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_star_symbols", lambda db: ["688001", "688002"])
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        fake_dispatch,
+    )
+
+    result = pipeline._discover_next_session_candidates_step(
+        "2026-06-24",
+        "2026-06-25",
+        limit=99,
+        use_learning_adjustments=False,
+    )
+
+    assert calls[0]["limit"] == 15
+    assert calls[1]["limit"] == 10
+    assert calls[1]["include_growth_board"] is True
+    assert [item["symbol"] for item in captured["discovery"]["candidates"]] == [
+        "603083",
+        "688001",
+    ]
+    assert captured["discovery"]["star_candidates"][0]["symbol"] == "688001"
+    assert captured["plan_args"]["symbols"] == ["603083"]
+    assert "写入 4 只股票" in result.summary
+    assert result.details[0].startswith("钉钉提醒：")
+
+
+def test_discover_next_session_candidates_step_scans_growth_board_without_star_focus(
+    monkeypatch,
+) -> None:
+    captured = {}
+    calls = []
+
+    def _candidate(symbol: str, sector: str) -> dict:
+        return {
+            "symbol": symbol,
+            "name": f"{symbol}候选",
+            "sector": sector,
+            "selection_mode": "formal_strategy",
+            "score": 82.5,
+            "selected_rule_id": "R004",
+            "selected_rule_name": "板块中期趋势跟随",
+            "selected_strategy_type": "long_term",
+            "reasons": ["板块20日主线扩散较好", "趋势强度领先"],
+            "risk_flags": [],
+        }
+
+    def fake_discovery(db, **kwargs):
+        calls.append(kwargs)
+        if kwargs.get("include_growth_board"):
+            return {
+                "feature_date": "2026-06-24",
+                "universe_size": 300,
+                "universe_warning": "",
+                "sector_focus": [],
+                "candidates": [
+                    _candidate("688001", "半导体"),
+                    _candidate("300001", "元器件"),
+                ],
+                "written": 2,
+                "retired": 0,
+            }
+        return {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "universe_warning": "",
+            "sector_focus": [],
+            "candidates": [
+                _candidate("603083", "通信设备"),
+                _candidate("688003", "半导体"),
+            ],
+            "written": 2,
+            "retired": 0,
+        }
+
+    def fake_dispatch(discovery):
+        captured["discovery"] = discovery
+        return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
+
+    def fake_generate_and_store_trade_plans(**kwargs):
+        captured["plan_args"] = kwargs
+        return {"written": len(kwargs["symbols"])}
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_star_symbols", lambda db: [])
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        fake_dispatch,
+    )
+
+    pipeline._discover_next_session_candidates_step(
+        "2026-06-24",
+        "2026-06-25",
+        limit=99,
+        use_learning_adjustments=False,
+    )
+
+    assert calls[1]["include_growth_board"] is True
+    assert "symbols" not in calls[1]
+    assert [item["symbol"] for item in captured["discovery"]["candidates"]] == [
+        "603083",
+        "688001",
+    ]
+    assert captured["discovery"]["star_candidates"][0]["symbol"] == "688001"
+    assert captured["plan_args"]["symbols"] == ["603083"]
 
 
 class _Session:
@@ -140,4 +1234,7 @@ class _Session:
         return self
 
     def __exit__(self, exc_type, exc, traceback):
+        return None
+
+    def commit(self):
         return None

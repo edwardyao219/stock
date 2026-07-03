@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from services.engine.risk.profiles import DEFAULT_RISK_PROFILE, RiskProfile
+from services.engine.risk.trend_guard import guard_parameters_for_features
 from services.engine.rules.models import StrategyRule
 
 
@@ -83,10 +84,15 @@ def build_trade_parameters(
         ma10 = _float(context, "ma10", close) or close
         entry_reference_price = max(close, ma10)
         entry_reason = "trend_continuation_reference"
+    elif rule.id == "R007":
+        ma10 = _float(context, "ma10", close) or close
+        signal_high = _float(context, "high", close) or close
+        entry_reference_price = min(max(close, ma10), signal_high)
+        entry_reason = "trend_volume_confirmation_reference"
     elif rule.id == "R004":
         ma20 = _float(context, "ma20", close) or close
-        entry_reference_price = min(close, ma20 * 1.02)
-        entry_reason = "compound_trend_reference"
+        entry_reference_price = min(close, ma20 * 1.03)
+        entry_reason = "monthly_sector_trend_reference"
     else:
         entry_reference_price = close
         entry_reason = "close_reference"
@@ -108,6 +114,16 @@ def build_trade_parameters(
     take_profit_1 = entry_trigger_price + risk_per_share * profile.take_profit_1_r
     take_profit_2 = entry_trigger_price + risk_per_share * profile.take_profit_2_r
     position_size_pct = _position_size_pct(entry_trigger_price, initial_stop, profile)
+    _effective_stop_loss_pct, trailing_drawdown_pct = guard_parameters_for_features(
+        context,
+        stop_loss_pct=profile.max_stop_loss_pct,
+        trailing_drawdown_pct=profile.trailing_drawdown_pct,
+    )
+    trailing_drawdown_model = (
+        "persistent_mainline"
+        if trailing_drawdown_pct > profile.trailing_drawdown_pct
+        else "profile_default"
+    )
 
     invalid_conditions = [
         f"gap_up_pct > {profile.max_gap_up_pct:.2%}",
@@ -139,7 +155,14 @@ def build_trade_parameters(
             "sector_strength_score": context.get("sector_strength_score"),
             "sector_sample_confidence": context.get("sector_sample_confidence"),
             "sector_stock_count": context.get("sector_stock_count"),
+            "ma_alignment_score": context.get("ma_alignment_score"),
+            "trend_quality_score": context.get("trend_quality_score"),
+            "volume_confirmation_score": context.get("volume_confirmation_score"),
+            "overheat_score": context.get("overheat_score"),
         },
+        "trailing_drawdown_model": trailing_drawdown_model,
+        "trailing_drawdown_base_pct": profile.trailing_drawdown_pct,
+        "trailing_drawdown_effective_pct": trailing_drawdown_pct,
     }
 
     return TradeParameters(
@@ -150,7 +173,7 @@ def build_trade_parameters(
         risk_per_share=_round_price(risk_per_share),
         take_profit_1=_round_price(take_profit_1),
         take_profit_2=_round_price(take_profit_2),
-        trailing_drawdown_pct=profile.trailing_drawdown_pct,
+        trailing_drawdown_pct=round(trailing_drawdown_pct, 4),
         position_size_pct=position_size_pct,
         max_holding_days=rule.time_exit.max_holding_days or profile.default_max_holding_days,
         invalid_conditions=invalid_conditions,

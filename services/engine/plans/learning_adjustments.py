@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import desc, or_, select
@@ -9,9 +10,12 @@ from sqlalchemy.orm import Session
 from services.engine.risk.trade_parameters import TradeParameters
 from services.shared.models import ParameterRecommendation
 
-PAPER_LEARNING_SOURCES = {"paper_learning_review"}
+LEARNING_SOURCES = {"paper_learning_review", "backtest_learning_review"}
 DEFAULT_PAPER_LEARNING_STATUSES = ("pending", "approved", "applied")
 PRIORITY_RANK = {"high": 3, "medium": 2, "low": 1}
+LEARNING_LOOKBACK_DAYS = 60
+LEARNING_RECENCY_HALF_LIFE_DAYS = 21.0
+LEARNING_RECENCY_MIN_WEIGHT = 0.25
 
 
 def _float(value: Any, default: float | None = None) -> float | None:
@@ -36,12 +40,40 @@ def _recommendation_rank(item: ParameterRecommendation) -> tuple[int, Any, int]:
     )
 
 
+def _learning_recency_weight(report_date: date, feature_date: date | None) -> float:
+    if feature_date is None:
+        return 1.0
+    days_old = max(0, (feature_date - report_date).days)
+    if days_old <= 0:
+        return 1.0
+    weight = 0.5 ** (days_old / LEARNING_RECENCY_HALF_LIFE_DAYS)
+    return max(LEARNING_RECENCY_MIN_WEIGHT, weight)
+
+
+def _weighted_multiplier(multiplier: float, weight: float) -> float:
+    return 1.0 + (multiplier - 1.0) * weight
+
+
+def _weighted_delta(delta: float, weight: float) -> float:
+    return delta * weight
+
+
+def _matches_rule(item: ParameterRecommendation, rule_id: str) -> bool:
+    proposed = item.proposed_json or {}
+    source_rule_id = proposed.get("source_rule_id")
+    if source_rule_id is None:
+        return True
+    return source_rule_id == rule_id
+
+
 def load_plan_learning_adjustments(
     db: Session,
     *,
     rule_id: str,
+    symbol: str | None = None,
     sector_code: str | None = None,
     signal_tags: list[str] | None = None,
+    feature_date: date | None = None,
     statuses: tuple[str, ...] = DEFAULT_PAPER_LEARNING_STATUSES,
     limit: int = 20,
 ) -> list[ParameterRecommendation]:
@@ -54,6 +86,11 @@ def load_plan_learning_adjustments(
             (ParameterRecommendation.scope_type == "sector")
             & (ParameterRecommendation.scope_value == sector_code)
         )
+    if symbol:
+        scope_filters.append(
+            (ParameterRecommendation.scope_type == "symbol")
+            & (ParameterRecommendation.scope_value == symbol)
+        )
     for tag in signal_tags or []:
         scope_filters.append(
             (ParameterRecommendation.scope_type == "signal")
@@ -62,14 +99,30 @@ def load_plan_learning_adjustments(
 
     stmt = (
         select(ParameterRecommendation)
-        .where(ParameterRecommendation.source_report_type.in_(PAPER_LEARNING_SOURCES))
+        .where(ParameterRecommendation.source_report_type.in_(LEARNING_SOURCES))
         .where(ParameterRecommendation.status.in_(statuses))
+        .where(
+            or_(
+                ParameterRecommendation.rule_id.is_(None),
+                ParameterRecommendation.rule_id == rule_id,
+            )
+        )
         .where(or_(*scope_filters))
-        .order_by(desc(ParameterRecommendation.report_date), desc(ParameterRecommendation.id))
-        .limit(limit)
     )
-    rows = list(db.execute(stmt).scalars())
-    return sorted(rows, key=_recommendation_rank, reverse=True)
+    if feature_date is not None:
+        window_start = feature_date - timedelta(days=LEARNING_LOOKBACK_DAYS)
+        stmt = stmt.where(ParameterRecommendation.report_date <= feature_date)
+        stmt = stmt.where(ParameterRecommendation.report_date >= window_start)
+    rows = list(
+        db.execute(
+            stmt.order_by(
+                desc(ParameterRecommendation.report_date),
+                desc(ParameterRecommendation.id),
+            ).limit(limit)
+        ).scalars()
+    )
+    matched_rows = [item for item in rows if _matches_rule(item, rule_id)]
+    return sorted(matched_rows, key=_recommendation_rank, reverse=True)
 
 
 def _adjust_stop(params: TradeParameters, multiplier: float) -> dict[str, float]:
@@ -111,6 +164,8 @@ def _adjust_take_profit(params: TradeParameters, proposed: dict[str, Any]) -> di
 def apply_plan_learning_adjustments(
     params: TradeParameters,
     recommendations: list[ParameterRecommendation],
+    *,
+    feature_date: date | None = None,
 ) -> tuple[TradeParameters, float, list[dict[str, Any]]]:
     if not recommendations:
         return params, 0.0, []
@@ -122,6 +177,8 @@ def apply_plan_learning_adjustments(
 
     for item in recommendations:
         proposed = item.proposed_json or {}
+        recency_weight = _learning_recency_weight(item.report_date, feature_date)
+        recency_days = max(0, (feature_date - item.report_date).days) if feature_date else None
         applied_item: dict[str, Any] = {
             "id": item.id,
             "report_date": item.report_date.isoformat(),
@@ -134,17 +191,25 @@ def apply_plan_learning_adjustments(
             "action": item.action,
             "rationale": item.rationale,
             "proposed": proposed,
+            "recency_weight": round(recency_weight, 4),
         }
+        if recency_days is not None:
+            applied_item["recency_days"] = recency_days
 
         stop_multiplier = _float(proposed.get("max_stop_loss_pct_multiplier"))
         if stop_multiplier is not None:
-            updates.update(_adjust_stop(replace(params, **updates), stop_multiplier))
+            updates.update(
+                _adjust_stop(
+                    replace(params, **updates),
+                    _weighted_multiplier(stop_multiplier, recency_weight),
+                )
+            )
 
         trailing_multiplier = _float(proposed.get("trailing_drawdown_pct_multiplier"))
         if trailing_multiplier is not None:
             current = updates.get("trailing_drawdown_pct", params.trailing_drawdown_pct)
             updates["trailing_drawdown_pct"] = round(
-                _bounded(current * trailing_multiplier, 0.02, 0.15),
+                _bounded(current * _weighted_multiplier(trailing_multiplier, recency_weight), 0.02, 0.15),
                 4,
             )
 
@@ -155,33 +220,62 @@ def apply_plan_learning_adjustments(
         if position_multiplier is not None:
             current = updates.get("position_size_pct", params.position_size_pct)
             updates["position_size_pct"] = round(
-                _bounded(current * position_multiplier, 0, 0.25),
+                _bounded(
+                    current * _weighted_multiplier(position_multiplier, recency_weight),
+                    0,
+                    0.25,
+                ),
                 4,
             )
 
         if proposed.get("take_profit_1_r_multiplier") or proposed.get("take_profit_2_r_multiplier"):
-            updates.update(_adjust_take_profit(replace(params, **updates), proposed))
+            weighted_proposed = dict(proposed)
+            if weighted_proposed.get("take_profit_1_r_multiplier") is not None:
+                weighted_proposed["take_profit_1_r_multiplier"] = _weighted_multiplier(
+                    float(weighted_proposed["take_profit_1_r_multiplier"]),
+                    recency_weight,
+                )
+            if weighted_proposed.get("take_profit_2_r_multiplier") is not None:
+                weighted_proposed["take_profit_2_r_multiplier"] = _weighted_multiplier(
+                    float(weighted_proposed["take_profit_2_r_multiplier"]),
+                    recency_weight,
+                )
+            updates.update(_adjust_take_profit(replace(params, **updates), weighted_proposed))
 
         max_gap = _float(proposed.get("candidate_gap_up_pct_max"))
         if max_gap is None and proposed.get("max_gap_up_pct_multiplier") is not None:
-            max_gap = params.max_gap_up_pct * float(proposed["max_gap_up_pct_multiplier"])
+            max_gap = params.max_gap_up_pct * _weighted_multiplier(
+                float(proposed["max_gap_up_pct_multiplier"]),
+                recency_weight,
+            )
         if max_gap is not None:
-            updates["max_gap_up_pct"] = round(_bounded(max_gap, 0.0, params.max_gap_up_pct), 4)
+            current = updates.get("max_gap_up_pct", params.max_gap_up_pct)
+            weighted_gap = current + (min(max_gap, params.max_gap_up_pct) - current) * recency_weight
+            updates["max_gap_up_pct"] = round(_bounded(weighted_gap, 0.0, params.max_gap_up_pct), 4)
 
         holding_multiplier = _float(proposed.get("max_holding_days_multiplier"))
         if holding_multiplier is not None:
             current_days = updates.get("max_holding_days", params.max_holding_days)
-            updates["max_holding_days"] = max(1, int(round(current_days * holding_multiplier)))
+            updates["max_holding_days"] = max(
+                1,
+                int(round(current_days * _weighted_multiplier(holding_multiplier, recency_weight))),
+            )
 
         holding_delta = proposed.get("max_holding_days_delta")
         if holding_delta is not None:
             current_days = updates.get("max_holding_days", params.max_holding_days)
-            updates["max_holding_days"] = max(1, int(current_days + int(holding_delta)))
+            updates["max_holding_days"] = max(
+                1,
+                int(round(current_days + _weighted_delta(float(holding_delta), recency_weight))),
+            )
 
         score_delta = _float(proposed.get("priority_score_delta"), 0.0) or 0.0
-        confidence_delta += score_delta
+        weighted_score_delta = _weighted_delta(score_delta, recency_weight)
+        confidence_delta += weighted_score_delta
 
-        if proposed.get("require_extra_confirmation"):
+        if proposed.get("require_extra_confirmation") and (
+            recency_weight >= 0.5 or weighted_score_delta <= -1.0
+        ):
             condition = "learned extra confirmation required before entry"
             if condition not in invalid_conditions:
                 invalid_conditions.append(condition)

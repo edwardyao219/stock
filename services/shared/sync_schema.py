@@ -28,6 +28,14 @@ def _drop_mysql_index_if_exists(table: str, index_name: str) -> None:
     _execute_mysql(f"ALTER TABLE {table} DROP INDEX {index_name}")
 
 
+def _create_mysql_unique_index_if_missing(table: str, index_name: str, columns: str) -> None:
+    inspector = inspect(engine)
+    indexes = {item["name"] for item in inspector.get_indexes(table)}
+    if index_name in indexes:
+        return
+    _execute_mysql(f"ALTER TABLE {table} ADD UNIQUE INDEX {index_name} ({columns})")
+
+
 def main() -> None:
     Base.metadata.create_all(bind=engine)
     if engine.dialect.name == "mysql":
@@ -51,10 +59,24 @@ def main() -> None:
             "paper_positions",
             "uq_paper_position_account_symbol_status",
         )
+        _drop_mysql_index_if_exists(
+            "parameter_recommendations",
+            "uq_parameter_recommendation_daily_target",
+        )
+        _create_mysql_unique_index_if_missing(
+            "parameter_recommendations",
+            "uq_parameter_recommendation_daily_target",
+            "report_date, source_report_type, rule_id, scope_type, scope_value, "
+            "target_type, target_name, action",
+        )
         _execute_mysql(
             "UPDATE fundamental_snapshots "
             "SET available_date = report_date "
             "WHERE available_date IS NULL"
+        )
+        _execute_mysql(
+            "ALTER TABLE candidate_discovery_snapshots "
+            "MODIFY COLUMN discovery_json LONGTEXT NOT NULL"
         )
 
 

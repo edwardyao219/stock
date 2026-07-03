@@ -232,28 +232,36 @@ def _rule_specific_parameter_suggestions(
             suggestions.append(
                 ParameterSuggestion(
                     target_type="rule_condition",
-                    target_name="banking_compound_valuation",
+                    target_name="monthly_sector_trend_quality",
                     action="test_tighten",
                     priority="high" if status == "reduce" else "medium",
                     scope_value=rule_id,
-                    rationale="稳定复利类资产不能用短线强度硬追，正期望偏弱时应先测试更便宜和更高股息的入场版本。",
-                    current={"pb_max": 1.0, "dividend_yield_min": 0.03},
-                    proposed={"candidate_pb_max": 0.8, "candidate_dividend_yield_min": 0.04},
-                    guardrails=guardrails + ["不要因为短期涨幅好而放宽估值约束"],
+                    rationale="中期趋势规则弱的时候，先收紧板块主线、趋势结构和诱多风险，不用股息率或短线冲高解释。",
+                    current={
+                        "sector_strength_score_min": 68,
+                        "distance_to_ma20_max": 0.12,
+                        "volume_trap_risk_score_max": 62,
+                    },
+                    proposed={
+                        "candidate_sector_strength_score_min": 72,
+                        "candidate_distance_to_ma20_max": 0.08,
+                        "candidate_volume_trap_risk_score_max": 55,
+                    },
+                    guardrails=guardrails + ["至少按月级别复盘，不用单日涨跌改核心阈值"],
                 )
             )
         if status == "promote" and confidence == "high":
             suggestions.append(
                 ParameterSuggestion(
                     target_type="risk_profile",
-                    target_name="banking_compound_position",
+                    target_name="monthly_sector_trend_position",
                     action="test_pyramid_slowly",
                     priority="medium",
                     scope_value=rule_id,
-                    rationale="银行复利类如果长期样本稳定，仓位优化应偏慢，采用分批加仓而非突破追入。",
-                    current={"max_position_pct": 0.18},
+                    rationale="板块中期趋势如果跨周期稳定，仓位优化应偏慢，采用回踩或新高后分批，而不是当天追高一次打满。",
+                    current={"max_position_pct": 0.14},
                     proposed={
-                        "candidate_max_position_pct": 0.20,
+                        "candidate_max_position_pct": 0.16,
                         "add_only_after_new_high_or_pullback_hold": True,
                     },
                     guardrails=guardrails + ["单股集中度仍需受组合上限约束"],
@@ -263,18 +271,18 @@ def _rule_specific_parameter_suggestions(
             suggestions.append(
                 ParameterSuggestion(
                     target_type="exit_policy",
-                    target_name="banking_compound_take_profit",
+                    target_name="monthly_sector_trend_take_profit",
                     action="avoid_short_term_take_profit",
                     priority="medium",
                     scope_value=rule_id,
-                    rationale="复利类资产胜率不高但期望为正时，过早止盈可能破坏少数趋势段贡献。",
+                    rationale="中期趋势胜率不一定高，主要收益来自少数主升段，过早止盈会破坏收益分布。",
                     current={
                         "win_rate": win_rate,
                         "avg_return": avg_return,
                         "profit_factor": profit_factor,
                     },
                     proposed={
-                        "keep_trailing_drawdown_pct": 0.10,
+                        "keep_trailing_drawdown_pct": 0.12,
                         "prefer_position_rebalance": True,
                     },
                     guardrails=guardrails,
