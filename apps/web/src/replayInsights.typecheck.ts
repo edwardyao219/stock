@@ -5,6 +5,7 @@ import {
   replayWeakMonthRows,
   replayStylePreferenceRows,
   startupPreheatRows,
+  replayMonthlyStyleRows,
 } from "./replayInsights";
 
 const candidateReplay = {
@@ -152,7 +153,16 @@ const candidateReplay = {
       monthly_horizons: {},
       style_horizons: {},
       selection_mode_horizons: {},
-      monthly_style_horizons: {},
+      monthly_style_horizons: {
+        10: {
+          "2026-06": {
+            growth_cycle: {
+              raw: { sample_count: 5, avg_return: 0.36, win_rate: 0.8, total_return: 1.8 },
+              guarded: { sample_count: 5, avg_return: 0.35, win_rate: 0.8, total_return: 1.75 },
+            },
+          },
+        },
+      },
       monthly_selection_mode_horizons: {},
       style_horizon_preferences: {},
       processed_days: 300,
@@ -217,10 +227,12 @@ const breakdownRows = replayBreakdownRows(lowDimensional, 20, "selection_mode");
 const weakRows = replayWeakMonthRows(lowDimensional, 20);
 const preferenceRows = replayStylePreferenceRows(lowDimensional);
 const startupRows = startupPreheatRows(candidateReplay);
+const monthlyStyleRows = replayMonthlyStyleRows(candidateReplay.scopes.all, 10);
 
 scopeRows[0].scope satisfies "all" | "action" | "action_long" | string;
 breakdownRows[0].label satisfies string;
 weakRows[0].month satisfies string;
 preferenceRows[0].preferredHorizon satisfies number;
 startupRows[0].horizon satisfies number;
+monthlyStyleRows[0].month satisfies string;
 candidateReplay.diagnosis.primary_scope satisfies string;

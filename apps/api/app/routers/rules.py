@@ -689,7 +689,7 @@ def get_candidate_replay_effect(
     end_date: str | None = None,
     limit: Annotated[int, Query(ge=1, le=30)] = 15,
     min_coverage_ratio: Annotated[float, Query(ge=0.0, le=1.0)] = 0.70,
-    include_fundamentals: bool = True,
+    include_fundamentals: bool = False,
 ) -> dict:
     resolved_end_date = end_date or (now_local().date() - timedelta(days=1)).isoformat()
     horizons = (1, 5, 10, 20)

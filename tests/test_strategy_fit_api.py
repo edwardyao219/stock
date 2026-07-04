@@ -414,7 +414,7 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
         "limit": 15,
         "horizons": (1, 5, 10, 20),
         "min_coverage_ratio": 0.7,
-        "include_fundamentals": True,
+        "include_fundamentals": False,
     }
     assert payload["scopes"]["action_long"]["horizons"][20]["guarded"]["total_return"] == 1.027945
     assert payload["scopes"]["startup_preheat"]["horizons"][1]["guarded"]["total_return"] == 0.144

@@ -50,6 +50,7 @@ import {
 } from "./candidateTiers";
 import {
   replayBreakdownRows,
+  replayMonthlyStyleRows,
   replayScopeRows,
   replayStylePreferenceRows,
   startupPreheatRows,
@@ -1235,6 +1236,10 @@ export function App() {
   const replayWeakMonths = replayWeakMonthRows(lowDimensionalReplay, 20, 5);
   const replayStylePreferences = replayStylePreferenceRows(lowDimensionalReplay).slice(0, 5);
   const startupPreheatEffectRows = startupPreheatRows(candidateReplayEffect);
+  const potentialWatchStyleRows = replayMonthlyStyleRows(
+    candidateReplayEffect?.scopes.potential_watch,
+    10,
+  ).slice(0, 5);
   const replayDataCoverage =
     candidateReplayEffect?.data_coverage ?? lowDimensionalReplay?.data_coverage ?? null;
   const replayCoverageWarnings = replayDataCoverage?.warnings.slice(0, 3) ?? [];
@@ -2133,6 +2138,23 @@ export function App() {
                     </div>
                   ))}
                 </div>
+                {potentialWatchStyleRows.length ? (
+                  <>
+                    <span>潜力观察风格拆分（10日）</span>
+                    <div className="replay-row-list">
+                      {potentialWatchStyleRows.map((row) => (
+                        <div className="replay-insight-row" key={`${row.month}-${row.style}`}>
+                          <strong>{row.label}</strong>
+                          <em className={row.tone}>{pct(row.metric.total_return)}</em>
+                          <small>
+                            {row.month} / 均值 {pct(row.metric.avg_return)} / 胜率{" "}
+                            {pct(row.metric.win_rate)} / 样本 {row.metric.sample_count}
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
                 <span>20日策略池收益</span>
                 <div className="replay-row-list">
                   {candidateReplayScopeRows.map((row) => (

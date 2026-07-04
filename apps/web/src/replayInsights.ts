@@ -29,6 +29,14 @@ export interface ReplayMonthRow {
   tone: ReplayTone;
 }
 
+export interface ReplayMonthlyStyleRow {
+  month: string;
+  style: string;
+  label: string;
+  metric: ReplayReturnSummary;
+  tone: ReplayTone;
+}
+
 export interface StartupPreheatRow {
   horizon: number;
   label: string;
@@ -169,6 +177,34 @@ export function replayWeakMonthRows(
     .filter((row) => row.metric.sample_count > 0 && (row.metric.total_return ?? 0) < 0)
     .sort((left, right) => metricTotal(left.metric) - metricTotal(right.metric))
     .slice(0, limit);
+}
+
+export function replayMonthlyStyleRows(
+  report: Pick<ReplayScopeSummary, "monthly_style_horizons"> | null | undefined,
+  horizon: number,
+  month?: string,
+): ReplayMonthlyStyleRow[] {
+  if (!report) return [];
+  const monthlyStyles = report.monthly_style_horizons[horizon] ?? {};
+  const selectedMonth =
+    month ??
+    Object.keys(monthlyStyles)
+      .sort()
+      .reverse()
+      .find((key) =>
+        Object.values(monthlyStyles[key] ?? {}).some((item) => item.guarded.sample_count > 0),
+      );
+  if (!selectedMonth) return [];
+  return Object.entries(monthlyStyles[selectedMonth] ?? {})
+    .map(([style, item]) => ({
+      month: selectedMonth,
+      style,
+      label: styleLabels[style] ?? "其他风格",
+      metric: item.guarded,
+      tone: toneFor(item.guarded.total_return),
+    }))
+    .filter((row) => row.metric.sample_count > 0)
+    .sort((left, right) => metricTotal(right.metric) - metricTotal(left.metric));
 }
 
 export function replayStylePreferenceRows(
