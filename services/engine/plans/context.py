@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.engine.fundamental.repository import load_fundamental_context
@@ -143,10 +143,20 @@ def _load_tushare_industry_moneyflow(
             TushareMoneyflowIndDc.content_type == "行业",
             TushareMoneyflowIndDc.name == sector_code,
         )
+        .order_by(*_industry_moneyflow_priority_order())
+        .limit(1)
     ).scalar_one_or_none()
     if row is None:
         return {}
     return _industry_moneyflow_context(row)
+
+
+def _industry_moneyflow_priority_order() -> tuple[Any, ...]:
+    return (
+        func.coalesce(TushareMoneyflowIndDc.net_amount_rate, -999999999).desc(),
+        func.coalesce(TushareMoneyflowIndDc.net_amount, -999999999).desc(),
+        TushareMoneyflowIndDc.id.desc(),
+    )
 
 
 def _industry_moneyflow_context(row: TushareMoneyflowIndDc) -> dict[str, Any]:
@@ -178,8 +188,13 @@ def load_tushare_industry_moneyflow_map(
             TushareMoneyflowIndDc.content_type == "行业",
             TushareMoneyflowIndDc.name.in_(unique_sector_codes),
         )
+        .order_by(TushareMoneyflowIndDc.name.asc(), *_industry_moneyflow_priority_order())
     ).scalars()
-    return {str(row.name): _industry_moneyflow_context(row) for row in rows if row.name}
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if row.name and row.name not in result:
+            result[str(row.name)] = _industry_moneyflow_context(row)
+    return result
 
 
 def _sector_leadership_metrics(context: dict[str, Any]) -> dict[str, Any]:

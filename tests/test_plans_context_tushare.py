@@ -338,6 +338,51 @@ def test_build_strategy_context_includes_tushare_market_fields() -> None:
     assert context["moneyflow_support_score"] > 40
 
 
+def test_build_strategy_context_deduplicates_industry_moneyflow_by_name() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 6, 30)
+
+    with Session(engine) as db:
+        security = _security("603061", industry="半导体")
+        feature_row = _feature("603061", signal_date)
+        bar = _bar("603061", signal_date)
+        db.add_all(
+            [
+                security,
+                feature_row,
+                bar,
+                TushareMoneyflowIndDc(
+                    trade_date=signal_date,
+                    content_type="行业",
+                    ts_code="BK0001.DC",
+                    name="半导体",
+                    net_amount=Decimal("100000000"),
+                    net_amount_rate=Decimal("1.2"),
+                ),
+                TushareMoneyflowIndDc(
+                    trade_date=signal_date,
+                    content_type="行业",
+                    ts_code="BK0999.DC",
+                    name="半导体",
+                    net_amount=Decimal("500000000"),
+                    net_amount_rate=Decimal("3.5"),
+                ),
+            ]
+        )
+        db.commit()
+
+        context = build_strategy_context(
+            db,
+            feature_row=feature_row,
+            security=security,
+            bar=bar,
+        )
+
+    assert context["sector_fund_flow_net_amount"] == 500000000.0
+    assert context["sector_fund_flow_rate"] == 3.5
+
+
 def test_build_strategy_context_uses_sector_breadth_and_momentum_from_sector_features() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
