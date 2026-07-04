@@ -379,6 +379,77 @@ def test_candidate_walk_forward_replay_can_use_potential_watch_candidates(
     assert result.days[0].candidates[0].forward_returns[1] == 0.3
 
 
+def test_candidate_walk_forward_replay_can_use_startup_preheat_candidates(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600001", "普通潜力", "玻璃"),
+                _security("600002", "启动前夜", "互联网"),
+            ]
+        )
+        db.add_all(
+            [
+                _bar("600001", date(2026, 1, 2), "10"),
+                _bar("600001", date(2026, 1, 5), "11", "10", open_price="10"),
+                _bar("600002", date(2026, 1, 2), "10"),
+                _bar("600002", date(2026, 1, 5), "12", "10", open_price="10"),
+                _feature("600001", date(2026, 1, 2)),
+                _feature("600002", date(2026, 1, 2)),
+            ]
+        )
+        db.commit()
+
+    discovery = {
+        "universe_size": 2,
+        "candidates": [
+            {
+                "symbol": "600001",
+                "name": "普通潜力",
+                "sector": "玻璃",
+                "selection_mode": "potential_watch",
+                "score": 70,
+                "reasons": ["潜力启动：20日涨幅仍低，今日向上启动，后续看承接确认"],
+                "risk_flags": [],
+            },
+            {
+                "symbol": "600002",
+                "name": "启动前夜",
+                "sector": "互联网",
+                "selection_mode": "potential_watch",
+                "score": 72,
+                "reasons": [
+                    "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接",
+                    "成交量开始确认：温和放量配合价格修复，但未进入核心行动",
+                ],
+                "risk_flags": [],
+            },
+        ],
+    }
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(
+        walk_forward,
+        "discover_next_session_candidates",
+        lambda *_args, **_kwargs: discovery,
+    )
+
+    result = walk_forward.run_candidate_walk_forward_replay(
+        start_date="2026-01-02",
+        end_date="2026-01-05",
+        limit=3,
+        horizons=(1,),
+        candidate_scope="startup_preheat",
+    )
+
+    assert [item.symbol for item in result.days[0].candidates] == ["600002"]
+    assert result.days[0].candidates[0].forward_returns[1] == 0.2
+
+
 def test_candidate_walk_forward_replay_can_use_long_horizon_action_candidates(
     monkeypatch,
 ) -> None:

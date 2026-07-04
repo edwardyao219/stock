@@ -350,6 +350,44 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
                         }
                     },
                 },
+                "startup_preheat": {
+                    "candidate_count": 8,
+                    "horizons": {
+                        1: {
+                            "guarded": {
+                                "sample_count": 8,
+                                "avg_return": 0.018,
+                                "win_rate": 0.625,
+                                "total_return": 0.144,
+                            }
+                        },
+                        5: {
+                            "guarded": {
+                                "sample_count": 8,
+                                "avg_return": 0.035,
+                                "win_rate": 0.625,
+                                "total_return": 0.28,
+                            }
+                        },
+                        10: {
+                            "guarded": {
+                                "sample_count": 8,
+                                "avg_return": 0.052,
+                                "win_rate": 0.625,
+                                "total_return": 0.416,
+                            }
+                        },
+                        20: {
+                            "guarded": {
+                                "sample_count": 8,
+                                "avg_return": 0.04,
+                                "win_rate": 0.5,
+                                "total_return": 0.32,
+                            }
+                        },
+                    },
+                    "monthly_horizons": {},
+                },
             },
             "discovery_cache_dir": ".tmp/candidate-replay-discovery-cache",
         }
@@ -372,13 +410,15 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     assert captured == {
         "start_date": "2024-01-01",
         "end_date": "2026-07-01",
-        "scopes": ("all", "action", "action_long", "potential_watch"),
+        "scopes": ("all", "action", "action_long", "potential_watch", "startup_preheat"),
         "limit": 15,
-        "horizons": (5, 10, 20),
+        "horizons": (1, 5, 10, 20),
         "min_coverage_ratio": 0.7,
         "include_fundamentals": True,
     }
     assert payload["scopes"]["action_long"]["horizons"][20]["guarded"]["total_return"] == 1.027945
+    assert payload["scopes"]["startup_preheat"]["horizons"][1]["guarded"]["total_return"] == 0.144
+    assert payload["scopes"]["startup_preheat"]["horizons"][10]["guarded"]["total_return"] == 0.416
     assert (
         "compounded_return"
         not in payload["scopes"]["action_long"]["horizons"][20]["guarded"]

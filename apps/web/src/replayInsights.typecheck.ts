@@ -4,6 +4,7 @@ import {
   replayBreakdownRows,
   replayWeakMonthRows,
   replayStylePreferenceRows,
+  startupPreheatRows,
 } from "./replayInsights";
 
 const candidateReplay = {
@@ -215,9 +216,11 @@ const scopeRows = replayScopeRows(candidateReplay, 20);
 const breakdownRows = replayBreakdownRows(lowDimensional, 20, "selection_mode");
 const weakRows = replayWeakMonthRows(lowDimensional, 20);
 const preferenceRows = replayStylePreferenceRows(lowDimensional);
+const startupRows = startupPreheatRows(candidateReplay);
 
 scopeRows[0].scope satisfies "all" | "action" | "action_long" | string;
 breakdownRows[0].label satisfies string;
 weakRows[0].month satisfies string;
 preferenceRows[0].preferredHorizon satisfies number;
+startupRows[0].horizon satisfies number;
 candidateReplay.diagnosis.primary_scope satisfies string;

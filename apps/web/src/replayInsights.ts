@@ -29,6 +29,13 @@ export interface ReplayMonthRow {
   tone: ReplayTone;
 }
 
+export interface StartupPreheatRow {
+  horizon: number;
+  label: string;
+  metric: ReplayReturnSummary | null;
+  tone: ReplayTone;
+}
+
 export interface ReplayStylePreferenceRow {
   style: string;
   label: string;
@@ -41,11 +48,13 @@ export interface ReplayStylePreferenceRow {
   tone: ReplayTone;
 }
 
-const scopeOrder = ["action_long", "action", "all"];
+const scopeOrder = ["action_long", "action", "startup_preheat", "potential_watch", "all"];
 
 const scopeLabels: Record<string, string> = {
   action_long: "长期行动池",
   action: "钉钉行动池",
+  startup_preheat: "启动前夜池",
+  potential_watch: "潜力观察池",
   all: "全候选池",
 };
 
@@ -104,6 +113,19 @@ export function replayScopeRows(
       scope,
       label: scopeLabels[scope] ?? "其他候选池",
       candidateCount: summary.candidate_count,
+      metric,
+      tone: toneFor(metric?.total_return),
+    };
+  });
+}
+
+export function startupPreheatRows(report: CandidateReplayEffectReport | null): StartupPreheatRow[] {
+  const scope = report?.scopes.startup_preheat;
+  return [1, 5, 10].map((horizon) => {
+    const metric = scope?.horizons[horizon]?.guarded ?? null;
+    return {
+      horizon,
+      label: `${horizon}日`,
       metric,
       tone: toneFor(metric?.total_return),
     };

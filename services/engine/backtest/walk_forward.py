@@ -559,6 +559,13 @@ def _has_long_horizon_strength_reason(item: dict[str, Any]) -> bool:
     return LONG_HORIZON_STRENGTH_REASON in reasons_text
 
 
+def _is_startup_preheat_candidate_item(item: dict[str, Any]) -> bool:
+    if str(item.get("selection_mode") or "").strip() != "potential_watch":
+        return False
+    reasons_text = " ".join(str(reason) for reason in item.get("reasons") or [])
+    return "启动前夜：T-1量价修复" in reasons_text
+
+
 def _candidate_discovery_cache_path(
     cache_dir: str | Path,
     *,
@@ -2115,6 +2122,10 @@ def run_candidate_walk_forward_replay(
                         item
                         for item in candidate_items
                         if str(item.get("selection_mode") or "").strip() == "potential_watch"
+                    ]
+                elif candidate_scope == "startup_preheat":
+                    candidate_items = [
+                        item for item in candidate_items if _is_startup_preheat_candidate_item(item)
                     ]
                 elif candidate_scope != "all":
                     raise ValueError(f"Unsupported candidate_scope: {candidate_scope}")

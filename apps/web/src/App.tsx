@@ -52,6 +52,7 @@ import {
   replayBreakdownRows,
   replayScopeRows,
   replayStylePreferenceRows,
+  startupPreheatRows,
   replayWeakMonthRows,
 } from "./replayInsights";
 import { StrategyEvidenceChart } from "./StrategyEvidenceChart";
@@ -1233,6 +1234,7 @@ export function App() {
   const replayStyleRows = replayBreakdownRows(lowDimensionalReplay, 20, "style").slice(0, 5);
   const replayWeakMonths = replayWeakMonthRows(lowDimensionalReplay, 20, 5);
   const replayStylePreferences = replayStylePreferenceRows(lowDimensionalReplay).slice(0, 5);
+  const startupPreheatEffectRows = startupPreheatRows(candidateReplayEffect);
   const replayDataCoverage =
     candidateReplayEffect?.data_coverage ?? lowDimensionalReplay?.data_coverage ?? null;
   const replayCoverageWarnings = replayDataCoverage?.warnings.slice(0, 3) ?? [];
@@ -2117,6 +2119,19 @@ export function App() {
                     <strong>{candidateReplayEffect.diagnosis.potential_watch_policy.label}</strong>
                     <small>{uiText(candidateReplayEffect.diagnosis.potential_watch_policy.summary)}</small>
                   </div>
+                </div>
+                <span>启动前夜短周期</span>
+                <div className="replay-row-list">
+                  {startupPreheatEffectRows.map((row) => (
+                    <div className="replay-insight-row" key={row.horizon}>
+                      <strong>{row.label}</strong>
+                      <em className={row.tone}>{pct(row.metric?.total_return)}</em>
+                      <small>
+                        均值 {pct(row.metric?.avg_return)} / 胜率 {pct(row.metric?.win_rate)} / 样本{" "}
+                        {row.metric?.sample_count ?? 0}
+                      </small>
+                    </div>
+                  ))}
                 </div>
                 <span>20日策略池收益</span>
                 <div className="replay-row-list">
