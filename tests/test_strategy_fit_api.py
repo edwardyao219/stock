@@ -639,6 +639,107 @@ def test_candidate_replay_style_gate_uses_recent_style_replay_without_sector_nam
     assert "证券" not in rendered
 
 
+def test_candidate_replay_startup_preheat_policy_uses_style_gate_replay() -> None:
+    comparison = {
+        "scopes": {
+            "all": {
+                "candidate_count": 120,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 100,
+                            "avg_return": 0.02,
+                            "total_return": 2.0,
+                            "win_rate": 0.55,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+            "action": {"candidate_count": 0, "horizons": {}, "monthly_horizons": {}},
+            "action_long": {"candidate_count": 0, "horizons": {}, "monthly_horizons": {}},
+            "potential_watch": {"candidate_count": 0, "horizons": {}, "monthly_horizons": {}},
+            "startup_preheat": {
+                "candidate_count": 18,
+                "horizons": {
+                    5: {
+                        "guarded": {
+                            "sample_count": 14,
+                            "avg_return": 0.04,
+                            "total_return": 0.56,
+                            "win_rate": 0.57,
+                        }
+                    },
+                    20: {
+                        "guarded": {
+                            "sample_count": 14,
+                            "avg_return": 0.01,
+                            "total_return": 0.14,
+                            "win_rate": 0.5,
+                        }
+                    },
+                },
+                "monthly_horizons": {},
+                "monthly_style_horizons": {
+                    5: {
+                        "2026-05": {
+                            "growth_cycle": {
+                                "guarded": {
+                                    "sample_count": 3,
+                                    "avg_return": 0.01,
+                                    "total_return": 0.03,
+                                    "win_rate": 0.67,
+                                }
+                            },
+                            "consumer_quality": {
+                                "guarded": {
+                                    "sample_count": 3,
+                                    "avg_return": -0.02,
+                                    "total_return": -0.06,
+                                    "win_rate": 0.33,
+                                }
+                            },
+                        },
+                        "2026-06": {
+                            "growth_cycle": {
+                                "guarded": {
+                                    "sample_count": 5,
+                                    "avg_return": 0.05,
+                                    "total_return": 0.25,
+                                    "win_rate": 0.6,
+                                }
+                            },
+                            "consumer_quality": {
+                                "guarded": {
+                                    "sample_count": 4,
+                                    "avg_return": -0.01,
+                                    "total_return": -0.04,
+                                    "win_rate": 0.25,
+                                }
+                            },
+                        },
+                    }
+                },
+            },
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    startup_policy = diagnosis["startup_preheat_policy"]
+    assert startup_policy["scope"] == "startup_preheat"
+    assert startup_policy["horizon"] == 5
+    assert startup_policy["upgrade_styles"] == ["growth_cycle"]
+    rows = {row["style"]: row for row in startup_policy["rows"]}
+    assert rows["growth_cycle"]["status"] == "upgrade_allowed"
+    assert rows["consumer_quality"]["status"] == "stand_down"
+    rendered = str(startup_policy)
+    assert "启动前夜池" in rendered
+    assert "不代表买点" in rendered
+    assert "半导体" not in rendered
+    assert "证券" not in rendered
+
+
 def test_candidate_replay_market_phase_switch_turns_defensive_after_weak_months() -> None:
     comparison = {
         "scopes": {

@@ -600,6 +600,7 @@ export interface CandidateReplayDiagnosis {
     total_return: number | null;
     summary: string;
   };
+  startup_preheat_policy: CandidateReplayStyleGatePolicy;
   market_phase_policy: {
     status: string;
     label: string;

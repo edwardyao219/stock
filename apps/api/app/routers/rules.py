@@ -178,12 +178,13 @@ def diagnose_style_gate_policy(
         scope=scope,
         horizon=horizon,
     )
+    scope_label = _SCOPE_LABELS.get(scope, scope)
     if not rows:
         return {
             "scope": scope,
             "horizon": horizon,
             "lookback_months": 0,
-            "summary": "潜力观察池缺少月度风格回放，暂不允许按风格升级。",
+            "summary": f"{scope_label}缺少月度风格回放，暂不允许按风格升级。",
             "rows": [],
             "upgrade_styles": [],
             "observe_styles": [],
@@ -230,7 +231,7 @@ def diagnose_style_gate_policy(
             summary = (
                 f"{latest['month']} {latest['label']}风格{horizon}日均值"
                 f"{_format_pct(latest['avg_return'])}，样本{latest['sample_count']}；"
-                "允许从普通潜力观察升级为Web重点和盘中验证，不自动进入钉钉核心。"
+                f"允许从{scope_label}升级为Web重点和盘中验证，不代表买点，不自动进入钉钉核心。"
             )
         elif latest_is_positive or recent_total_return > 0.0:
             status = "observe_only"
@@ -280,8 +281,8 @@ def diagnose_style_gate_policy(
         "horizon": horizon,
         "lookback_months": lookback_months,
         "summary": (
-            "按潜力观察池最近月度风格回放做动态门控；"
-            "允许升级只代表Web重点和盘中验证，不代表直接进入钉钉核心。"
+            f"按{scope_label}最近月度风格回放做动态门控；"
+            "允许升级只代表Web重点和盘中验证，不代表买点，不代表直接进入钉钉核心。"
         ),
         "rows": gate_rows,
         "upgrade_styles": [
@@ -795,6 +796,14 @@ def diagnose_candidate_replay_effect(
         "overfit_guardrails": diagnose_overfit_guardrails(comparison, horizon=horizon),
         "tactical_opportunities": diagnose_tactical_opportunities(comparison),
         "potential_watch_policy": potential_watch_policy,
+        "startup_preheat_policy": diagnose_style_gate_policy(
+            comparison,
+            scope="startup_preheat",
+            horizon=5,
+            min_latest_samples=3,
+            min_recent_samples=5,
+            min_upgrade_avg_return=0.02,
+        ),
         "market_phase_policy": market_phase_policy,
         "dual_line_policy": diagnose_dual_line_policy(
             comparison,
