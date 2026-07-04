@@ -830,6 +830,9 @@ def format_candidate_screening_text(
         if isinstance(candidate_tiers, dict)
         else None
     )
+    uses_candidate_tiers = isinstance(candidate_tiers, dict) and any(
+        key in candidate_tiers for key in ("core_action", "watch_wait", "risk_reject")
+    )
     uses_core_action_candidates = (
         isinstance(core_action_candidates, list) and bool(core_action_candidates)
     )
@@ -837,6 +840,69 @@ def format_candidate_screening_text(
     uses_long_action_candidates = (
         isinstance(long_action_candidates, list) and bool(long_action_candidates)
     )
+    if uses_candidate_tiers:
+        tiers = candidate_tiers if isinstance(candidate_tiers, dict) else {}
+        core_candidates = list(tiers.get("core_action") or [])
+        watch_candidates = list(tiers.get("watch_wait") or [])
+        risk_candidates = list(tiers.get("risk_reject") or [])
+        displayed_candidates = core_candidates + watch_candidates + risk_candidates
+        formal_count = sum(
+            1
+            for item in displayed_candidates
+            if item.get("selection_mode") == "formal_strategy"
+        )
+        observation_count = len(displayed_candidates) - formal_count
+        lines = [title]
+        feature_parts = []
+        requested_feature_date = discovery.get("requested_feature_date")
+        if requested_feature_date:
+            feature_parts.append(f"请求日 {requested_feature_date}")
+        feature_parts.append(f"特征日 {discovery.get('feature_date') or '-'}")
+        feature_coverage_ratio = discovery.get("feature_coverage_ratio")
+        if feature_coverage_ratio is not None:
+            feature_parts.append(f"覆盖 {float(feature_coverage_ratio):.1%}")
+        retired_count = discovery.get("retired") or 0
+        lines.append(
+            f"{' | '.join(feature_parts)} | "
+            f"宇宙 {discovery.get('universe_size') or 0} "
+            f"| 正式 {formal_count} | 观察 {observation_count} | 淘汰 {retired_count}"
+        )
+        warning = discovery.get("universe_warning")
+        if warning:
+            lines.append(f"提示：{warning}")
+        lines.append(
+            f"钉钉分层推送：核心行动 {len(core_candidates)} 只，"
+            f"学习观察 {len(watch_candidates)} 只，"
+            f"暂不升级/风险 {len(risk_candidates)} 只。"
+            "核心行动才是交易重点，学习观察不代表买点。"
+        )
+        core_block_reason = (tiers.get("summary") or {}).get("core_block_reason")
+        if core_block_reason:
+            lines.append(str(core_block_reason))
+        star_pool_count = len(discovery.get("star_candidates") or [])
+        if star_pool_count:
+            lines.append(f"科创池 {star_pool_count} 只单独看，波动更大，只做学习观察。")
+        _format_candidate_group(
+            lines,
+            candidates=core_candidates,
+            max_items=ACTION_CANDIDATE_LIMIT,
+            title=f"核心行动（交易重点，最多{ACTION_CANDIDATE_LIMIT}只）",
+        )
+        _format_candidate_group(
+            lines,
+            candidates=watch_candidates,
+            max_items=max_items,
+            title="学习观察（非买点，盘中验证）",
+        )
+        _format_candidate_group(
+            lines,
+            candidates=risk_candidates,
+            max_items=5,
+            title="暂不升级/风险理由",
+        )
+        lines.append("口径：先看板块和月级别趋势，再看个股位置；短线信号只做辅助，不直接追。")
+        return "\n".join(lines)
+
     candidates = (
         filter_hot_sector_candidates(discovery, core_action_candidates)
         if uses_core_action_candidates

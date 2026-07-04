@@ -417,7 +417,7 @@ def test_format_candidate_screening_text_prefers_long_action_candidates() -> Non
     assert "普通行动候选 2 只在 Web" in text
 
 
-def test_format_candidate_screening_text_prefers_core_action_tier() -> None:
+def test_format_candidate_screening_text_pushes_core_and_learning_tiers() -> None:
     text = format_candidate_screening_text(
         {
             "feature_date": "2026-06-24",
@@ -477,9 +477,12 @@ def test_format_candidate_screening_text_prefers_core_action_tier() -> None:
         }
     )
 
-    assert "核心行动候选" in text
+    assert "钉钉分层推送" in text
+    assert "核心行动（交易重点，最多3只）" in text
     assert "600002 核心票" in text
-    assert "002156 观察票" not in text
+    assert "学习观察（非买点，盘中验证）" in text
+    assert "002156 观察票" in text
+    assert "不代表买点" in text
 
 
 def test_select_action_candidates_keeps_low_noise_normal_pool_without_filling_risky() -> None:
@@ -818,6 +821,124 @@ def test_build_candidate_tiers_keeps_startup_preheat_as_watch_wait() -> None:
     assert tiers["watch_wait"][0]["candidate_tier"] == "watch_wait"
     assert "启动前夜" in tiers["watch_wait"][0]["tier_reason"]
     assert "10日观察" in tiers["watch_wait"][0]["tier_reason"]
+
+
+def test_format_candidate_screening_text_pushes_layered_learning_sections() -> None:
+    core = {
+        "symbol": "603005",
+        "name": "核心票",
+        "sector": "半导体",
+        "selection_mode": "formal_strategy",
+        "score": 82.0,
+        "selected_rule_id": "R007",
+        "selected_rule_name": "趋势量能确认",
+        "selected_strategy_type": "swing",
+        "reasons": ["低维主线：板块趋势和个股强度共振"],
+        "risk_flags": [],
+        "tier_reason": "板块和个股趋势同时在线，作为核心行动候选；盘中仍看承接。",
+    }
+    startup = {
+        "symbol": "002558",
+        "name": "启动前夜",
+        "sector": "互联网",
+        "selection_mode": "potential_watch",
+        "score": 70.0,
+        "selected_strategy_type": "watch_breakout",
+        "reasons": [
+            "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接",
+            "成交量开始确认：温和放量配合价格修复，但未进入核心行动",
+        ],
+        "risk_flags": [],
+        "tier_reason": "启动前夜：T-1量价已经修复，但还没到核心买点，先盯次日承接。",
+    }
+    risky = {
+        "symbol": "600900",
+        "name": "风险样本",
+        "sector": "电力",
+        "selection_mode": "formal_strategy",
+        "score": 77.0,
+        "selected_strategy_type": "swing",
+        "reasons": ["趋势+相对强度因子仍有支撑"],
+        "risk_flags": ["过热分数偏高78.0", "放量诱多风险"],
+        "tier_reason": "风险信号偏重：过热分数偏高78.0；放量诱多风险，暂不纳入行动池。",
+    }
+
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "candidates": [core, startup, risky],
+            "candidate_tiers": {
+                "core_action": [core],
+                "watch_wait": [startup],
+                "risk_reject": [risky],
+                "summary": {"core_block_reason": None},
+            },
+        }
+    )
+
+    assert "钉钉分层推送" in text
+    assert "核心行动（交易重点，最多3只）" in text
+    assert "学习观察（非买点，盘中验证）" in text
+    assert "暂不升级/风险理由" in text
+    assert "603005 核心票" in text
+    assert "002558 启动前夜" in text
+    assert "600900 风险样本" in text
+    assert "不代表买点" in text
+    assert "只在 Web" not in text
+
+
+def test_format_candidate_screening_text_pushes_learning_tiers_without_core() -> None:
+    startup = {
+        "symbol": "002558",
+        "name": "启动前夜",
+        "sector": "互联网",
+        "selection_mode": "potential_watch",
+        "score": 70.0,
+        "selected_strategy_type": "watch_breakout",
+        "reasons": ["启动前夜：T-1量价修复，先观察次日承接"],
+        "risk_flags": [],
+        "tier_reason": "启动前夜：T-1量价已经修复，但还没到核心买点。",
+    }
+    risky = {
+        "symbol": "600900",
+        "name": "风险样本",
+        "sector": "电力",
+        "selection_mode": "formal_strategy",
+        "score": 77.0,
+        "selected_strategy_type": "swing",
+        "reasons": ["趋势+相对强度因子仍有支撑"],
+        "risk_flags": ["过热分数偏高78.0"],
+        "tier_reason": "风险信号偏重：过热分数偏高78.0，暂不纳入行动池。",
+    }
+
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "candidate_tiers": {
+                "core_action": [],
+                "watch_wait": [startup],
+                "risk_reject": [risky],
+                "summary": {
+                    "core_block_reason": "没有核心行动：当前候选都是潜力观察。"
+                },
+            },
+            "candidates": [],
+        }
+    )
+
+    assert "钉钉分层推送" in text
+    assert "核心行动（交易重点，最多3只）" in text
+    assert "暂无候选" in text
+    assert "没有核心行动：当前候选都是潜力观察。" in text
+    assert "学习观察（非买点，盘中验证）" in text
+    assert "002558 启动前夜" in text
+    assert "暂不升级/风险理由" in text
+    assert "600900 风险样本" in text
+    assert "只在 Web" not in text
 
 
 def test_filter_hot_sector_candidates_keeps_potential_watch_outside_hot_sector() -> None:
