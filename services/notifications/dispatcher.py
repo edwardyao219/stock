@@ -312,9 +312,20 @@ def _candidate_display_score(item: dict[str, Any]) -> float:
     return score
 
 
-def _candidate_order_key(item: dict[str, Any]) -> tuple[int, float]:
+def _style_gate_priority(item: dict[str, Any]) -> int:
+    mapping = {
+        "upgrade_allowed": 2,
+        "observe_only": 1,
+        "stand_down": 0,
+    }
+    status = str(item.get("style_gate_status") or "").strip()
+    return mapping.get(status, 1)
+
+
+def _candidate_order_key(item: dict[str, Any]) -> tuple[int, int, float]:
     return (
         _strategy_priority(item.get("selected_strategy_type")),
+        _style_gate_priority(item),
         _candidate_display_score(item),
     )
 
@@ -827,6 +838,11 @@ def _format_candidate_group(
         tier_reason = str(item.get("tier_reason") or "")
         if tier_reason:
             lines.append(f"分层：{tier_reason}")
+        style_gate_label = str(item.get("style_gate_label") or "").strip()
+        style_gate_reason = str(item.get("style_gate_reason") or "").strip()
+        if style_gate_label or style_gate_reason:
+            gate_parts = [part for part in (style_gate_label, style_gate_reason) if part]
+            lines.append(f"门控：{' / '.join(gate_parts)}")
         risks = item.get("risk_flags") or []
         if risks:
             lines.append(f"风险：{'；'.join(str(risk) for risk in risks[:2])}")

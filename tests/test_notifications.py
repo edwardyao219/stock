@@ -957,6 +957,78 @@ def test_format_candidate_screening_text_pushes_layered_learning_sections() -> N
     assert "只在 Web" not in text
 
 
+def test_format_candidate_screening_text_prioritizes_style_gate_watch_items() -> None:
+    upgrade = {
+        "symbol": "002558",
+        "name": "启动前夜",
+        "sector": "互联网",
+        "sector_style": "growth_cycle",
+        "selection_mode": "potential_watch",
+        "selected_strategy_type": "watch_breakout",
+        "score": 60.0,
+        "selected_rule_id": "WATCH",
+        "selected_rule_name": "启动观察",
+        "reasons": ["启动前夜：T-1量价修复，先观察次日承接"],
+        "risk_flags": [],
+        "style_gate_status": "upgrade_allowed",
+        "style_gate_label": "允许潜力升级",
+        "style_gate_reason": "科技成长启动前夜可盘中重点观察，不代表买点。",
+        "tier_reason": "启动前夜：先盯承接。",
+    }
+    observe = {
+        "symbol": "300001",
+        "name": "只观察",
+        "sector": "软件服务",
+        "sector_style": "growth_cycle",
+        "selection_mode": "potential_watch",
+        "selected_strategy_type": "watch_breakout",
+        "score": 88.0,
+        "selected_rule_id": "WATCH",
+        "selected_rule_name": "观察",
+        "reasons": ["潜力观察：个股启动但板块未确认"],
+        "risk_flags": [],
+        "style_gate_status": "observe_only",
+        "style_gate_label": "只观察",
+        "style_gate_reason": "科技成长潜力观察近期有修复，只做网页端观察。",
+        "tier_reason": "只观察承接。",
+    }
+    stand_down = {
+        "symbol": "600001",
+        "name": "暂缓观察",
+        "sector": "食品饮料",
+        "sector_style": "consumer_quality",
+        "selection_mode": "potential_watch",
+        "selected_strategy_type": "watch_breakout",
+        "score": 96.0,
+        "selected_rule_id": "WATCH",
+        "selected_rule_name": "观察",
+        "reasons": ["潜力观察：个股启动但板块未确认"],
+        "risk_flags": [],
+        "style_gate_status": "stand_down",
+        "style_gate_label": "暂不升级",
+        "style_gate_reason": "消费质量启动前夜近期不占优，暂不升级。",
+        "tier_reason": "暂缓升级。",
+    }
+
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "candidate_tiers": {
+                "core_action": [],
+                "watch_wait": [stand_down, observe, upgrade],
+                "risk_reject": [],
+                "summary": {"core_block_reason": "没有核心行动：先观察承接。"},
+            },
+        }
+    )
+
+    assert text.index("1. 002558 启动前夜") < text.index("2. 300001 只观察")
+    assert text.index("2. 300001 只观察") < text.index("3. 600001 暂缓观察")
+    assert "门控：允许潜力升级 / 科技成长启动前夜可盘中重点观察，不代表买点。" in text
+    assert "门控：暂不升级 / 消费质量启动前夜近期不占优，暂不升级。" in text
+
+
 def test_format_candidate_screening_text_pushes_learning_tiers_without_core() -> None:
     startup = {
         "symbol": "002558",
