@@ -405,6 +405,58 @@ def _candidate_sector_style(item: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _is_startup_preheat_candidate_item(item: dict[str, Any]) -> bool:
+    if str(item.get("selection_mode") or "").strip() != "potential_watch":
+        return False
+    reasons_text = " ".join(str(reason) for reason in item.get("reasons") or [])
+    return "启动前夜：T-1量价修复" in reasons_text
+
+
+def _candidate_style_gate_policy(
+    discovery: dict[str, Any],
+    item: dict[str, Any],
+) -> dict[str, Any] | None:
+    if str(item.get("selection_mode") or "").strip() != "potential_watch":
+        return None
+    policy_key = (
+        "startup_preheat_policy"
+        if _is_startup_preheat_candidate_item(item)
+        else "style_gate_policy"
+    )
+    policy = discovery.get(policy_key)
+    return policy if isinstance(policy, dict) else None
+
+
+def _candidate_with_style_gate(
+    discovery: dict[str, Any],
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    policy = _candidate_style_gate_policy(discovery, item)
+    if not policy:
+        return item
+    style = _candidate_sector_style(item)
+    row = next(
+        (
+            row_item
+            for row_item in policy.get("rows") or []
+            if str(row_item.get("style") or "") == style
+        ),
+        None,
+    )
+    if not isinstance(row, dict):
+        return item
+    return {
+        **item,
+        "style_gate_scope": policy.get("scope"),
+        "style_gate_horizon": policy.get("horizon"),
+        "style_gate_style": style,
+        "style_gate_style_label": row.get("label"),
+        "style_gate_status": row.get("status"),
+        "style_gate_label": row.get("status_label"),
+        "style_gate_reason": row.get("summary"),
+    }
+
+
 def _passes_long_action_style_gate(item: dict[str, Any]) -> bool:
     return _candidate_sector_style(item) in LONG_ACTION_TREND_STYLES
 
@@ -537,17 +589,30 @@ def _append_horizon_reason(item: dict[str, Any], reason: str) -> str:
     return f"{reason} {horizon_reason}。"
 
 
+def _append_style_gate_reason(item: dict[str, Any], reason: str) -> str:
+    gate_reason = str(item.get("style_gate_reason") or "").strip()
+    if not gate_reason or gate_reason in reason:
+        return reason
+    return f"{reason} 门控：{gate_reason}"
+
+
 def _watch_wait_reason(item: dict[str, Any]) -> str:
     if str(item.get("selection_mode") or "") == "potential_watch":
         reasons_text = " ".join(str(reason) for reason in item.get("reasons") or [])
         if "启动前夜：T-1量价修复" in reasons_text:
-            return _append_horizon_reason(
+            return _append_style_gate_reason(
                 item,
-                "启动前夜：T-1量价已经修复，但还没到核心买点，先盯次日承接。",
+                _append_horizon_reason(
+                    item,
+                    "启动前夜：T-1量价已经修复，但还没到核心买点，先盯次日承接。",
+                ),
             )
-        return _append_horizon_reason(
+        return _append_style_gate_reason(
             item,
-            "个股有启动迹象，但板块或买点还没确认，先放观察等待。",
+            _append_horizon_reason(
+                item,
+                "个股有启动迹象，但板块或买点还没确认，先放观察等待。",
+            ),
         )
     if item.get("risk_flags"):
         return _append_horizon_reason(
@@ -594,6 +659,9 @@ def build_candidate_tiers(
     source_candidates = list(
         candidates if candidates is not None else discovery.get("candidates") or []
     )
+    source_candidates = [
+        _candidate_with_style_gate(discovery, item) for item in source_candidates
+    ]
     long_action_candidates = discovery.get("long_action_candidates")
     action_candidates = discovery.get("action_candidates")
     core_source = (

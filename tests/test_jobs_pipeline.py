@@ -795,6 +795,9 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
                         "selection_mode": "potential_watch",
                         "score": 72.0,
                         "tier_reason": "趋势仍可跟踪，但还需要买点确认。",
+                        "style_gate_status": "observe_only",
+                        "style_gate_label": "只观察",
+                        "style_gate_reason": "科技成长潜力观察近期有修复，只做网页端观察。",
                         "reasons": [
                             "潜力启动：20日涨幅仍低，今日向上启动，后续看承接确认",
                             "板块20日主线扩散较好",
@@ -807,6 +810,9 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
                         "selection_mode": "potential_watch",
                         "score": 70.0,
                         "tier_reason": "启动前夜只观察次日承接。",
+                        "style_gate_status": "upgrade_allowed",
+                        "style_gate_label": "允许潜力升级",
+                        "style_gate_reason": "科技成长启动前夜可盘中重点观察，不代表买点。",
                         "reasons": [
                             "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接",
                             "成交量开始确认：温和放量配合价格修复，但未进入核心行动",
@@ -846,9 +852,19 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
         tag.startswith("candidate_pool_reason:扩散确认")
         for tag in rows["688003"].tags_json["tags"]
     )
+    assert "style_gate:observe_only" in rows["688003"].tags_json["tags"]
+    assert any(
+        tag.startswith("style_gate_reason:科技成长潜力观察")
+        for tag in rows["688003"].tags_json["tags"]
+    )
     assert "candidate_pool:startup_preheat" in rows["002558"].tags_json["tags"]
     assert any(
         tag.startswith("candidate_pool_reason:启动前夜")
+        for tag in rows["002558"].tags_json["tags"]
+    )
+    assert "style_gate:upgrade_allowed" in rows["002558"].tags_json["tags"]
+    assert any(
+        tag.startswith("style_gate_reason:科技成长启动前夜")
         for tag in rows["002558"].tags_json["tags"]
     )
 
@@ -932,6 +948,94 @@ def test_discover_next_session_candidates_step_keeps_long_term_notifications(mon
     assert captured["plan_args"]["symbols"] == ["603083"]
     assert result.details[0].startswith("钉钉提醒：")
     assert captured["discovery"]["candidates"][0]["symbol"] == "603083"
+
+
+def test_discover_next_session_candidates_step_attaches_style_gate_policies(
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    def fake_discovery(db, **kwargs):
+        if kwargs.get("include_growth_board"):
+            return {
+                "feature_date": "2026-06-24",
+                "universe_size": 100,
+                "sector_focus": [],
+                "candidates": [],
+                "written": 0,
+                "retired": 0,
+            }
+        return {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "sector_focus": [],
+            "candidates": [
+                {
+                    "symbol": "002558",
+                    "name": "启动前夜",
+                    "sector": "互联网",
+                    "sector_style": "growth_cycle",
+                    "selection_mode": "potential_watch",
+                    "selected_strategy_type": "watch_breakout",
+                    "score": 70.0,
+                    "day_change_pct": 0.012,
+                    "selected_rule_id": "WATCH",
+                    "selected_rule_name": "启动观察",
+                    "reasons": [
+                        "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接",
+                        "成交量开始确认：温和放量配合价格修复，但未进入核心行动",
+                    ],
+                    "risk_flags": [],
+                }
+            ],
+            "written": 1,
+            "retired": 0,
+        }
+
+    def fake_gate_policies(trade_date):
+        assert trade_date == "2026-06-24"
+        return {
+            "startup_preheat_policy": {
+                "scope": "startup_preheat",
+                "horizon": 5,
+                "rows": [
+                    {
+                        "style": "growth_cycle",
+                        "label": "科技成长",
+                        "status": "upgrade_allowed",
+                        "status_label": "允许潜力升级",
+                        "summary": "科技成长启动前夜可盘中重点观察，不代表买点。",
+                    }
+                ],
+            }
+        }
+
+    def fake_dispatch(discovery):
+        captured["discovery"] = discovery
+        return []
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", fake_gate_policies)
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        fake_dispatch,
+    )
+
+    pipeline._discover_next_session_candidates_step(
+        "2026-06-24",
+        "2026-06-25",
+        limit=10,
+        use_learning_adjustments=False,
+    )
+
+    watch_wait = captured["discovery"]["candidate_tiers"]["watch_wait"]
+    assert watch_wait[0]["symbol"] == "002558"
+    assert watch_wait[0]["style_gate_status"] == "upgrade_allowed"
+    assert "不代表买点" in watch_wait[0]["tier_reason"]
 
 
 def test_discover_next_session_candidates_step_caps_limit_to_fifteen(monkeypatch) -> None:

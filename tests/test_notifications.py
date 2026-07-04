@@ -823,6 +823,74 @@ def test_build_candidate_tiers_keeps_startup_preheat_as_watch_wait() -> None:
     assert "10日观察" in tiers["watch_wait"][0]["tier_reason"]
 
 
+def test_build_candidate_tiers_attaches_style_gate_to_startup_preheat() -> None:
+    candidates = [
+        {
+            "symbol": "002558",
+            "sector": "互联网",
+            "sector_style": "growth_cycle",
+            "selection_mode": "potential_watch",
+            "selected_strategy_type": "watch_breakout",
+            "score": 70.0,
+            "risk_flags": [],
+            "reasons": [
+                "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接",
+                "成交量开始确认：温和放量配合价格修复，但未进入核心行动",
+            ],
+        },
+        {
+            "symbol": "600001",
+            "sector": "食品饮料",
+            "sector_style": "consumer_quality",
+            "selection_mode": "potential_watch",
+            "selected_strategy_type": "watch_breakout",
+            "score": 68.0,
+            "risk_flags": [],
+            "reasons": [
+                "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接",
+                "成交量开始确认：温和放量配合价格修复，但未进入核心行动",
+            ],
+        },
+    ]
+
+    tiers = build_candidate_tiers(
+        {
+            "candidates": candidates,
+            "startup_preheat_policy": {
+                "scope": "startup_preheat",
+                "horizon": 5,
+                "rows": [
+                    {
+                        "style": "growth_cycle",
+                        "label": "科技成长",
+                        "status": "upgrade_allowed",
+                        "status_label": "允许潜力升级",
+                        "summary": "科技成长启动前夜可盘中重点观察，不代表买点。",
+                    },
+                    {
+                        "style": "consumer_quality",
+                        "label": "消费质量",
+                        "status": "stand_down",
+                        "status_label": "暂不升级",
+                        "summary": "消费质量启动前夜近期不占优，暂不升级。",
+                    },
+                ],
+            },
+        },
+        candidates,
+    )
+
+    rows = {item["symbol"]: item for item in tiers["watch_wait"]}
+    assert rows["002558"]["style_gate_status"] == "upgrade_allowed"
+    assert rows["002558"]["style_gate_label"] == "允许潜力升级"
+    assert rows["002558"]["style_gate_scope"] == "startup_preheat"
+    assert rows["002558"]["style_gate_horizon"] == 5
+    assert "科技成长启动前夜可盘中重点观察" in rows["002558"]["style_gate_reason"]
+    assert "不代表买点" in rows["002558"]["tier_reason"]
+    assert rows["600001"]["style_gate_status"] == "stand_down"
+    assert "消费质量启动前夜近期不占优" in rows["600001"]["style_gate_reason"]
+
+
 def test_format_candidate_screening_text_pushes_layered_learning_sections() -> None:
     core = {
         "symbol": "603005",

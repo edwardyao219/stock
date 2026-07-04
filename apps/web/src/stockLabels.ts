@@ -44,6 +44,12 @@ const tierLabels: Record<string, string> = {
   risk_reject: "淘汰/风险",
 };
 
+const styleGateLabels: Record<string, string> = {
+  upgrade_allowed: "盘中重点观察",
+  observe_only: "只观察",
+  stand_down: "暂不升级",
+};
+
 const holdStyleLabels: Record<string, string> = {
   low_turnover_compound: "低换手复利",
   valuation_reversion: "估值修复",
@@ -110,6 +116,13 @@ export function manualTagTextForStock(value: string, stock: StockPoolLabelInput)
   if (value.startsWith("style_horizon:")) {
     const horizon = value.slice("style_horizon:".length).replace(/d$/, "");
     return `建议${horizon}日观察`;
+  }
+  if (value.startsWith("style_gate:")) {
+    const status = value.slice("style_gate:".length);
+    return `门控：${styleGateLabels[status] ?? "观察"}`;
+  }
+  if (value.startsWith("style_gate_reason:")) {
+    return cleanDisplayText(value.slice("style_gate_reason:".length));
   }
   if (value === "candidate_pool:startup_preheat") return "启动前夜池";
   if (value === "candidate_pool:expansion_confirm") return "扩散确认池";

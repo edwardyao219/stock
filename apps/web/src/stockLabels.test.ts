@@ -68,6 +68,24 @@ assertEqual(
   "候选周期标签需要显示为用户可读文本",
 );
 assertEqual(
+  manualTagTextForStock("style_gate:upgrade_allowed", startupPreheatCandidate),
+  "门控：盘中重点观察",
+  "门控状态不能露出英文枚举",
+);
+assertEqual(
+  manualTagTextForStock("style_gate:stand_down", startupPreheatCandidate),
+  "门控：暂不升级",
+  "暂不升级门控需要显示为中文",
+);
+assertEqual(
+  manualTagTextForStock(
+    "style_gate_reason:科技成长启动前夜可盘中重点观察，不代表买点。",
+    startupPreheatCandidate,
+  ),
+  "科技成长启动前夜可盘中重点观察，不代表买点。",
+  "门控原因需要直接显示中文理由",
+);
+assertEqual(
   manualTagTextForStock("candidate_pool:expansion_confirm", expansionCandidate),
   "扩散确认池",
   "扩散确认标签需要显示为用户可读文本",

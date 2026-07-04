@@ -476,6 +476,41 @@ def _is_startup_preheat_candidate(item: dict[str, Any]) -> bool:
     return "启动前夜：T-1量价修复" in reasons_text and "成交量开始确认" in reasons_text
 
 
+def _load_candidate_gate_policies(trade_date: str) -> dict[str, Any]:
+    try:
+        from apps.api.app.routers.rules import diagnose_style_gate_policy
+        from services.engine.backtest.walk_forward import compare_candidate_walk_forward_scopes
+
+        end_date = date.fromisoformat(trade_date)
+        start_date = (end_date - timedelta(days=240)).isoformat()
+        comparison = compare_candidate_walk_forward_scopes(
+            start_date=start_date,
+            end_date=trade_date,
+            scopes=("potential_watch", "startup_preheat"),
+            limit=15,
+            horizons=(5, 10),
+            min_coverage_ratio=0.70,
+            include_fundamentals=False,
+        )
+        return {
+            "style_gate_policy": diagnose_style_gate_policy(
+                comparison,
+                scope="potential_watch",
+                horizon=10,
+            ),
+            "startup_preheat_policy": diagnose_style_gate_policy(
+                comparison,
+                scope="startup_preheat",
+                horizon=5,
+                min_latest_samples=3,
+                min_recent_samples=5,
+                min_upgrade_avg_return=0.02,
+            ),
+        }
+    except Exception:
+        return {}
+
+
 def _apply_candidate_tier_tags(
     db: Session,
     *,
@@ -521,6 +556,8 @@ def _apply_candidate_tier_tags(
                 or tag.startswith("candidate_summary:")
                 or tag.startswith("candidate_pool:")
                 or tag.startswith("candidate_pool_reason:")
+                or tag.startswith("style_gate:")
+                or tag.startswith("style_gate_reason:")
             )
         ]
         cleaned_tags.append(f"tier:{tier}")
@@ -539,6 +576,12 @@ def _apply_candidate_tier_tags(
             cleaned_tags.append(
                 "candidate_pool_reason:扩散确认：板块扩散和个股启动同步，先观察承接，不进核心。"
             )
+        gate_status = str(tier_item.get("style_gate_status") or "").strip()
+        gate_reason = str(tier_item.get("style_gate_reason") or "").replace("\n", " ").strip()
+        if gate_status:
+            cleaned_tags.append(f"style_gate:{gate_status}")
+        if gate_reason:
+            cleaned_tags.append(f"style_gate_reason:{gate_reason}")
         row.tags_json = {"tags": list(dict.fromkeys(cleaned_tags))}
 
 
@@ -607,6 +650,7 @@ def _discover_next_session_candidates_step(
         discovery["candidates"] = normal_candidates + star_candidates
         discovery["action_candidates"] = action_candidates
         discovery["long_action_candidates"] = long_action_candidates
+        discovery.update(_load_candidate_gate_policies(trade_date))
         discovery["candidate_tiers"] = build_candidate_tiers(
             discovery,
             discovery["candidates"],
