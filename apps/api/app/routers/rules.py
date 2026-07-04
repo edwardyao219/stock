@@ -27,6 +27,17 @@ _SCOPE_LABELS = {
 }
 _PRIMARY_POLICY_SCOPES = {"action_long", "action", "all"}
 DEFAULT_REPLAY_START_DATE = "2024-01-01"
+_STYLE_LABELS = {
+    "growth_cycle": "科技成长",
+    "cyclical": "周期资源",
+    "consumer_quality": "消费质量",
+    "property_chain": "地产链",
+    "compound": "防守复利",
+    "healthcare": "医药",
+    "market_beta": "市场弹性",
+    "theme": "题材",
+    "unknown": "未分类",
+}
 
 
 def _guarded_metric(summary: dict[str, Any], horizon: int) -> dict[str, Any]:
@@ -120,6 +131,165 @@ def _scope_monthly_guarded_rows(
             }
         )
     return rows
+
+
+def _scope_monthly_style_guarded_rows(
+    comparison: dict[str, Any],
+    *,
+    scope: str,
+    horizon: int,
+) -> list[dict[str, Any]]:
+    summary = (comparison.get("scopes") or {}).get(scope) or {}
+    monthly = (summary.get("monthly_style_horizons") or {}).get(horizon) or {}
+    rows: list[dict[str, Any]] = []
+    for month, styles in sorted(monthly.items()):
+        for style, item in sorted((styles or {}).items()):
+            guarded = (item or {}).get("guarded") or {}
+            sample_count = int(guarded.get("sample_count") or 0)
+            if sample_count <= 0:
+                continue
+            style_key = str(style)
+            rows.append(
+                {
+                    "month": str(month),
+                    "style": style_key,
+                    "label": _STYLE_LABELS.get(style_key, "其他风格"),
+                    "sample_count": sample_count,
+                    "avg_return": _metric_float(guarded, "avg_return"),
+                    "win_rate": _metric_float(guarded, "win_rate"),
+                    "total_return": _metric_float(guarded, "total_return"),
+                }
+            )
+    return rows
+
+
+def diagnose_style_gate_policy(
+    comparison: dict[str, Any],
+    *,
+    scope: str = "potential_watch",
+    horizon: int = 10,
+    lookback_months: int = 3,
+    min_latest_samples: int = 3,
+    min_recent_samples: int = 5,
+    min_upgrade_avg_return: float = 0.03,
+) -> dict[str, Any]:
+    rows = _scope_monthly_style_guarded_rows(
+        comparison,
+        scope=scope,
+        horizon=horizon,
+    )
+    if not rows:
+        return {
+            "scope": scope,
+            "horizon": horizon,
+            "lookback_months": 0,
+            "summary": "潜力观察池缺少月度风格回放，暂不允许按风格升级。",
+            "rows": [],
+            "upgrade_styles": [],
+            "observe_styles": [],
+            "stand_down_styles": [],
+        }
+
+    gate_rows: list[dict[str, Any]] = []
+    for style in sorted({row["style"] for row in rows}):
+        style_rows = [row for row in rows if row["style"] == style]
+        recent_rows = style_rows[-lookback_months:]
+        latest = recent_rows[-1]
+        recent_sample_count = sum(int(row["sample_count"] or 0) for row in recent_rows)
+        recent_total_return = round(
+            sum(float(row["total_return"] or 0.0) for row in recent_rows),
+            6,
+        )
+        recent_avg_return = (
+            round(recent_total_return / recent_sample_count, 6)
+            if recent_sample_count > 0
+            else None
+        )
+        positive_months = sum(
+            1
+            for row in recent_rows
+            if (row["avg_return"] or 0.0) > 0.0 and (row["total_return"] or 0.0) > 0.0
+        )
+        negative_months = len(recent_rows) - positive_months
+        latest_is_positive = (
+            (latest["avg_return"] or 0.0) > 0.0
+            and (latest["total_return"] or 0.0) > 0.0
+        )
+        sample_ready = (
+            int(latest["sample_count"] or 0) >= min_latest_samples
+            and recent_sample_count >= min_recent_samples
+        )
+        if (
+            latest_is_positive
+            and sample_ready
+            and recent_total_return > 0.0
+            and (latest["avg_return"] or 0.0) >= min_upgrade_avg_return
+        ):
+            status = "upgrade_allowed"
+            status_label = "允许潜力升级"
+            summary = (
+                f"{latest['month']} {latest['label']}风格{horizon}日均值"
+                f"{_format_pct(latest['avg_return'])}，样本{latest['sample_count']}；"
+                "允许从普通潜力观察升级为Web重点和盘中验证，不自动进入钉钉核心。"
+            )
+        elif latest_is_positive or recent_total_return > 0.0:
+            status = "observe_only"
+            status_label = "只观察"
+            summary = (
+                f"{latest['label']}风格近期有修复，但样本或收益强度不足，"
+                "只放Web观察，不作为升级门控。"
+            )
+        else:
+            status = "stand_down"
+            status_label = "休息"
+            summary = (
+                f"{latest['label']}风格最近{horizon}日回放不占优，"
+                "潜力观察不升级，等下一轮风格回放确认。"
+            )
+        gate_rows.append(
+            {
+                "style": style,
+                "label": latest["label"],
+                "status": status,
+                "status_label": status_label,
+                "latest_month": latest["month"],
+                "latest_sample_count": latest["sample_count"],
+                "latest_avg_return": latest["avg_return"],
+                "latest_win_rate": latest["win_rate"],
+                "latest_total_return": latest["total_return"],
+                "recent_months": len(recent_rows),
+                "recent_sample_count": recent_sample_count,
+                "recent_avg_return": recent_avg_return,
+                "recent_total_return": recent_total_return,
+                "positive_months": positive_months,
+                "negative_months": negative_months,
+                "summary": summary,
+            }
+        )
+
+    status_order = {"upgrade_allowed": 0, "observe_only": 1, "stand_down": 2}
+    gate_rows.sort(
+        key=lambda row: (
+            status_order.get(str(row["status"]), 9),
+            -(row["latest_avg_return"] or -999.0),
+            -(row["latest_total_return"] or -999.0),
+        )
+    )
+    return {
+        "scope": scope,
+        "horizon": horizon,
+        "lookback_months": lookback_months,
+        "summary": (
+            "按潜力观察池最近月度风格回放做动态门控；"
+            "允许升级只代表Web重点和盘中验证，不代表直接进入钉钉核心。"
+        ),
+        "rows": gate_rows,
+        "upgrade_styles": [
+            row["style"] for row in gate_rows if row["status"] == "upgrade_allowed"
+        ],
+        "observe_styles": [row["style"] for row in gate_rows if row["status"] == "observe_only"],
+        "stand_down_styles": [row["style"] for row in gate_rows if row["status"] == "stand_down"],
+    }
 
 
 def diagnose_overfit_guardrails(
@@ -632,6 +802,7 @@ def diagnose_candidate_replay_effect(
             market_phase_policy=market_phase_policy,
             potential_watch_policy=potential_watch_policy,
         ),
+        "style_gate_policy": diagnose_style_gate_policy(comparison),
         "monthly_posture": diagnose_monthly_replay_posture(comparison, horizon=horizon),
     }
 

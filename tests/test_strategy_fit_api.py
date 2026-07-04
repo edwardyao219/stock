@@ -539,6 +539,106 @@ def test_candidate_replay_diagnosis_marks_potential_watch_as_tactical_only() -> 
     assert "不升级为钉钉核心" in diagnosis["potential_watch_policy"]["summary"]
 
 
+def test_candidate_replay_style_gate_uses_recent_style_replay_without_sector_names() -> None:
+    comparison = {
+        "scopes": {
+            "all": {
+                "candidate_count": 120,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 100,
+                            "avg_return": 0.02,
+                            "total_return": 2.0,
+                            "win_rate": 0.55,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+            "action": {"candidate_count": 0, "horizons": {}, "monthly_horizons": {}},
+            "action_long": {"candidate_count": 0, "horizons": {}, "monthly_horizons": {}},
+            "potential_watch": {
+                "candidate_count": 40,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 30,
+                            "avg_return": 0.01,
+                            "total_return": 0.3,
+                            "win_rate": 0.45,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+                "monthly_style_horizons": {
+                    10: {
+                        "2026-05": {
+                            "growth_cycle": {
+                                "guarded": {
+                                    "sample_count": 5,
+                                    "avg_return": -0.02,
+                                    "total_return": -0.1,
+                                    "win_rate": 0.2,
+                                }
+                            },
+                            "cyclical": {
+                                "guarded": {
+                                    "sample_count": 5,
+                                    "avg_return": 0.01,
+                                    "total_return": 0.05,
+                                    "win_rate": 0.6,
+                                }
+                            },
+                        },
+                        "2026-06": {
+                            "growth_cycle": {
+                                "guarded": {
+                                    "sample_count": 6,
+                                    "avg_return": 0.12,
+                                    "total_return": 0.72,
+                                    "win_rate": 0.67,
+                                }
+                            },
+                            "cyclical": {
+                                "guarded": {
+                                    "sample_count": 4,
+                                    "avg_return": -0.03,
+                                    "total_return": -0.12,
+                                    "win_rate": 0.25,
+                                }
+                            },
+                            "unknown": {
+                                "guarded": {
+                                    "sample_count": 2,
+                                    "avg_return": 0.1,
+                                    "total_return": 0.2,
+                                    "win_rate": 1.0,
+                                }
+                            },
+                        },
+                    }
+                },
+            },
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    style_gate = diagnosis["style_gate_policy"]
+    assert style_gate["horizon"] == 10
+    assert style_gate["scope"] == "potential_watch"
+    rows = {row["style"]: row for row in style_gate["rows"]}
+    assert rows["growth_cycle"]["status"] == "upgrade_allowed"
+    assert rows["growth_cycle"]["status_label"] == "允许潜力升级"
+    assert rows["cyclical"]["status"] == "stand_down"
+    assert rows["unknown"]["status"] == "observe_only"
+    assert style_gate["upgrade_styles"] == ["growth_cycle"]
+    rendered = str(style_gate)
+    assert "半导体" not in rendered
+    assert "证券" not in rendered
+
+
 def test_candidate_replay_market_phase_switch_turns_defensive_after_weak_months() -> None:
     comparison = {
         "scopes": {

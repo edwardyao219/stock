@@ -1240,6 +1240,7 @@ export function App() {
     candidateReplayEffect?.scopes.potential_watch,
     10,
   ).slice(0, 5);
+  const styleGateRows = candidateReplayEffect?.diagnosis.style_gate_policy.rows.slice(0, 5) ?? [];
   const replayDataCoverage =
     candidateReplayEffect?.data_coverage ?? lowDimensionalReplay?.data_coverage ?? null;
   const replayCoverageWarnings = replayDataCoverage?.warnings.slice(0, 3) ?? [];
@@ -2150,6 +2151,34 @@ export function App() {
                             {row.month} / 均值 {pct(row.metric.avg_return)} / 胜率{" "}
                             {pct(row.metric.win_rate)} / 样本 {row.metric.sample_count}
                           </small>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                {styleGateRows.length ? (
+                  <>
+                    <span>板块风格门控</span>
+                    <div className="replay-row-list">
+                      {styleGateRows.map((row) => (
+                        <div className="replay-insight-row" key={row.style}>
+                          <strong>{row.label}</strong>
+                          <em
+                            className={
+                              row.status === "upgrade_allowed"
+                                ? "up"
+                                : row.status === "stand_down"
+                                  ? "down"
+                                  : "neutral"
+                            }
+                          >
+                            {row.status_label}
+                          </em>
+                          <small>
+                            {row.latest_month} / 均值 {pct(row.latest_avg_return)} / 胜率{" "}
+                            {pct(row.latest_win_rate)} / 样本 {row.latest_sample_count}
+                          </small>
+                          <small>{uiText(row.summary)}</small>
                         </div>
                       ))}
                     </div>

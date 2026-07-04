@@ -549,6 +549,36 @@ export interface CandidateReplayDiagnosisScopeRow {
   total_return: number | null;
 }
 
+export interface CandidateReplayStyleGateRow {
+  style: string;
+  label: string;
+  status: string;
+  status_label: string;
+  latest_month: string;
+  latest_sample_count: number;
+  latest_avg_return: number | null;
+  latest_win_rate: number | null;
+  latest_total_return: number | null;
+  recent_months: number;
+  recent_sample_count: number;
+  recent_avg_return: number | null;
+  recent_total_return: number | null;
+  positive_months: number;
+  negative_months: number;
+  summary: string;
+}
+
+export interface CandidateReplayStyleGatePolicy {
+  scope: string;
+  horizon: number;
+  lookback_months: number;
+  summary: string;
+  rows: CandidateReplayStyleGateRow[];
+  upgrade_styles: string[];
+  observe_styles: string[];
+  stand_down_styles: string[];
+}
+
 export interface CandidateReplayDiagnosis {
   horizon: number;
   primary_scope: string;
@@ -608,6 +638,7 @@ export interface CandidateReplayDiagnosis {
     };
     rules: string[];
   };
+  style_gate_policy: CandidateReplayStyleGatePolicy;
   monthly_posture: {
     month: string | null;
     posture: string;
