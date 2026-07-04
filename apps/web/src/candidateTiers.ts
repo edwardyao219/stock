@@ -10,6 +10,7 @@ export interface CandidateTierMeta {
 
 export interface CandidateTierGroups {
   coreAction: WorkspaceStock[];
+  startupPreheat: WorkspaceStock[];
   expansionConfirm: WorkspaceStock[];
   watchWait: WorkspaceStock[];
   riskReject: WorkspaceStock[];
@@ -71,6 +72,8 @@ export function groupStocksByCandidateTier(stocks: WorkspaceStock[]): CandidateT
         groups.coreAction.push(stock);
       } else if (tier === "risk_reject") {
         groups.riskReject.push(stock);
+      } else if (stock.manual_tags.includes("candidate_pool:startup_preheat")) {
+        groups.startupPreheat.push(stock);
       } else if (stock.manual_tags.includes("candidate_pool:expansion_confirm")) {
         groups.expansionConfirm.push(stock);
       } else {
@@ -78,7 +81,7 @@ export function groupStocksByCandidateTier(stocks: WorkspaceStock[]): CandidateT
       }
       return groups;
     },
-    { coreAction: [], expansionConfirm: [], watchWait: [], riskReject: [] },
+    { coreAction: [], startupPreheat: [], expansionConfirm: [], watchWait: [], riskReject: [] },
   );
 }
 

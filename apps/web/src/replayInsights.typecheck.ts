@@ -7,9 +7,42 @@ import {
 } from "./replayInsights";
 
 const candidateReplay = {
-  start_date: "2025-01-01",
+  start_date: "2024-01-01",
   end_date: "2026-07-01",
   discovery_cache_dir: ".tmp/candidate-replay-discovery-cache",
+  data_coverage: {
+    start_date: "2024-01-01",
+    end_date: "2026-07-01",
+    overall: {
+      grade: "partial",
+      months: 30,
+      usable_months: 18,
+      warning_months: 12,
+      active_symbols: 5200,
+      min_trade_days: 10,
+      min_active_feature_coverage: 0.7,
+      min_sector_rows: 20,
+    },
+    months: [
+      {
+        month: "2024-01",
+        grade: "partial",
+        is_incomplete_tail_month: false,
+        trade_days: 22,
+        feature_days: 22,
+        sector_days: 22,
+        avg_daily_bar_symbols: 210,
+        avg_feature_symbols: 210,
+        avg_sector_rows: 5,
+        feature_day_ratio: 1,
+        sector_day_ratio: 1,
+        avg_market_feature_coverage: 1,
+        avg_feature_active_coverage: 0.04,
+        warnings: ["2024-01 样本偏窄，只作压力测试。"],
+      },
+    ],
+    warnings: ["2024-01 样本偏窄，只作压力测试。"],
+  },
   diagnosis: {
     horizon: 20,
     primary_scope: "action_long",
@@ -18,6 +51,59 @@ const candidateReplay = {
     ding_policy: "ding_core_only",
     summary: "长期行动池收益质量最好，钉钉继续只推少数核心票。",
     reasons: ["长期行动池：20日均值+5.71%，总收益+102.79%，样本18"],
+    overfit_guardrails: ["潜力观察池最近月份转强，但此前月份不稳，只作为Web观察。"],
+    tactical_opportunities: ["2026-06 潜力观察池10日表现转强，只做Web重点观察。"],
+    potential_watch_policy: {
+      status: "tactical_watch",
+      label: "盘中重点观察",
+      month: "2026-06",
+      horizon: 10,
+      sample_count: 37,
+      avg_return: 0.07,
+      total_return: 2.65,
+      summary: "潜力观察池10日收益转强，只做Web重点观察和盘中确认。",
+    },
+    market_phase_policy: {
+      status: "trend_follow",
+      label: "顺势阶段",
+      lookback_months: 3,
+      strong_months: 2,
+      weak_months: 1,
+      expansion_allowed: true,
+      max_core_positions: 3,
+      summary: "最近有效月份连续转强，允许顺势跟随。",
+      reasons: [
+        "2026-05 全候选池：20日总收益+8.00%，均值+2.00%，样本40",
+        "2026-06 全候选池：20日总收益+12.00%，均值+3.00%，样本40",
+      ],
+    },
+    dual_line_policy: {
+      active_line: "main_trend",
+      ding_policy: "ding_core_main_line",
+      max_core_positions: 3,
+      summary: "主线生效：强板块趋势和行动池收益同向。",
+      main_line: {
+        name: "强板块趋势线",
+        status: "core_enabled",
+        scope: "action_long",
+        label: "长期行动池",
+        sample_count: 18,
+        avg_return: 0.057108,
+        total_return: 1.027945,
+        summary: "长期行动池20日均值+5.71%。",
+      },
+      support_line: {
+        name: "弱市抗跌/轮动预热线",
+        status: "monitor_only",
+        month: "2026-06",
+        horizon: 10,
+        sample_count: 37,
+        avg_return: 0.07,
+        total_return: 2.65,
+        summary: "潜力观察池10日收益转强，只做Web重点观察。",
+      },
+      rules: ["主线只在顺势阶段承接钉钉核心。"],
+    },
     monthly_posture: {
       month: "2026-05",
       posture: "tighten_core",
@@ -49,7 +135,7 @@ const candidateReplay = {
   },
   scopes: {
     all: {
-      start_date: "2025-01-01",
+      start_date: "2024-01-01",
       end_date: "2026-07-01",
       candidate_count: 3398,
       warning_days: 0,
@@ -75,8 +161,9 @@ const candidateReplay = {
 } satisfies CandidateReplayEffectReport;
 
 const lowDimensional = {
-  start_date: "2025-01-01",
+  start_date: "2024-01-01",
   end_date: "2026-07-01",
+  data_coverage: candidateReplay.data_coverage,
   processed_days: 300,
   candidate_count: 20,
   warning_days: 0,

@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from apps.api.app.main import create_app
 from apps.api.app.routers import rules
 from apps.api.app.routers.rules import (
+    diagnose_candidate_replay_effect,
     get_candidate_replay_effect,
     get_low_dimensional_replay,
     get_strategy_fit,
@@ -178,7 +179,7 @@ def test_get_low_dimensional_replay_uses_default_long_window_without_compounding
     def fake_summarize(result, *, horizons):
         assert isinstance(result, _ReplayResult)
         return {
-            "start_date": "2025-01-01",
+            "start_date": "2024-01-01",
             "end_date": "2026-07-01",
             "processed_days": 360,
             "candidate_count": 462,
@@ -197,14 +198,24 @@ def test_get_low_dimensional_replay_uses_default_long_window_without_compounding
             "monthly_horizons": {20: {"2026-05": {"guarded": {"total_return": 0.19664}}}},
         }
 
+    def fake_coverage(**kwargs):
+        return {
+            "start_date": kwargs["start_date"],
+            "end_date": kwargs["end_date"],
+            "overall": {"grade": "partial", "warning_months": 1},
+            "months": [{"month": "2024-01", "grade": "partial"}],
+            "warnings": ["2024-01 样本偏窄，只作压力测试。"],
+        }
+
     monkeypatch.setattr(rules, "now_local", lambda: _Now())
     monkeypatch.setattr(rules, "run_low_dimensional_walk_forward_replay", fake_run)
     monkeypatch.setattr(rules, "summarize_walk_forward_replay", fake_summarize)
+    monkeypatch.setattr(rules, "build_replay_data_coverage_report", fake_coverage)
 
     payload = get_low_dimensional_replay()
 
     assert captured == {
-        "start_date": "2025-01-01",
+        "start_date": "2024-01-01",
         "end_date": "2026-07-01",
         "limit": 3,
         "horizons": (5, 10, 20),
@@ -212,6 +223,8 @@ def test_get_low_dimensional_replay_uses_default_long_window_without_compounding
     }
     assert payload["horizons"][20]["guarded"]["total_return"] == 10.318571
     assert "compounded_return" not in payload["horizons"][20]["guarded"]
+    assert payload["data_coverage"]["overall"]["grade"] == "partial"
+    assert "样本偏窄" in payload["data_coverage"]["warnings"][0]
 
 
 def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
@@ -226,7 +239,7 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     def fake_compare(**kwargs):
         captured.update(kwargs)
         return {
-            "start_date": "2025-01-01",
+            "start_date": "2024-01-01",
             "end_date": "2026-07-01",
             "scopes": {
                 "all": {
@@ -304,19 +317,62 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
                         }
                     },
                 },
+                "potential_watch": {
+                    "candidate_count": 41,
+                    "horizons": {
+                        20: {
+                            "guarded": {
+                                "sample_count": 30,
+                                "avg_return": 0.2,
+                                "win_rate": 0.5,
+                                "total_return": 6.0,
+                            }
+                        }
+                    },
+                    "monthly_horizons": {
+                        20: {
+                            "2026-04": {
+                                "guarded": {
+                                    "sample_count": 12,
+                                    "avg_return": -0.04,
+                                    "win_rate": 0.25,
+                                    "total_return": -0.48,
+                                }
+                            },
+                            "2026-05": {
+                                "guarded": {
+                                    "sample_count": 10,
+                                    "avg_return": 0.12,
+                                    "win_rate": 0.5,
+                                    "total_return": 1.2,
+                                }
+                            }
+                        }
+                    },
+                },
             },
             "discovery_cache_dir": ".tmp/candidate-replay-discovery-cache",
         }
 
+    def fake_coverage(**kwargs):
+        return {
+            "start_date": kwargs["start_date"],
+            "end_date": kwargs["end_date"],
+            "overall": {"grade": "usable", "warning_months": 0},
+            "months": [{"month": "2024-01", "grade": "usable"}],
+            "warnings": [],
+        }
+
     monkeypatch.setattr(rules, "now_local", lambda: _Now())
     monkeypatch.setattr(rules, "compare_candidate_walk_forward_scopes", fake_compare)
+    monkeypatch.setattr(rules, "build_replay_data_coverage_report", fake_coverage)
 
     payload = get_candidate_replay_effect()
 
     assert captured == {
-        "start_date": "2025-01-01",
+        "start_date": "2024-01-01",
         "end_date": "2026-07-01",
-        "scopes": ("all", "action", "action_long"),
+        "scopes": ("all", "action", "action_long", "potential_watch"),
         "limit": 15,
         "horizons": (5, 10, 20),
         "min_coverage_ratio": 0.7,
@@ -328,13 +384,472 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
         not in payload["scopes"]["action_long"]["horizons"][20]["guarded"]
     )
     diagnosis = payload["diagnosis"]
+    assert payload["data_coverage"]["overall"]["grade"] == "usable"
     assert diagnosis["horizon"] == 20
     assert diagnosis["primary_scope"] == "action_long"
     assert diagnosis["policy_label"] == "核心少量行动"
     assert diagnosis["ding_policy"] == "ding_core_only"
     assert any("长期行动池" in reason for reason in diagnosis["reasons"])
+    assert any("潜力观察池" in item for item in diagnosis["overfit_guardrails"])
     monthly_posture = diagnosis["monthly_posture"]
     assert monthly_posture["month"] == "2026-05"
     assert monthly_posture["posture"] == "tighten_core"
     assert monthly_posture["posture_label"] == "核心收敛"
     assert any("全候选池" in reason for reason in monthly_posture["reasons"])
+
+
+def test_candidate_replay_diagnosis_marks_potential_watch_as_tactical_only() -> None:
+    comparison = {
+        "scopes": {
+            "action_long": {
+                "candidate_count": 7,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 7,
+                            "avg_return": 0.16,
+                            "total_return": 1.12,
+                            "win_rate": 0.6,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+            "action": {
+                "candidate_count": 11,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 10,
+                            "avg_return": 0.01,
+                            "total_return": 0.1,
+                            "win_rate": 0.5,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    10: {
+                        "2026-06": {
+                            "guarded": {
+                                "sample_count": 6,
+                                "avg_return": 0.04,
+                                "total_return": 0.25,
+                            }
+                        }
+                    }
+                },
+            },
+            "all": {
+                "candidate_count": 123,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 100,
+                            "avg_return": -0.01,
+                            "total_return": -1.0,
+                            "win_rate": 0.4,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+            "potential_watch": {
+                "candidate_count": 55,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 20,
+                            "avg_return": 0.01,
+                            "total_return": 0.2,
+                            "win_rate": 0.5,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    10: {
+                        "2026-05": {
+                            "guarded": {
+                                "sample_count": 40,
+                                "avg_return": -0.01,
+                                "total_return": -0.4,
+                            }
+                        },
+                        "2026-06": {
+                            "guarded": {
+                                "sample_count": 37,
+                                "avg_return": 0.07,
+                                "total_return": 2.65,
+                            }
+                        },
+                    }
+                },
+            },
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    assert diagnosis["primary_scope"] == "action_long"
+    assert any(
+        "潜力观察池" in item and "10日" in item for item in diagnosis["tactical_opportunities"]
+    )
+    assert all("不升级为钉钉核心" in item for item in diagnosis["tactical_opportunities"])
+    assert diagnosis["potential_watch_policy"]["status"] == "tactical_watch"
+    assert diagnosis["potential_watch_policy"]["label"] == "盘中重点观察"
+    assert "不升级为钉钉核心" in diagnosis["potential_watch_policy"]["summary"]
+
+
+def test_candidate_replay_market_phase_switch_turns_defensive_after_weak_months() -> None:
+    comparison = {
+        "scopes": {
+            "all": {
+                "candidate_count": 400,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 300,
+                            "avg_return": -0.01,
+                            "total_return": -3.0,
+                            "win_rate": 0.35,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2024-04": {
+                            "guarded": {
+                                "sample_count": 80,
+                                "avg_return": -0.03,
+                                "total_return": -2.4,
+                                "win_rate": 0.2,
+                            }
+                        },
+                        "2024-05": {
+                            "guarded": {
+                                "sample_count": 75,
+                                "avg_return": -0.02,
+                                "total_return": -1.5,
+                                "win_rate": 0.25,
+                            }
+                        },
+                        "2024-06": {
+                            "guarded": {
+                                "sample_count": 60,
+                                "avg_return": -0.01,
+                                "total_return": -0.6,
+                                "win_rate": 0.3,
+                            }
+                        },
+                    }
+                },
+            },
+            "action": {
+                "candidate_count": 30,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 28,
+                            "avg_return": -0.02,
+                            "total_return": -0.56,
+                            "win_rate": 0.25,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+            "action_long": {
+                "candidate_count": 0,
+                "horizons": {},
+                "monthly_horizons": {},
+            },
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    phase = diagnosis["market_phase_policy"]
+    assert phase["status"] == "risk_off"
+    assert phase["label"] == "防守阶段"
+    assert phase["expansion_allowed"] is False
+    assert phase["max_core_positions"] == 1
+    assert "连续弱月" in phase["summary"]
+
+
+def test_candidate_replay_market_phase_switch_allows_following_strong_phase() -> None:
+    comparison = {
+        "scopes": {
+            "all": {
+                "candidate_count": 600,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 500,
+                            "avg_return": 0.02,
+                            "total_return": 10.0,
+                            "win_rate": 0.55,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2024-09": {
+                            "guarded": {
+                                "sample_count": 120,
+                                "avg_return": 0.12,
+                                "total_return": 14.4,
+                                "win_rate": 0.8,
+                            }
+                        },
+                        "2024-10": {
+                            "guarded": {
+                                "sample_count": 140,
+                                "avg_return": 0.06,
+                                "total_return": 8.4,
+                                "win_rate": 0.65,
+                            }
+                        },
+                    }
+                },
+            },
+            "action": {
+                "candidate_count": 30,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 25,
+                            "avg_return": 0.02,
+                            "total_return": 0.5,
+                            "win_rate": 0.56,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+            "action_long": {
+                "candidate_count": 5,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 5,
+                            "avg_return": 0.04,
+                            "total_return": 0.2,
+                            "win_rate": 0.6,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    phase = diagnosis["market_phase_policy"]
+    assert phase["status"] == "trend_follow"
+    assert phase["label"] == "顺势阶段"
+    assert phase["expansion_allowed"] is True
+    assert phase["max_core_positions"] == 3
+    assert any("2024-09" in reason for reason in phase["reasons"])
+
+
+def test_candidate_replay_dual_line_prefers_main_trend_in_strong_phase() -> None:
+    comparison = {
+        "scopes": {
+            "all": {
+                "candidate_count": 500,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 400,
+                            "avg_return": 0.03,
+                            "total_return": 12.0,
+                            "win_rate": 0.58,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2024-09": {
+                            "guarded": {
+                                "sample_count": 120,
+                                "avg_return": 0.12,
+                                "total_return": 14.4,
+                            }
+                        },
+                        "2024-10": {
+                            "guarded": {
+                                "sample_count": 130,
+                                "avg_return": 0.06,
+                                "total_return": 7.8,
+                            }
+                        },
+                    }
+                },
+            },
+            "action": {
+                "candidate_count": 30,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 25,
+                            "avg_return": 0.02,
+                            "total_return": 0.5,
+                            "win_rate": 0.56,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+            "action_long": {
+                "candidate_count": 8,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 8,
+                            "avg_return": 0.05,
+                            "total_return": 0.4,
+                            "win_rate": 0.625,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+            "potential_watch": {
+                "candidate_count": 20,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 20,
+                            "avg_return": -0.01,
+                            "total_return": -0.2,
+                            "win_rate": 0.3,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    dual_line = diagnosis["dual_line_policy"]
+    assert dual_line["active_line"] == "main_trend"
+    assert dual_line["main_line"]["status"] == "core_enabled"
+    assert dual_line["support_line"]["status"] == "monitor_only"
+    assert dual_line["ding_policy"] == "ding_core_main_line"
+    assert dual_line["max_core_positions"] == 3
+
+
+def test_candidate_replay_dual_line_uses_support_preheat_when_weak_but_watch_repairs() -> None:
+    comparison = {
+        "scopes": {
+            "all": {
+                "candidate_count": 500,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 400,
+                            "avg_return": -0.02,
+                            "total_return": -8.0,
+                            "win_rate": 0.25,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2024-10": {
+                            "guarded": {
+                                "sample_count": 150,
+                                "avg_return": 0.04,
+                                "total_return": 6.0,
+                            }
+                        },
+                        "2024-11": {
+                            "guarded": {
+                                "sample_count": 130,
+                                "avg_return": -0.01,
+                                "total_return": -1.3,
+                            }
+                        },
+                        "2024-12": {
+                            "guarded": {
+                                "sample_count": 120,
+                                "avg_return": -0.04,
+                                "total_return": -4.8,
+                            }
+                        },
+                    }
+                },
+            },
+            "action": {
+                "candidate_count": 30,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 25,
+                            "avg_return": -0.02,
+                            "total_return": -0.5,
+                            "win_rate": 0.24,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+            "action_long": {
+                "candidate_count": 2,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 2,
+                            "avg_return": -0.04,
+                            "total_return": -0.08,
+                            "win_rate": 0.0,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+            "potential_watch": {
+                "candidate_count": 80,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 70,
+                            "avg_return": -0.03,
+                            "total_return": -2.1,
+                            "win_rate": 0.25,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    10: {
+                        "2024-11": {
+                            "guarded": {
+                                "sample_count": 30,
+                                "avg_return": -0.02,
+                                "total_return": -0.6,
+                            }
+                        },
+                        "2024-12": {
+                            "guarded": {
+                                "sample_count": 35,
+                                "avg_return": 0.05,
+                                "total_return": 1.75,
+                            }
+                        },
+                    }
+                },
+            },
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    dual_line = diagnosis["dual_line_policy"]
+    assert dual_line["active_line"] == "support_preheat"
+    assert dual_line["main_line"]["status"] == "paused"
+    assert dual_line["support_line"]["status"] == "web_preheat"
+    assert dual_line["ding_policy"] == "web_support_only"
+    assert dual_line["max_core_positions"] == 0
+    assert "辅线" in dual_line["summary"]

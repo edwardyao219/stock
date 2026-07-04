@@ -1419,6 +1419,51 @@ button {
   gap: 5px;
 }
 
+.replay-data-coverage {
+  align-items: start;
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.2fr);
+  padding: 9px 10px;
+}
+
+.replay-data-coverage.partial,
+.replay-data-coverage.no_data {
+  background: #fff8ed;
+  border-color: #f4c67d;
+}
+
+.replay-data-coverage.strong {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.replay-data-coverage div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.replay-data-coverage span,
+.replay-data-coverage small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.replay-data-coverage strong {
+  color: #17202b;
+  font-size: 14px;
+}
+
+.replay-data-coverage small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .replay-diagnosis {
   background: #f8fafc;
   border: 1px solid #e1e8ef;
@@ -1450,6 +1495,74 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.replay-diagnosis .replay-guardrails {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 6px;
+}
+
+.replay-diagnosis .replay-guardrails small {
+  color: #8a5a14;
+}
+
+.replay-diagnosis .replay-tactical {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 6px;
+}
+
+.replay-diagnosis .replay-tactical small {
+  color: #166534;
+}
+
+.replay-diagnosis .replay-phase-policy {
+  background: #eef6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 6px;
+}
+
+.replay-diagnosis .replay-phase-policy strong {
+  color: #174ea6;
+  font-size: 13px;
+}
+
+.replay-diagnosis .replay-phase-policy small {
+  color: #1d4f8f;
+}
+
+.replay-diagnosis .replay-dual-line-policy {
+  background: #f2fbf5;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 6px;
+}
+
+.replay-diagnosis .replay-dual-line-policy strong {
+  color: #17623a;
+  font-size: 13px;
+}
+
+.replay-diagnosis .replay-dual-line-policy small {
+  color: #1f6f43;
+}
+
+.replay-diagnosis .replay-potential-policy {
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 6px;
+  padding: 6px;
+}
+
+.replay-diagnosis .replay-potential-policy strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.replay-diagnosis .replay-potential-policy small {
+  color: #475569;
 }
 
 .replay-insight-row {

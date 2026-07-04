@@ -479,6 +479,40 @@ export interface ReplaySelectionModeCount extends ReplayCountItem {
   selection_mode: string;
 }
 
+export interface ReplayDataCoverageMonth {
+  month: string;
+  grade: string;
+  is_incomplete_tail_month: boolean;
+  trade_days: number;
+  feature_days: number;
+  sector_days: number;
+  avg_daily_bar_symbols: number | null;
+  avg_feature_symbols: number | null;
+  avg_sector_rows: number | null;
+  feature_day_ratio: number | null;
+  sector_day_ratio: number | null;
+  avg_market_feature_coverage: number | null;
+  avg_feature_active_coverage: number | null;
+  warnings: string[];
+}
+
+export interface ReplayDataCoverage {
+  start_date: string;
+  end_date: string;
+  overall: {
+    grade: string;
+    months: number;
+    usable_months: number;
+    warning_months: number;
+    active_symbols: number;
+    min_trade_days: number;
+    min_active_feature_coverage: number;
+    min_sector_rows: number;
+  };
+  months: ReplayDataCoverageMonth[];
+  warnings: string[];
+}
+
 export interface ReplayScopeSummary {
   start_date: string;
   end_date: string;
@@ -501,7 +535,9 @@ export interface ReplayScopeSummary {
   >;
 }
 
-export interface LowDimensionalReplayReport extends ReplayScopeSummary {}
+export interface LowDimensionalReplayReport extends ReplayScopeSummary {
+  data_coverage: ReplayDataCoverage;
+}
 
 export interface CandidateReplayDiagnosisScopeRow {
   scope: string;
@@ -522,6 +558,56 @@ export interface CandidateReplayDiagnosis {
   summary: string;
   scope_rows: CandidateReplayDiagnosisScopeRow[];
   reasons: string[];
+  overfit_guardrails: string[];
+  tactical_opportunities: string[];
+  potential_watch_policy: {
+    status: string;
+    label: string;
+    month: string | null;
+    horizon: number | null;
+    sample_count: number;
+    avg_return: number | null;
+    total_return: number | null;
+    summary: string;
+  };
+  market_phase_policy: {
+    status: string;
+    label: string;
+    lookback_months: number;
+    strong_months: number;
+    weak_months: number;
+    expansion_allowed: boolean;
+    max_core_positions: number;
+    summary: string;
+    reasons: string[];
+  };
+  dual_line_policy: {
+    active_line: string;
+    ding_policy: string;
+    max_core_positions: number;
+    summary: string;
+    main_line: {
+      name: string;
+      status: string;
+      scope: string;
+      label: string;
+      sample_count: number;
+      avg_return: number | null;
+      total_return: number | null;
+      summary: string;
+    };
+    support_line: {
+      name: string;
+      status: string;
+      month: string | null;
+      horizon: number | null;
+      sample_count: number;
+      avg_return: number | null;
+      total_return: number | null;
+      summary: string | null;
+    };
+    rules: string[];
+  };
   monthly_posture: {
     month: string | null;
     posture: string;
@@ -537,6 +623,7 @@ export interface CandidateReplayEffectReport {
   end_date: string;
   scopes: Record<string, ReplayScopeSummary>;
   discovery_cache_dir: string | null;
+  data_coverage: ReplayDataCoverage;
   diagnosis: CandidateReplayDiagnosis;
 }
 

@@ -460,6 +460,22 @@ def _is_expansion_confirm_candidate(item: dict[str, Any]) -> bool:
     return has_expansion_context and has_confirmation
 
 
+def _is_startup_preheat_candidate(item: dict[str, Any]) -> bool:
+    mode = str(item.get("selection_mode") or "").strip()
+    if mode != "potential_watch":
+        return False
+    if float(item.get("score") or 0.0) < 58.0:
+        return False
+
+    risk_text = " ".join(str(flag) for flag in item.get("risk_flags") or [])
+    heavy_risk_keywords = ("放量诱多风险", "放量回落", "冲高翻绿", "近涨停未封", "20日涨幅偏高")
+    if any(keyword in risk_text for keyword in heavy_risk_keywords):
+        return False
+
+    reasons_text = " ".join(str(reason) for reason in item.get("reasons") or [])
+    return "启动前夜：T-1量价修复" in reasons_text and "成交量开始确认" in reasons_text
+
+
 def _apply_candidate_tier_tags(
     db: Session,
     *,
@@ -513,7 +529,12 @@ def _apply_candidate_tier_tags(
         if core_block_reason:
             cleaned_tags.append(f"candidate_summary:{core_block_reason}")
         tier_item = tier_item_by_symbol.get(row.symbol) or {}
-        if tier == "watch_wait" and _is_expansion_confirm_candidate(tier_item):
+        if tier == "watch_wait" and _is_startup_preheat_candidate(tier_item):
+            cleaned_tags.append("candidate_pool:startup_preheat")
+            cleaned_tags.append(
+                "candidate_pool_reason:启动前夜：T-1量价修复但还没确认，先盯次日承接，不进核心。"
+            )
+        elif tier == "watch_wait" and _is_expansion_confirm_candidate(tier_item):
             cleaned_tags.append("candidate_pool:expansion_confirm")
             cleaned_tags.append(
                 "candidate_pool_reason:扩散确认：板块扩散和个股启动同步，先观察承接，不进核心。"

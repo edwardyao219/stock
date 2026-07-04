@@ -21,6 +21,11 @@ const expansionCandidate = {
   manual_tags: ["after_close_candidate", "next_session", "candidate_pool:expansion_confirm"],
 };
 
+const startupPreheatCandidate = {
+  symbol: "002558",
+  manual_tags: ["after_close_candidate", "next_session", "candidate_pool:startup_preheat"],
+};
+
 assertEqual(
   candidatePoolTextForStock(normalCandidateWithHistoricalStarTag),
   "普通池",
@@ -31,6 +36,11 @@ assertEqual(
   candidatePoolTextForStock(expansionCandidate),
   "扩散确认池",
   "扩散确认候选需要单独显示池子",
+);
+assertEqual(
+  candidatePoolTextForStock(startupPreheatCandidate),
+  "启动前夜池",
+  "启动前夜候选需要单独显示池子",
 );
 assertEqual(
   manualTagTextForStock("star_pool", normalCandidateWithHistoricalStarTag),
@@ -56,4 +66,9 @@ assertEqual(
   manualTagTextForStock("candidate_pool:expansion_confirm", expansionCandidate),
   "扩散确认池",
   "扩散确认标签需要显示为用户可读文本",
+);
+assertEqual(
+  manualTagTextForStock("candidate_pool:startup_preheat", startupPreheatCandidate),
+  "启动前夜池",
+  "启动前夜标签需要显示为用户可读文本",
 );

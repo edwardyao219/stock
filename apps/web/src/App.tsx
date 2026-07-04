@@ -32,6 +32,7 @@ import {
   LowDimensionalReplayReport,
   MarketOverview,
   MonthlySummary,
+  ReplayDataCoverage,
   ReplayReturnSummary,
   refreshWorkspaceStocks,
   SectorCatalysts,
@@ -255,6 +256,7 @@ function manualTagText(value: string, stock: WorkspaceStock) {
     manual_focus: "手动关注",
     "mode:exploration": "探索池",
     "mode:observation": "观察池",
+    "mode:potential_watch": "潜力观察",
     "mode:formal_strategy": "策略池",
   };
   if (value.startsWith("rule:")) return `策略 ${value.slice(5)}`;
@@ -269,6 +271,7 @@ function candidatePoolText(stock: WorkspaceStock) {
 function candidateStrategyText(stock: WorkspaceStock) {
   if (stock.manual_tags.includes("mode:exploration")) return "探索池";
   if (stock.manual_tags.includes("mode:observation")) return "观察池";
+  if (stock.manual_tags.includes("mode:potential_watch")) return "潜力观察";
   if (stock.manual_tags.includes("mode:formal_strategy")) return "策略池";
   const ruleTag = stock.manual_tags.find((item) => item.startsWith("rule:"));
   if (ruleTag) return `策略 ${ruleTag.slice(5)}`;
@@ -818,6 +821,22 @@ function replayExitText(metric: { exit_reasons?: Record<string, number> } | null
     .join(" / ");
 }
 
+function replayCoverageGradeLabel(grade: string | undefined) {
+  const labels: Record<string, string> = {
+    strong: "覆盖扎实",
+    usable: "可用",
+    partial: "部分可用",
+    no_data: "无数据",
+  };
+  return labels[grade ?? ""] ?? "待确认";
+}
+
+function replayCoverageSummary(coverage: ReplayDataCoverage | null) {
+  if (!coverage) return "";
+  const { overall } = coverage;
+  return `可用月份 ${overall.usable_months}/${overall.months}，风险月份 ${overall.warning_months}，活跃样本 ${overall.active_symbols}`;
+}
+
 export function App() {
   const [activePage, setActivePage] = useState<PageKey>("stocks");
   const [stocks, setStocks] = useState<WorkspaceStock[]>([]);
@@ -1199,6 +1218,9 @@ export function App() {
   const replayStyleRows = replayBreakdownRows(lowDimensionalReplay, 20, "style").slice(0, 5);
   const replayWeakMonths = replayWeakMonthRows(lowDimensionalReplay, 20, 5);
   const replayStylePreferences = replayStylePreferenceRows(lowDimensionalReplay).slice(0, 5);
+  const replayDataCoverage =
+    candidateReplayEffect?.data_coverage ?? lowDimensionalReplay?.data_coverage ?? null;
+  const replayCoverageWarnings = replayDataCoverage?.warnings.slice(0, 3) ?? [];
   const candidateTierGroups = useMemo(
     () => groupStocksByCandidateTier(filteredStocks.filter(isNextSessionCandidate)),
     [filteredStocks],
@@ -1213,6 +1235,12 @@ export function App() {
       title: "核心行动",
       hint: "最多只放少数真正值得盯盘的票",
       stocks: candidateTierGroups.coreAction,
+    },
+    {
+      key: "startup-preheat",
+      title: "启动前夜",
+      hint: "T-1量价修复，先盯次日承接，不进核心",
+      stocks: candidateTierGroups.startupPreheat,
     },
     {
       key: "expansion-confirm",
@@ -1994,6 +2022,24 @@ export function App() {
             {lowDimensionalReplayError ? (
               <div className="empty compact">长期回归暂时不可用：{lowDimensionalReplayError}</div>
             ) : null}
+            {replayDataCoverage ? (
+              <div className={`replay-data-coverage ${replayDataCoverage.overall.grade}`}>
+                <div>
+                  <span>数据覆盖</span>
+                  <strong>{replayCoverageGradeLabel(replayDataCoverage.overall.grade)}</strong>
+                  <small>{replayCoverageSummary(replayDataCoverage)}</small>
+                </div>
+                {replayCoverageWarnings.length ? (
+                  <div>
+                    {replayCoverageWarnings.map((warning) => (
+                      <small key={warning}>{warning}</small>
+                    ))}
+                  </div>
+                ) : (
+                  <small>当前窗口没有明显覆盖风险，可参与月收益和总收益对比。</small>
+                )}
+              </div>
+            ) : null}
             {candidateReplayEffect ? (
               <div className="replay-insight-block">
                 <span>策略诊断</span>
@@ -2009,6 +2055,52 @@ export function App() {
                     {candidateReplayEffect.diagnosis.reasons.slice(0, 3).map((reason) => (
                       <small key={reason}>{reason}</small>
                     ))}
+                  </div>
+                  {candidateReplayEffect.diagnosis.overfit_guardrails.length ? (
+                    <div className="replay-guardrails">
+                      {candidateReplayEffect.diagnosis.overfit_guardrails.map((guardrail) => (
+                        <small key={guardrail}>{guardrail}</small>
+                      ))}
+                    </div>
+                  ) : null}
+                  {candidateReplayEffect.diagnosis.tactical_opportunities.length ? (
+                    <div className="replay-tactical">
+                      {candidateReplayEffect.diagnosis.tactical_opportunities.map((item) => (
+                        <small key={item}>{item}</small>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="replay-phase-policy">
+                    <strong>{candidateReplayEffect.diagnosis.market_phase_policy.label}</strong>
+                    <small>
+                      核心上限 {candidateReplayEffect.diagnosis.market_phase_policy.max_core_positions} 只 /{" "}
+                      {candidateReplayEffect.diagnosis.market_phase_policy.expansion_allowed
+                        ? "允许Web扩散观察"
+                        : "不扩大行动池"}
+                    </small>
+                    <small>{candidateReplayEffect.diagnosis.market_phase_policy.summary}</small>
+                    {candidateReplayEffect.diagnosis.market_phase_policy.reasons.slice(0, 2).map((reason) => (
+                      <small key={reason}>{reason}</small>
+                    ))}
+                  </div>
+                  <div className="replay-dual-line-policy">
+                    <strong>{candidateReplayEffect.diagnosis.dual_line_policy.summary}</strong>
+                    <small>
+                      钉钉策略 {candidateReplayEffect.diagnosis.dual_line_policy.ding_policy} / 核心上限{" "}
+                      {candidateReplayEffect.diagnosis.dual_line_policy.max_core_positions} 只
+                    </small>
+                    <small>
+                      主线：{candidateReplayEffect.diagnosis.dual_line_policy.main_line.status} /{" "}
+                      {candidateReplayEffect.diagnosis.dual_line_policy.main_line.summary}
+                    </small>
+                    <small>
+                      辅线：{candidateReplayEffect.diagnosis.dual_line_policy.support_line.status} /{" "}
+                      {candidateReplayEffect.diagnosis.dual_line_policy.support_line.summary ?? "暂无预热信号"}
+                    </small>
+                  </div>
+                  <div className="replay-potential-policy">
+                    <strong>{candidateReplayEffect.diagnosis.potential_watch_policy.label}</strong>
+                    <small>{candidateReplayEffect.diagnosis.potential_watch_policy.summary}</small>
                   </div>
                 </div>
                 <span>20日策略池收益</span>

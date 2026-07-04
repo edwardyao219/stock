@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Session
@@ -310,6 +311,74 @@ def test_candidate_walk_forward_replay_can_use_action_candidates(monkeypatch) ->
     assert result.days[0].candidates[0].forward_returns[1] == 0.2
 
 
+def test_candidate_walk_forward_replay_can_use_potential_watch_candidates(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600001", "正式样本", "半导体"),
+                _security("600002", "潜力样本", "玻璃"),
+            ]
+        )
+        db.add_all(
+            [
+                _bar("600001", date(2026, 1, 2), "10"),
+                _bar("600001", date(2026, 1, 5), "9", "10", open_price="10"),
+                _bar("600002", date(2026, 1, 2), "10"),
+                _bar("600002", date(2026, 1, 5), "13", "10", open_price="10"),
+                _feature("600001", date(2026, 1, 2)),
+                _feature("600002", date(2026, 1, 2)),
+            ]
+        )
+        db.commit()
+
+    discovery = {
+        "universe_size": 2,
+        "candidates": [
+            {
+                "symbol": "600001",
+                "name": "正式样本",
+                "sector": "半导体",
+                "selection_mode": "formal_strategy",
+                "score": 80,
+                "reasons": ["低维主线：板块趋势和个股强度共振"],
+                "risk_flags": [],
+            },
+            {
+                "symbol": "600002",
+                "name": "潜力样本",
+                "sector": "玻璃",
+                "selection_mode": "potential_watch",
+                "score": 70,
+                "reasons": ["潜力启动：20日涨幅仍低，今日向上启动，后续看承接确认"],
+                "risk_flags": [],
+            },
+        ],
+    }
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(
+        walk_forward,
+        "discover_next_session_candidates",
+        lambda *_args, **_kwargs: discovery,
+    )
+
+    result = walk_forward.run_candidate_walk_forward_replay(
+        start_date="2026-01-02",
+        end_date="2026-01-05",
+        limit=3,
+        horizons=(1,),
+        candidate_scope="potential_watch",
+    )
+
+    assert [item.symbol for item in result.days[0].candidates] == ["600002"]
+    assert result.days[0].candidates[0].forward_returns[1] == 0.3
+
+
 def test_candidate_walk_forward_replay_can_use_long_horizon_action_candidates(
     monkeypatch,
 ) -> None:
@@ -599,12 +668,147 @@ def test_candidate_walk_forward_replay_reuses_database_discovery_cache(monkeypat
     assert [item.symbol for item in second.days[0].candidates] == ["600001"]
 
 
+def test_candidate_walk_forward_replay_ignores_future_feature_date_db_cache(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600001", "未来缓存票", "半导体"),
+                _security("600002", "当前候选票", "元器件"),
+            ]
+        )
+        db.add_all(
+            [
+                _bar("600001", date(2026, 1, 2), "10"),
+                _bar("600001", date(2026, 1, 5), "9", "10", open_price="10"),
+                _bar("600002", date(2026, 1, 2), "10"),
+                _bar("600002", date(2026, 1, 5), "12", "10", open_price="10"),
+                _feature("600001", date(2026, 1, 2)),
+                _feature("600002", date(2026, 1, 2)),
+                CandidateDiscoverySnapshot(
+                    cache_version=walk_forward.CANDIDATE_DISCOVERY_CACHE_VERSION,
+                    signal_date=date(2026, 1, 2),
+                    next_trade_date=date(2026, 1, 5),
+                    candidate_limit=3,
+                    include_fundamentals=True,
+                    discovery_json={
+                        "feature_date": "2026-01-06",
+                        "universe_size": 2,
+                        "candidates": [
+                            {
+                                "symbol": "600001",
+                                "name": "未来缓存票",
+                                "sector": "半导体",
+                                "selection_mode": "formal_strategy",
+                                "score": 99,
+                                "reasons": ["未来特征污染"],
+                                "risk_flags": [],
+                            }
+                        ],
+                    },
+                ),
+            ]
+        )
+        db.commit()
+
+    calls = 0
+
+    def fake_discover(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return {
+            "feature_date": "2026-01-02",
+            "universe_size": 2,
+            "candidates": [
+                {
+                    "symbol": "600002",
+                    "name": "当前候选票",
+                    "sector": "元器件",
+                    "selection_mode": "formal_strategy",
+                    "score": 84,
+                    "reasons": ["低维主线：板块趋势和个股强度共振"],
+                    "risk_flags": [],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(walk_forward, "discover_next_session_candidates", fake_discover)
+
+    result = walk_forward.run_candidate_walk_forward_replay(
+        start_date="2026-01-02",
+        end_date="2026-01-05",
+        limit=3,
+        horizons=(1,),
+        discovery_cache_dir=None,
+    )
+
+    assert calls == 1
+    assert [item.symbol for item in result.days[0].candidates] == ["600002"]
+    assert result.days[0].candidates[0].forward_returns[1] == 0.2
+
+
+def test_candidate_walk_forward_replay_rejects_generated_future_feature_date(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add(_security("600001", "未来生成票", "半导体"))
+        db.add_all(
+            [
+                _bar("600001", date(2026, 1, 2), "10"),
+                _bar("600001", date(2026, 1, 5), "11", "10", open_price="10"),
+                _feature("600001", date(2026, 1, 2)),
+            ]
+        )
+        db.commit()
+
+    def fake_discover(*_args, **_kwargs):
+        return {
+            "feature_date": "2026-01-06",
+            "universe_size": 1,
+            "candidates": [
+                {
+                    "symbol": "600001",
+                    "name": "未来生成票",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 84,
+                    "reasons": ["未来特征污染"],
+                    "risk_flags": [],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(walk_forward, "discover_next_session_candidates", fake_discover)
+
+    with pytest.raises(ValueError, match="future feature"):
+        walk_forward.run_candidate_walk_forward_replay(
+            start_date="2026-01-02",
+            end_date="2026-01-05",
+            limit=3,
+            horizons=(1,),
+            discovery_cache_dir=None,
+        )
+
+
 def test_candidate_discovery_snapshot_uses_large_mysql_json_storage() -> None:
     dialect_impl = CandidateDiscoverySnapshot.__table__.c.discovery_json.type.dialect_impl(
         mysql.dialect()
     )
 
     assert isinstance(dialect_impl.impl, mysql.LONGTEXT)
+
+
+def test_candidate_discovery_cache_version_fits_database_column() -> None:
+    assert len(walk_forward.CANDIDATE_DISCOVERY_CACHE_VERSION) <= 32
 
 
 def test_candidate_walk_forward_replay_batches_feature_coverage(monkeypatch) -> None:
@@ -738,6 +942,134 @@ def test_low_dimensional_walk_forward_batches_feature_coverage(monkeypatch) -> N
     assert result.days[0].feature_rows == 1
     assert result.days[0].active_symbols == 1
     assert result.days[0].feature_coverage_ratio == 1.0
+
+
+def test_replay_data_coverage_report_flags_sparse_early_months(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            _security(f"60000{index}", f"样本{index}", "半导体")
+            for index in range(1, 6)
+        )
+        sparse_day = date(2024, 1, 2)
+        full_day = date(2025, 1, 2)
+        db.add(_bar("600001", sparse_day, "10"))
+        db.add(_feature("600001", sparse_day))
+        db.add(
+            SectorFeatureDaily(
+                sector_code="半导体",
+                trade_date=sparse_day,
+                features={"sector_strength_score": 60},
+            )
+        )
+        for index in range(1, 6):
+            symbol = f"60000{index}"
+            db.add(_bar(symbol, full_day, "10"))
+            db.add(_feature(symbol, full_day))
+        for sector in ("半导体", "通信设备", "PCB"):
+            db.add(
+                SectorFeatureDaily(
+                    sector_code=sector,
+                    trade_date=full_day,
+                    features={"sector_strength_score": 70},
+                )
+            )
+        db.commit()
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+
+    report = walk_forward.build_replay_data_coverage_report(
+        start_date="2024-01-01",
+        end_date="2025-01-31",
+        min_trade_days=1,
+        min_active_feature_coverage=0.70,
+        min_sector_rows=2,
+    )
+
+    sparse_month = report["months"][0]
+    full_month = report["months"][1]
+    assert sparse_month["month"] == "2024-01"
+    assert sparse_month["grade"] == "partial"
+    assert sparse_month["avg_feature_active_coverage"] == 0.2
+    assert any("样本偏窄" in warning for warning in sparse_month["warnings"])
+    assert full_month["month"] == "2025-01"
+    assert full_month["grade"] == "strong"
+    assert report["overall"]["warning_months"] == 1
+
+
+def test_replay_data_coverage_report_uses_range_counts(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add(_security("600001", "样本", "半导体"))
+        db.add(_bar("600001", date(2024, 1, 2), "10"))
+        db.add(_feature("600001", date(2024, 1, 2)))
+        db.commit()
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(
+        walk_forward,
+        "_trade_dates",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("coverage report should aggregate by date range")
+        ),
+    )
+
+    report = walk_forward.build_replay_data_coverage_report(
+        start_date="2024-01-01",
+        end_date="2024-01-31",
+        min_trade_days=1,
+        min_active_feature_coverage=0.70,
+        min_sector_rows=0,
+    )
+
+    assert report["months"][0]["month"] == "2024-01"
+    assert report["months"][0]["avg_feature_active_coverage"] == 1.0
+
+
+def test_replay_data_coverage_report_does_not_downgrade_incomplete_tail_month(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            _security(f"60000{index}", f"样本{index}", "半导体")
+            for index in range(1, 6)
+        )
+        tail_day = date(2026, 7, 1)
+        for index in range(1, 6):
+            symbol = f"60000{index}"
+            db.add(_bar(symbol, tail_day, "10"))
+            db.add(_feature(symbol, tail_day))
+        for sector in ("半导体", "通信设备"):
+            db.add(
+                SectorFeatureDaily(
+                    sector_code=sector,
+                    trade_date=tail_day,
+                    features={"sector_strength_score": 70},
+                )
+            )
+        db.commit()
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+
+    report = walk_forward.build_replay_data_coverage_report(
+        start_date="2026-07-01",
+        end_date="2026-07-03",
+        min_trade_days=10,
+        min_active_feature_coverage=0.70,
+        min_sector_rows=2,
+    )
+
+    assert report["overall"]["grade"] == "strong"
+    assert report["overall"]["warning_months"] == 0
+    assert report["months"][0]["is_incomplete_tail_month"] is True
+    assert report["months"][0]["grade"] == "strong"
 
 
 def test_low_dimensional_walk_forward_batches_candidate_scan(monkeypatch) -> None:

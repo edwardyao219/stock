@@ -630,6 +630,73 @@ def test_select_long_action_candidates_requires_trend_style_context() -> None:
     assert [item["symbol"] for item in selected] == ["600002"]
 
 
+def test_select_long_action_candidates_accepts_volume_confirmed_extension() -> None:
+    candidates = [
+        {
+            "symbol": "600002",
+            "sector": "半导体",
+            "sector_style": "growth_cycle",
+            "selection_mode": "formal_strategy",
+            "score": 82.0,
+            "selected_strategy_type": "long_term",
+            "reasons": [
+                "中期扩展观察：趋势连续性和相对强度接近中期强者",
+                "板块中期趋势延续性较好",
+                "量能未明显失速",
+                "价格未明显远离MA20",
+            ],
+            "risk_flags": [],
+            "volume_confirmation_score": 52.0,
+            "price_volume_trend_score": 58.0,
+            "return_20d": 0.14,
+            "distance_to_ma20": 0.04,
+        }
+    ]
+    discovery = {
+        "candidates": candidates,
+        "market_participation_snapshot": {
+            "participation_score": 55.0,
+            "liquidity_score": 45.0,
+        },
+    }
+
+    selected = select_long_action_candidates(discovery, candidates, max_items=3)
+
+    assert [item["symbol"] for item in selected] == ["600002"]
+
+
+def test_select_long_action_candidates_rejects_extension_without_volume_confirmation() -> None:
+    candidates = [
+        {
+            "symbol": "600002",
+            "sector": "半导体",
+            "sector_style": "growth_cycle",
+            "selection_mode": "formal_strategy",
+            "score": 92.0,
+            "selected_strategy_type": "long_term",
+            "reasons": [
+                "中期扩展观察：趋势连续性和相对强度接近中期强者",
+                "板块中期趋势延续性较好",
+                "价格未明显远离MA20",
+            ],
+            "risk_flags": [],
+            "volume_confirmation_score": 36.0,
+            "price_volume_trend_score": 40.0,
+            "return_20d": 0.14,
+            "distance_to_ma20": 0.04,
+        }
+    ]
+    discovery = {
+        "candidates": candidates,
+        "market_participation_snapshot": {
+            "participation_score": 55.0,
+            "liquidity_score": 45.0,
+        },
+    }
+
+    assert select_long_action_candidates(discovery, candidates, max_items=3) == []
+
+
 def test_build_candidate_tiers_separates_core_watch_and_risk() -> None:
     candidates = [
         {
@@ -724,6 +791,33 @@ def test_build_candidate_tiers_explains_when_core_action_is_empty() -> None:
     assert tiers["summary"]["core_block_reason"] == (
         "没有核心行动：候选仍以潜力观察/买点未确认为主，正式票又带较重风险。"
     )
+
+
+def test_build_candidate_tiers_keeps_startup_preheat_as_watch_wait() -> None:
+    candidates = [
+        {
+            "symbol": "002558",
+            "sector": "互联网",
+            "suggested_horizon_days": 10,
+            "horizon_reason": "风格周期：growth_cycle偏10日观察，科技成长先看承接延续",
+            "selection_mode": "potential_watch",
+            "selected_strategy_type": "watch_breakout",
+            "score": 70.0,
+            "risk_flags": [],
+            "reasons": [
+                "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接",
+                "成交量开始确认：温和放量配合价格修复，但未进入核心行动",
+            ],
+        }
+    ]
+
+    tiers = build_candidate_tiers({"candidates": candidates}, candidates)
+
+    assert tiers["core_action"] == []
+    assert [item["symbol"] for item in tiers["watch_wait"]] == ["002558"]
+    assert tiers["watch_wait"][0]["candidate_tier"] == "watch_wait"
+    assert "启动前夜" in tiers["watch_wait"][0]["tier_reason"]
+    assert "10日观察" in tiers["watch_wait"][0]["tier_reason"]
 
 
 def test_filter_hot_sector_candidates_keeps_potential_watch_outside_hot_sector() -> None:

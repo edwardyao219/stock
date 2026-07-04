@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from calendar import monthrange
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -33,7 +34,7 @@ MAINLINE_RETURN_20D_MAX = 0.18
 OVEREXTENDED_RETURN_20D_MIN = 0.24
 OVEREXTENDED_POSITIVE_20D_MIN = 85.0
 LONG_HORIZON_STRENGTH_REASON = "中期强者：相对强度或板块扩散足够强"
-CANDIDATE_DISCOVERY_CACHE_VERSION = "candidate-replay-v1"
+CANDIDATE_DISCOVERY_CACHE_VERSION = "candidate-replay-v3-long-ext"
 DEFAULT_CANDIDATE_DISCOVERY_CACHE_DIR = Path(".tmp/candidate-replay-discovery-cache")
 NOISE_WALK_FORWARD_SYMBOLS = {"000001"}
 LOW_DIMENSIONAL_TEXT_PREFILTER_KEYS = (
@@ -597,11 +598,46 @@ def _load_candidate_discovery_cache(
     if payload.get("version") != CANDIDATE_DISCOVERY_CACHE_VERSION:
         return None
     discovery = payload.get("discovery")
-    return discovery if isinstance(discovery, dict) else None
+    if not isinstance(discovery, dict):
+        return None
+    if not _candidate_discovery_passes_no_future_guard(discovery, signal_date):
+        return None
+    return discovery
 
 
 def _normalized_candidate_discovery(discovery: dict[str, Any]) -> dict[str, Any]:
     return json.loads(json.dumps(discovery, ensure_ascii=False, sort_keys=True, default=str))
+
+
+def _parse_discovery_date(value: Any) -> date | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(str(value).split("T", maxsplit=1)[0])
+    except ValueError:
+        return None
+
+
+def _candidate_discovery_passes_no_future_guard(
+    discovery: dict[str, Any],
+    signal_date: date,
+) -> bool:
+    for key in ("feature_date", "requested_feature_date"):
+        discovered_date = _parse_discovery_date(discovery.get(key))
+        if discovered_date is not None and discovered_date > signal_date:
+            return False
+    return True
+
+
+def _ensure_candidate_discovery_has_no_future_features(
+    discovery: dict[str, Any],
+    signal_date: date,
+) -> None:
+    if not _candidate_discovery_passes_no_future_guard(discovery, signal_date):
+        raise ValueError(
+            "candidate discovery contains future feature dates "
+            f"for signal_date {signal_date.isoformat()}"
+        )
 
 
 def _load_candidate_discovery_db_cache(
@@ -623,7 +659,11 @@ def _load_candidate_discovery_db_cache(
     if row is None:
         return None
     discovery = row.discovery_json
-    return discovery if isinstance(discovery, dict) else None
+    if not isinstance(discovery, dict):
+        return None
+    if not _candidate_discovery_passes_no_future_guard(discovery, signal_date):
+        return None
+    return discovery
 
 
 def _store_candidate_discovery_db_cache(
@@ -768,6 +808,257 @@ def _feature_coverage_by_date(
             round(feature_rows / active_symbols, 4) if active_symbols else 0.0,
         )
         for trade_date in trade_dates
+    }
+
+
+def _count_by_trade_date_range(
+    db,
+    model: type,
+    *,
+    start_date: date,
+    end_date: date,
+) -> dict[date, int]:
+    return {
+        row.trade_date: int(row.row_count or 0)
+        for row in db.execute(
+            select(
+                model.trade_date.label("trade_date"),
+                func.count().label("row_count"),
+            )
+            .where(model.trade_date >= start_date)
+            .where(model.trade_date <= end_date)
+            .group_by(model.trade_date)
+        ).all()
+    }
+
+
+def _avg(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 6)
+
+
+def _ratio(numerator: float, denominator: float) -> float | None:
+    if denominator <= 0:
+        return None
+    return round(numerator / denominator, 6)
+
+
+def _coverage_grade(
+    *,
+    trade_days: int,
+    feature_day_ratio: float | None,
+    avg_feature_active_coverage: float | None,
+    avg_sector_rows: float | None,
+    min_trade_days: int,
+    min_active_feature_coverage: float,
+    min_sector_rows: int,
+    is_incomplete_tail_month: bool = False,
+) -> str:
+    if trade_days <= 0:
+        return "no_data"
+    if (
+        (trade_days < min_trade_days and not is_incomplete_tail_month)
+        or (feature_day_ratio or 0.0) < 0.80
+        or (avg_feature_active_coverage or 0.0) < min_active_feature_coverage
+        or (avg_sector_rows or 0.0) < min_sector_rows
+    ):
+        return "partial"
+    if (
+        (feature_day_ratio or 0.0) >= 0.95
+        and (avg_feature_active_coverage or 0.0) >= 0.90
+        and (avg_sector_rows or 0.0) >= min_sector_rows
+    ):
+        return "strong"
+    return "usable"
+
+
+def _coverage_warnings(
+    *,
+    month: str,
+    trade_days: int,
+    feature_day_ratio: float | None,
+    avg_feature_active_coverage: float | None,
+    avg_sector_rows: float | None,
+    min_trade_days: int,
+    min_active_feature_coverage: float,
+    min_sector_rows: int,
+    is_incomplete_tail_month: bool = False,
+) -> list[str]:
+    warnings: list[str] = []
+    if trade_days <= 0:
+        return [f"{month} 没有日线样本，不能纳入回归判断。"]
+    if trade_days < min_trade_days and not is_incomplete_tail_month:
+        warnings.append(f"{month} 交易日样本偏少（{trade_days}天），只作局部参考。")
+    if (feature_day_ratio or 0.0) < 0.80:
+        warnings.append(f"{month} 特征日期覆盖不足，先不要用它调参。")
+    if (avg_feature_active_coverage or 0.0) < min_active_feature_coverage:
+        coverage_pct = (avg_feature_active_coverage or 0.0) * 100
+        warnings.append(
+            f"{month} 样本偏窄：特征/活跃证券覆盖约{coverage_pct:.1f}%，"
+            "只作压力测试，不参与放宽策略。"
+        )
+    if (avg_sector_rows or 0.0) < min_sector_rows:
+        warnings.append(f"{month} 板块特征样本不足，板块优先逻辑需要谨慎解释。")
+    return warnings
+
+
+def _is_incomplete_tail_month(month: str, end_date: date) -> bool:
+    if month != end_date.strftime("%Y-%m"):
+        return False
+    last_day = monthrange(end_date.year, end_date.month)[1]
+    return end_date.day < last_day
+
+
+def build_replay_data_coverage_report(
+    *,
+    start_date: str,
+    end_date: str,
+    min_trade_days: int = 10,
+    min_active_feature_coverage: float = 0.70,
+    min_sector_rows: int = 20,
+) -> dict[str, Any]:
+    start = _parse(start_date)
+    end = _parse(end_date)
+    with SessionLocal() as db:
+        active_symbols = int(
+            db.execute(
+                select(func.count())
+                .select_from(Security)
+                .where(Security.is_active.is_(True))
+                .where(Security.is_st.is_(False))
+            ).scalar_one()
+            or 0
+        )
+        bar_counts = _count_by_trade_date_range(
+            db,
+            DailyBar,
+            start_date=start,
+            end_date=end,
+        )
+        feature_counts = _count_by_trade_date_range(
+            db,
+            StockFeatureDaily,
+            start_date=start,
+            end_date=end,
+        )
+        sector_counts = _count_by_trade_date_range(
+            db,
+            SectorFeatureDaily,
+            start_date=start,
+            end_date=end,
+        )
+
+    dates_by_month: dict[str, list[date]] = {}
+    for trade_date in sorted(bar_counts):
+        dates_by_month.setdefault(trade_date.strftime("%Y-%m"), []).append(trade_date)
+
+    months: list[dict[str, Any]] = []
+    for month, month_dates in sorted(dates_by_month.items()):
+        is_incomplete_tail_month = _is_incomplete_tail_month(month, end)
+        trade_days = len(month_dates)
+        feature_days = sum(
+            1 for current_date in month_dates if feature_counts.get(current_date, 0) > 0
+        )
+        sector_days = sum(
+            1 for current_date in month_dates if sector_counts.get(current_date, 0) > 0
+        )
+        avg_bar_symbols = _avg(
+            [float(bar_counts.get(current_date, 0)) for current_date in month_dates]
+        )
+        avg_feature_symbols = _avg(
+            [float(feature_counts.get(current_date, 0)) for current_date in month_dates]
+        )
+        avg_sector_rows = _avg(
+            [float(sector_counts.get(current_date, 0)) for current_date in month_dates]
+        )
+        feature_day_ratio = _ratio(float(feature_days), float(trade_days))
+        sector_day_ratio = _ratio(float(sector_days), float(trade_days))
+        avg_market_feature_coverage = _avg(
+            [
+                feature_counts.get(current_date, 0) / bar_counts.get(current_date, 1)
+                for current_date in month_dates
+                if bar_counts.get(current_date, 0) > 0
+            ]
+        )
+        avg_feature_active_coverage = _avg(
+            [
+                feature_counts.get(current_date, 0) / active_symbols
+                for current_date in month_dates
+                if active_symbols > 0
+            ]
+        )
+        grade = _coverage_grade(
+            trade_days=trade_days,
+            feature_day_ratio=feature_day_ratio,
+            avg_feature_active_coverage=avg_feature_active_coverage,
+            avg_sector_rows=avg_sector_rows,
+            min_trade_days=min_trade_days,
+            min_active_feature_coverage=min_active_feature_coverage,
+            min_sector_rows=min_sector_rows,
+            is_incomplete_tail_month=is_incomplete_tail_month,
+        )
+        warnings = _coverage_warnings(
+            month=month,
+            trade_days=trade_days,
+            feature_day_ratio=feature_day_ratio,
+            avg_feature_active_coverage=avg_feature_active_coverage,
+            avg_sector_rows=avg_sector_rows,
+            min_trade_days=min_trade_days,
+            min_active_feature_coverage=min_active_feature_coverage,
+            min_sector_rows=min_sector_rows,
+            is_incomplete_tail_month=is_incomplete_tail_month,
+        )
+        months.append(
+            {
+                "month": month,
+                "grade": grade,
+                "is_incomplete_tail_month": is_incomplete_tail_month,
+                "trade_days": trade_days,
+                "feature_days": feature_days,
+                "sector_days": sector_days,
+                "avg_daily_bar_symbols": avg_bar_symbols,
+                "avg_feature_symbols": avg_feature_symbols,
+                "avg_sector_rows": avg_sector_rows,
+                "feature_day_ratio": feature_day_ratio,
+                "sector_day_ratio": sector_day_ratio,
+                "avg_market_feature_coverage": avg_market_feature_coverage,
+                "avg_feature_active_coverage": avg_feature_active_coverage,
+                "warnings": warnings,
+            }
+        )
+
+    warning_months = [month for month in months if month["grade"] in {"partial", "no_data"}]
+    strong_or_usable_months = [month for month in months if month["grade"] in {"strong", "usable"}]
+    overall_grade = (
+        "no_data"
+        if not months
+        else "partial"
+        if warning_months
+        else "strong"
+        if all(month["grade"] == "strong" for month in months)
+        else "usable"
+    )
+    warnings = [
+        warning
+        for month in months
+        for warning in month["warnings"]
+    ][:12]
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "overall": {
+            "grade": overall_grade,
+            "months": len(months),
+            "usable_months": len(strong_or_usable_months),
+            "warning_months": len(warning_months),
+            "active_symbols": active_symbols,
+            "min_trade_days": min_trade_days,
+            "min_active_feature_coverage": min_active_feature_coverage,
+            "min_sector_rows": min_sector_rows,
+        },
+        "months": months,
+        "warnings": warnings,
     }
 
 
@@ -1785,6 +2076,10 @@ def run_candidate_walk_forward_replay(
                         include_fundamentals=include_fundamentals,
                     )
                     db.rollback()
+                    _ensure_candidate_discovery_has_no_future_features(
+                        discovery,
+                        signal_date,
+                    )
                     _store_candidate_discovery_db_cache(
                         db,
                         signal_date=signal_date,
@@ -1815,6 +2110,12 @@ def run_candidate_walk_forward_replay(
                         candidate_items,
                         max_items=min(limit, 3),
                     )
+                elif candidate_scope == "potential_watch":
+                    candidate_items = [
+                        item
+                        for item in candidate_items
+                        if str(item.get("selection_mode") or "").strip() == "potential_watch"
+                    ]
                 elif candidate_scope != "all":
                     raise ValueError(f"Unsupported candidate_scope: {candidate_scope}")
                 for item in candidate_items:

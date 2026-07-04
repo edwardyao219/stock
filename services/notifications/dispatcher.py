@@ -349,6 +349,41 @@ def _has_long_horizon_strength_reason(item: dict[str, Any]) -> bool:
     return "中期强者：相对强度或板块扩散足够强" in reasons_text
 
 
+def _has_long_horizon_extension_reason(item: dict[str, Any]) -> bool:
+    reasons_text = " ".join(str(reason) for reason in item.get("reasons") or [])
+    return "中期扩展观察：趋势连续性和相对强度接近中期强者" in reasons_text
+
+
+def _candidate_float(item: dict[str, Any], key: str) -> float | None:
+    value = item.get(key)
+    return float(value) if value is not None else None
+
+
+def _passes_long_action_extension_quality(item: dict[str, Any]) -> bool:
+    if not _has_long_horizon_extension_reason(item):
+        return False
+    reasons_text = " ".join(str(reason) for reason in item.get("reasons") or [])
+    volume = _candidate_float(item, "volume_confirmation_score")
+    price_volume = _candidate_float(item, "price_volume_trend_score")
+    return_20d = _candidate_float(item, "return_20d")
+    distance_to_ma20 = _candidate_float(item, "distance_to_ma20")
+
+    volume_confirmed = (volume is not None and volume >= 45.0) or (
+        price_volume is not None and price_volume >= 55.0
+    )
+    position_ok = (
+        return_20d is not None
+        and distance_to_ma20 is not None
+        and 0.02 <= return_20d <= 0.24
+        and -0.05 <= distance_to_ma20 <= 0.10
+    )
+    sector_continuity_ok = (
+        "板块中期趋势延续性较好" in reasons_text
+        or "板块回撤韧性还在" in reasons_text
+    )
+    return volume_confirmed and position_ok and sector_continuity_ok
+
+
 def _passes_long_action_market_gate(discovery: dict[str, Any]) -> bool:
     snapshot = discovery.get("market_participation_snapshot") or {}
     participation_score = float(snapshot.get("participation_score") or 50.0)
@@ -448,7 +483,11 @@ def select_long_action_candidates(
         [
             item
             for item in source_candidates
-            if _has_long_horizon_strength_reason(item) and _passes_long_action_style_gate(item)
+            if _passes_long_action_style_gate(item)
+            and (
+                _has_long_horizon_strength_reason(item)
+                or _passes_long_action_extension_quality(item)
+            )
         ],
         max_items=max_items,
     )
@@ -500,6 +539,12 @@ def _append_horizon_reason(item: dict[str, Any], reason: str) -> str:
 
 def _watch_wait_reason(item: dict[str, Any]) -> str:
     if str(item.get("selection_mode") or "") == "potential_watch":
+        reasons_text = " ".join(str(reason) for reason in item.get("reasons") or [])
+        if "启动前夜：T-1量价修复" in reasons_text:
+            return _append_horizon_reason(
+                item,
+                "启动前夜：T-1量价已经修复，但还没到核心买点，先盯次日承接。",
+            )
         return _append_horizon_reason(
             item,
             "个股有启动迹象，但板块或买点还没确认，先放观察等待。",
@@ -622,6 +667,7 @@ def _candidate_reason_preview(reasons: Any, *, max_items: int = 4) -> str:
         "板块回撤韧性还在",
         "板块主线地位靠前",
         "板块20日主线扩散较好",
+        "启动前夜",
         "回调质量符合5月较稳因子",
         "趋势+相对强度因子仍有支撑",
         "潜力观察",

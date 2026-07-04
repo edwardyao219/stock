@@ -125,6 +125,12 @@ def test_discover_next_session_candidates_writes_strong_candidates_to_pool() -> 
     assert result["candidates"][0]["selected_rule_id"] == "R002"
     assert result["candidates"][0]["selection_mode"] == "formal_strategy"
     assert result["candidates"][0]["day_change_pct"] == 0.05
+    assert result["candidates"][0]["trend_score"] == 78.0
+    assert result["candidates"][0]["relative_strength_score"] == 72.0
+    assert result["candidates"][0]["volume_confirmation_score"] == 66.0
+    assert result["candidates"][0]["price_volume_trend_score"] is None
+    assert result["candidates"][0]["return_20d"] == 0.16
+    assert result["candidates"][0]["distance_to_ma20"] == 0.02
     assert result["candidates"][0]["route_score"] is not None
     assert result["candidates"][0]["route_label"] is not None
     assert result["written"] == 1
@@ -498,6 +504,60 @@ def test_discover_next_session_candidates_prefers_monthly_sector_leadership() ->
 
     assert result["candidates"][0]["symbol"] == "600111"
     assert any("板块20日主线扩散较好" in reason for reason in result["candidates"][0]["reasons"])
+
+
+def test_discover_next_session_candidates_surfaces_strong_sector_watch_gap_as_observation() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="600333",
+                    name="强板块补位票",
+                    exchange="SH",
+                    industry="半导体设备",
+                    is_active=True,
+                ),
+                _bar("600333"),
+                _feature(
+                    "600333",
+                    trend_score=78,
+                    relative_strength_score=70,
+                    sector_strength_score=72,
+                    sector_breadth_score=66,
+                    sector_momentum_score=68,
+                    sector_trend_continuity_score=76,
+                    sector_trend_resilience_score=67,
+                    sector_avg_return_20d=0.21,
+                    sector_positive_20d_rate=70,
+                    sector_stock_count=50,
+                    volume_confirmation_score=52,
+                    volume_score=52,
+                    risk_score=36,
+                    overheat_score=56,
+                    volume_trap_risk_score=42,
+                    return_20d=0.15,
+                    distance_to_ma20=0.04,
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            limit=10,
+        )
+
+    assert result["candidates"][0]["symbol"] == "600333"
+    assert result["candidates"][0]["selection_mode"] == "observation"
+    reasons = " ".join(result["candidates"][0]["reasons"])
+    assert "强板块趋势观察补位" in reasons
+    assert "只观察不行动" in reasons
 
 
 def test_discover_next_session_candidates_falls_back_to_observation_pool() -> None:
@@ -2344,6 +2404,108 @@ def test_discover_next_session_candidates_adds_potential_watch_for_starting_stoc
     stock_tags = {item["symbol"]: item["tags"] for item in items}
     assert "mode:potential_watch" in stock_tags["600673"]
     assert "rule:POT001" in stock_tags["600673"]
+
+
+def test_discover_next_session_candidates_marks_t_minus_one_startup_preheat() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="002558",
+                    name="启动前夜",
+                    exchange="SZ",
+                    industry="互联网",
+                    is_active=True,
+                ),
+                _bar("002558"),
+                _feature(
+                    "002558",
+                    trend_score=76,
+                    relative_strength_score=64,
+                    sector_strength_score=52,
+                    sector_breadth_score=58,
+                    sector_trend_continuity_score=54,
+                    sector_trend_resilience_score=62,
+                    sector_avg_return_20d=0.015,
+                    sector_positive_20d_rate=46,
+                    sector_stock_count=38,
+                    volume_confirmation_score=66,
+                    volume_score=66,
+                    price_volume_trend_score=72,
+                    route_score=60,
+                    route_label="观察路线",
+                    route_reason="量价修复但仍需承接确认",
+                    return_1d=0.038,
+                    return_5d=0.026,
+                    return_20d=0.052,
+                    distance_to_ma20=0.018,
+                    overheat_score=34,
+                    volume_trap_risk_score=28,
+                    risk_score=32,
+                ),
+                Security(
+                    symbol="002559",
+                    name="过热伪启动",
+                    exchange="SZ",
+                    industry="互联网",
+                    is_active=True,
+                ),
+                _bar("002559"),
+                _feature(
+                    "002559",
+                    trend_score=78,
+                    relative_strength_score=66,
+                    sector_strength_score=52,
+                    sector_breadth_score=58,
+                    sector_trend_continuity_score=54,
+                    sector_trend_resilience_score=62,
+                    sector_avg_return_20d=0.015,
+                    sector_positive_20d_rate=46,
+                    sector_stock_count=38,
+                    volume_confirmation_score=68,
+                    volume_score=68,
+                    price_volume_trend_score=74,
+                    route_score=62,
+                    route_label="观察路线",
+                    route_reason="量价修复但仍需承接确认",
+                    return_1d=0.042,
+                    return_5d=0.07,
+                    return_20d=0.27,
+                    distance_to_ma20=0.11,
+                    overheat_score=67,
+                    volume_trap_risk_score=40,
+                    risk_score=34,
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            limit=10,
+        )
+        db.commit()
+
+        items = list_pool_items(db, pool_name="experiment")
+
+    symbols = [item["symbol"] for item in result["candidates"]]
+    assert "002558" in symbols
+    assert "002559" not in symbols
+    candidate = result["candidates"][symbols.index("002558")]
+    assert candidate["selection_mode"] == "potential_watch"
+    assert candidate["selected_rule_id"] == "POT001"
+    assert any("启动前夜" in reason for reason in candidate["reasons"])
+    assert any("成交量开始确认" in reason for reason in candidate["reasons"])
+    assert any("T-1" in reason for reason in candidate["reasons"])
+    stock_tags = {item["symbol"]: item["tags"] for item in items}
+    assert "mode:potential_watch" in stock_tags["002558"]
+    assert "mode:formal_strategy" not in stock_tags["002558"]
 
 
 def test_discover_next_session_candidates_surfaces_fresh_potential_after_crowded_sector() -> None:

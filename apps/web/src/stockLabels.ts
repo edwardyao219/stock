@@ -24,9 +24,12 @@ const styleLabels: Record<string, string> = {
 };
 
 export function candidatePoolTextForStock(stock: StockPoolLabelInput) {
+  const isStartupPreheat = stock.manual_tags.includes("candidate_pool:startup_preheat");
   const isExpansionConfirm = stock.manual_tags.includes("candidate_pool:expansion_confirm");
+  if (isStarMarketSymbol(stock.symbol) && isStartupPreheat) return "科创池 / 启动前夜";
   if (isStarMarketSymbol(stock.symbol) && isExpansionConfirm) return "科创池 / 扩散确认";
   if (isStarMarketSymbol(stock.symbol)) return "科创池";
+  if (isStartupPreheat) return "启动前夜池";
   if (isExpansionConfirm) return "扩散确认池";
   if (isNextSessionCandidateTags(stock.manual_tags)) return "普通池";
   return null;
@@ -44,6 +47,7 @@ export function manualTagTextForStock(value: string, stock: StockPoolLabelInput)
     const horizon = value.slice("style_horizon:".length).replace(/d$/, "");
     return `建议${horizon}日观察`;
   }
+  if (value === "candidate_pool:startup_preheat") return "启动前夜池";
   if (value === "candidate_pool:expansion_confirm") return "扩散确认池";
   if (value.startsWith("candidate_pool_reason:")) {
     return value.slice("candidate_pool_reason:".length);

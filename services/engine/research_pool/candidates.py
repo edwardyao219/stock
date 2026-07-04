@@ -101,6 +101,19 @@ CANDIDATE_POTENTIAL_SECTOR_STRENGTH_MAX = 62.0
 CANDIDATE_POTENTIAL_SECTOR_RETURN_20D_MIN = -0.10
 CANDIDATE_POTENTIAL_SECTOR_POSITIVE_20D_MIN = 25.0
 CANDIDATE_POTENTIAL_SECTOR_COUNT_MIN = 5.0
+CANDIDATE_POTENTIAL_PREHEAT_TREND_MIN = 74.0
+CANDIDATE_POTENTIAL_PREHEAT_RELATIVE_MIN = 58.0
+CANDIDATE_POTENTIAL_PREHEAT_VOLUME_MIN = 58.0
+CANDIDATE_POTENTIAL_PREHEAT_PRICE_VOLUME_MIN = 64.0
+CANDIDATE_POTENTIAL_PREHEAT_ROUTE_MIN = 56.0
+CANDIDATE_POTENTIAL_PREHEAT_SCORE_MIN = 58.0
+CANDIDATE_POTENTIAL_PREHEAT_SCORE_DELTA_FLOOR = -2.0
+CANDIDATE_POTENTIAL_PREHEAT_DAY_CHANGE_MIN = 0.018
+CANDIDATE_POTENTIAL_PREHEAT_DAY_CHANGE_MAX = 0.075
+CANDIDATE_POTENTIAL_PREHEAT_RETURN_20D_MIN = -0.04
+CANDIDATE_POTENTIAL_PREHEAT_RETURN_20D_MAX = 0.16
+CANDIDATE_POTENTIAL_PREHEAT_DISTANCE_TO_MA20_MIN = -0.03
+CANDIDATE_POTENTIAL_PREHEAT_DISTANCE_TO_MA20_MAX = 0.08
 CANDIDATE_POTENTIAL_LIMIT = 4
 CANDIDATE_HARD_OVERHEAT_MAX = 88.0
 CANDIDATE_HARD_VOLUME_TRAP_MAX = 82.0
@@ -234,6 +247,13 @@ class NextSessionCandidate:
     selected_rule_id: str | None
     selected_rule_name: str | None
     selected_strategy_type: str | None
+    trend_score: float | None
+    relative_strength_score: float | None
+    sector_strength_score: float | None
+    volume_confirmation_score: float | None
+    price_volume_trend_score: float | None
+    return_20d: float | None
+    distance_to_ma20: float | None
     reasons: list[str]
     risk_flags: list[str]
     matched_rules: list[CandidateStrategyMatch]
@@ -247,6 +267,16 @@ class NextSessionCandidate:
 def _float(context: dict[str, Any], key: str, default: float = 0.0) -> float:
     value = context.get(key)
     return float(value) if value is not None else default
+
+
+def _optional_float(context: dict[str, Any], key: str) -> float | None:
+    value = context.get(key)
+    return float(value) if value is not None else None
+
+
+def _volume_confirmation_value(context: dict[str, Any]) -> float | None:
+    value = _optional_float(context, "volume_confirmation_score")
+    return value if value is not None else _optional_float(context, "volume_score")
 
 
 def _sector_style(context: dict[str, Any]) -> str:
@@ -715,6 +745,8 @@ def _passes_market_regime_gate(
     overheat = _float(context, "overheat_score", 50.0)
     if regime == "range":
         if selection_mode == "potential_watch":
+            if _is_startup_preheat_context(context):
+                return risk <= 58 and overheat <= 56 and volume >= 60.0
             return (
                 trend >= CANDIDATE_POTENTIAL_TREND_MIN
                 and volume >= 45.0
@@ -726,6 +758,14 @@ def _passes_market_regime_gate(
         return trend >= 64 and relative >= 58 and sector >= 58
     if regime == "weak_trend":
         if selection_mode == "potential_watch":
+            if _is_startup_preheat_context(context):
+                return (
+                    trend >= 82
+                    and relative >= 64
+                    and volume >= 64
+                    and risk <= 52
+                    and overheat <= 52
+                )
             return (
                 trend >= 92
                 and relative >= CANDIDATE_POTENTIAL_RELATIVE_MIN
@@ -1178,6 +1218,31 @@ def _sector_first_gate(context: dict[str, Any], *, allow_overextended: bool = Fa
     return allow_overextended and _sector_extension_risk_high(context)
 
 
+def _sector_watch_gap_confirmed(context: dict[str, Any]) -> bool:
+    sector_avg_return_20d = context.get("sector_avg_return_20d")
+    sector_positive_20d_rate = context.get("sector_positive_20d_rate")
+    if sector_avg_return_20d is None or sector_positive_20d_rate is None:
+        return False
+    if _sector_mainline_confirmed(context) or _sector_extension_risk_high(context):
+        return False
+
+    return (
+        _float(context, "sector_stock_count", 0.0) >= 5
+        and _float(context, "sector_strength_score", 50.0) >= 60.0
+        and _float(context, "sector_breadth_score", 50.0) >= 55.0
+        and _float(context, "sector_trend_continuity_score", 50.0) >= 65.0
+        and _float(context, "sector_trend_resilience_score", 50.0) >= 58.0
+        and 0.06 <= float(sector_avg_return_20d) <= 0.23
+        and float(sector_positive_20d_rate) >= 55.0
+    )
+
+
+def _sector_watch_gate(context: dict[str, Any], *, allow_overextended: bool = False) -> bool:
+    return _sector_first_gate(
+        context, allow_overextended=allow_overextended
+    ) or _sector_watch_gap_confirmed(context)
+
+
 def _sector_extension_risk_high(context: dict[str, Any]) -> bool:
     sector_avg_return_20d = context.get("sector_avg_return_20d")
     sector_positive_20d_rate = context.get("sector_positive_20d_rate")
@@ -1261,8 +1326,12 @@ def _support_flags(context: dict[str, Any]) -> list[str]:
         flags.append("板块20日主线扩散较好")
     if _sector_mainline_confirmed(context):
         flags.append("板块主线确认且未明显过热")
+    elif _sector_watch_gap_confirmed(context):
+        flags.append("强板块趋势观察补位")
     if _is_low_dimensional_mainline_context(context):
         flags.append("低维主线：板块趋势和个股强度共振")
+    if _is_startup_preheat_context(context):
+        flags.append("启动前夜：T-1量价修复，20日涨幅仍不高")
     if _is_long_horizon_strength_context(context):
         flags.append("中期强者：相对强度或板块扩散足够强")
     elif _is_long_horizon_extension_context(context):
@@ -1281,6 +1350,8 @@ def _support_flags(context: dict[str, Any]) -> list[str]:
         flags.append("回调质量符合5月较稳因子")
     if trend >= 70 and relative >= 65:
         flags.append("趋势+相对强度因子仍有支撑")
+    if _is_startup_preheat_context(context):
+        flags.append("成交量开始确认，价格未明显远离MA20")
     if pullback_volume is not None and float(pullback_volume) <= 1.1:
         flags.append("回踩量能没有异常放大")
     if context.get("fundamental_verdict") == "supportive":
@@ -1345,14 +1416,15 @@ def _candidate_reasons(
     priority_order = {
         "低维主线：板块趋势和个股强度共振": 0,
         "中期强者：相对强度或板块扩散足够强": 1,
-        "中期扩展观察：趋势连续性和相对强度接近中期强者": 2,
-        "科技成长主线顺势": 3,
-        "回调质量符合5月较稳因子": 4,
-        "趋势+相对强度因子仍有支撑": 5,
-        "板块主线确认且未明显过热": 6,
-        "板块20日主线扩散较好": 7,
-        "板块中期趋势延续性较好": 8,
-        "板块回撤韧性还在": 9,
+        "启动前夜：T-1量价修复，20日涨幅仍不高": 2,
+        "中期扩展观察：趋势连续性和相对强度接近中期强者": 3,
+        "科技成长主线顺势": 4,
+        "回调质量符合5月较稳因子": 5,
+        "趋势+相对强度因子仍有支撑": 6,
+        "板块主线确认且未明显过热": 7,
+        "板块20日主线扩散较好": 8,
+        "板块中期趋势延续性较好": 9,
+        "板块回撤韧性还在": 10,
     }
     priority_support = sorted(
         [item for item in support_flags if item in priority_order],
@@ -1610,7 +1682,7 @@ def _passes_pullback_candidate_filters(
 def _passes_observation_filters(context: dict[str, Any], *, score_delta: float = 0.0) -> bool:
     if not _passes_hard_safety_filters(context):
         return False
-    if not _sector_first_gate(context, allow_overextended=True):
+    if not _sector_watch_gate(context, allow_overextended=True):
         return False
 
     trend = _float(context, "trend_score", 50.0)
@@ -1645,7 +1717,7 @@ def _passes_observation_filters(context: dict[str, Any], *, score_delta: float =
 def _passes_exploration_filters(context: dict[str, Any], *, score_delta: float = 0.0) -> bool:
     if not _passes_hard_safety_filters(context):
         return False
-    if not _sector_first_gate(context, allow_overextended=True):
+    if not _sector_watch_gate(context, allow_overextended=True):
         return False
 
     trend = _float(context, "trend_score", 50.0)
@@ -1683,6 +1755,75 @@ def _passes_exploration_filters(context: dict[str, Any], *, score_delta: float =
     )
 
 
+def _is_startup_preheat_context(context: dict[str, Any]) -> bool:
+    day_change_pct = _day_change_pct(context)
+    if day_change_pct is None:
+        return False
+
+    trend = _float(context, "trend_score", 50.0)
+    relative = _float(context, "relative_strength_score", 50.0)
+    sector = _float(context, "sector_strength_score", 50.0)
+    sector_breadth = _float(context, "sector_breadth_score", 50.0)
+    sector_resilience = _float(context, "sector_trend_resilience_score", 50.0)
+    volume = _float(context, "volume_confirmation_score", _float(context, "volume_score", 50.0))
+    price_volume = _float(context, "price_volume_trend_score", volume)
+    risk = _float(context, "risk_score", 50.0)
+    overheat = _float(context, "overheat_score", 50.0)
+    volume_trap = _float(context, "volume_trap_risk_score", 50.0)
+    return_20d = _float(context, "return_20d", 0.0)
+    distance_to_ma20 = _float(context, "distance_to_ma20", 0.0)
+    sector_avg_return_20d = context.get("sector_avg_return_20d")
+    sector_positive_20d_rate = context.get("sector_positive_20d_rate")
+    sector_stock_count = _float(context, "sector_stock_count", 0.0)
+
+    if not (
+        CANDIDATE_POTENTIAL_PREHEAT_DAY_CHANGE_MIN
+        <= day_change_pct
+        <= CANDIDATE_POTENTIAL_PREHEAT_DAY_CHANGE_MAX
+    ):
+        return False
+    if (
+        trend < CANDIDATE_POTENTIAL_PREHEAT_TREND_MIN
+        or relative < CANDIDATE_POTENTIAL_PREHEAT_RELATIVE_MIN
+    ):
+        return False
+    if sector < CANDIDATE_POTENTIAL_SECTOR_STRENGTH_MIN or sector > 68.0:
+        return False
+    if (
+        volume < CANDIDATE_POTENTIAL_PREHEAT_VOLUME_MIN
+        or price_volume < CANDIDATE_POTENTIAL_PREHEAT_PRICE_VOLUME_MIN
+    ):
+        return False
+    if risk > 60.0 or overheat > 58.0 or volume_trap > 52.0:
+        return False
+    if not (
+        CANDIDATE_POTENTIAL_PREHEAT_RETURN_20D_MIN
+        <= return_20d
+        <= CANDIDATE_POTENTIAL_PREHEAT_RETURN_20D_MAX
+    ):
+        return False
+    if not (
+        CANDIDATE_POTENTIAL_PREHEAT_DISTANCE_TO_MA20_MIN
+        <= distance_to_ma20
+        <= CANDIDATE_POTENTIAL_PREHEAT_DISTANCE_TO_MA20_MAX
+    ):
+        return False
+    if sector_stock_count < CANDIDATE_POTENTIAL_SECTOR_COUNT_MIN:
+        return False
+    if sector_avg_return_20d is None or sector_positive_20d_rate is None:
+        return False
+    if float(sector_avg_return_20d) < -0.06 or float(sector_positive_20d_rate) < 35.0:
+        return False
+
+    sector_is_warming = (
+        sector_breadth >= 55.0
+        or sector_resilience >= 58.0
+        or float(sector_avg_return_20d) >= 0.0
+        or float(sector_positive_20d_rate) >= 45.0
+    )
+    return sector_is_warming
+
+
 def _passes_potential_watch_filters(
     context: dict[str, Any], *, score_delta: float = 0.0
 ) -> bool:
@@ -1706,6 +1847,15 @@ def _passes_potential_watch_filters(
     sector_positive_20d_rate = context.get("sector_positive_20d_rate")
     sector_stock_count = _float(context, "sector_stock_count", 0.0)
     route = build_signal_route(context)
+    is_startup_preheat = _is_startup_preheat_context(context)
+
+    if is_startup_preheat:
+        effective_score_delta = max(score_delta, CANDIDATE_POTENTIAL_PREHEAT_SCORE_DELTA_FLOOR)
+        return (
+            route.route_score >= CANDIDATE_POTENTIAL_PREHEAT_ROUTE_MIN
+            and _candidate_score_with_delta(context, effective_score_delta)
+            >= CANDIDATE_POTENTIAL_PREHEAT_SCORE_MIN
+        )
 
     if trend < CANDIDATE_POTENTIAL_TREND_MIN or relative < CANDIDATE_POTENTIAL_RELATIVE_MIN:
         return False
@@ -1974,7 +2124,7 @@ def _sector_first_final_rank_score(item: NextSessionCandidate, score_fn: Any) ->
 
 def _is_fresh_potential_watch_candidate(item: NextSessionCandidate) -> bool:
     reasons_text = " ".join(str(reason) for reason in item.reasons)
-    return "潜力启动：20日涨幅仍低" in reasons_text
+    return "潜力启动：20日涨幅仍低" in reasons_text or "启动前夜：T-1量价修复" in reasons_text
 
 
 def _potential_watch_rank_score(item: NextSessionCandidate) -> float:
@@ -2076,6 +2226,7 @@ def _build_candidate(
     selection_text = {
         "formal_strategy": "正式策略命中",
         "potential_watch": "潜力观察",
+        "exploration": "强板块趋势探索",
     }.get(selection_mode, "观察候选")
     reasons = [
         f"入选层级：{selection_text}",
@@ -2088,9 +2239,16 @@ def _build_candidate(
         ),
         f"命中策略 {selected_match.rule_id} {selected_match.name}",
     ]
+    if selection_mode == "observation" and _sector_watch_gap_confirmed(context):
+        reasons.insert(1, "强板块趋势观察补位：板块偏强但行动确认不足，只观察不行动")
+    if selection_mode == "exploration":
+        reasons.insert(1, "强板块趋势探索：板块趋势较强但买点未完全确认，只观察不行动")
     if selection_mode == "potential_watch":
         reasons.insert(1, "潜力观察：个股启动但板块未确认，只观察不行动")
-        if _is_fresh_potential_watch_context(context):
+        if _is_startup_preheat_context(context):
+            reasons.insert(2, "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接")
+            reasons.insert(3, "成交量开始确认：温和放量配合价格修复，但未进入核心行动")
+        elif _is_fresh_potential_watch_context(context):
             reasons.insert(2, "潜力启动：20日涨幅仍低，今日向上启动，后续看承接确认")
     return NextSessionCandidate(
         symbol=str(context["symbol"]),
@@ -2108,6 +2266,13 @@ def _build_candidate(
         selected_rule_id=selected_match.rule_id,
         selected_rule_name=selected_match.name,
         selected_strategy_type=selected_match.strategy_type,
+        trend_score=_optional_float(context, "trend_score"),
+        relative_strength_score=_optional_float(context, "relative_strength_score"),
+        sector_strength_score=_optional_float(context, "sector_strength_score"),
+        volume_confirmation_score=_volume_confirmation_value(context),
+        price_volume_trend_score=_optional_float(context, "price_volume_trend_score"),
+        return_20d=_optional_float(context, "return_20d"),
+        distance_to_ma20=_optional_float(context, "distance_to_ma20"),
         reasons=reasons,
         risk_flags=_risk_flags(context),
         matched_rules=matches,

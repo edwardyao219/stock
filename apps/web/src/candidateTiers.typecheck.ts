@@ -24,6 +24,7 @@ const sampleStocks = [
 const grouped = groupStocksByCandidateTier(sampleStocks);
 
 grouped.coreAction[0].candidate_tier satisfies "core_action" | "watch_wait" | "risk_reject" | null;
+grouped.startupPreheat.length satisfies number;
 grouped.expansionConfirm.length satisfies number;
 grouped.watchWait.length satisfies number;
 grouped.riskReject.length satisfies number;

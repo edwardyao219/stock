@@ -769,6 +769,12 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
                     tags_json={"tags": ["after_close_candidate", "rank:2"]},
                     status="active",
                 ),
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="002558",
+                    tags_json={"tags": ["after_close_candidate", "rank:3"]},
+                    status="active",
+                ),
             ]
         )
         db.commit()
@@ -793,6 +799,17 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
                             "潜力启动：20日涨幅仍低，今日向上启动，后续看承接确认",
                             "板块20日主线扩散较好",
                             "量能温和确认",
+                        ],
+                        "risk_flags": [],
+                    },
+                    {
+                        "symbol": "002558",
+                        "selection_mode": "potential_watch",
+                        "score": 70.0,
+                        "tier_reason": "启动前夜只观察次日承接。",
+                        "reasons": [
+                            "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接",
+                            "成交量开始确认：温和放量配合价格修复，但未进入核心行动",
                         ],
                         "risk_flags": [],
                     }
@@ -828,6 +845,11 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
     assert any(
         tag.startswith("candidate_pool_reason:扩散确认")
         for tag in rows["688003"].tags_json["tags"]
+    )
+    assert "candidate_pool:startup_preheat" in rows["002558"].tags_json["tags"]
+    assert any(
+        tag.startswith("candidate_pool_reason:启动前夜")
+        for tag in rows["002558"].tags_json["tags"]
     )
 
 
