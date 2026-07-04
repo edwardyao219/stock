@@ -55,7 +55,7 @@ import {
   replayWeakMonthRows,
 } from "./replayInsights";
 import { StrategyEvidenceChart } from "./StrategyEvidenceChart";
-import { candidatePoolTextForStock, manualTagTextForStock } from "./stockLabels";
+import { candidatePoolTextForStock, manualTagTextForStock, styleLabelForValue } from "./stockLabels";
 
 const AUTO_REFRESH_MS = 15_000;
 
@@ -141,7 +141,7 @@ function planStatusText(value: string | null | undefined) {
     cancelled: "已取消",
     skipped: "已跳过",
   };
-  return value ? labels[value] ?? value : "-";
+  return value ? labels[value] ?? "未知状态" : "-";
 }
 
 function exitReasonText(value: string | null | undefined) {
@@ -151,7 +151,7 @@ function exitReasonText(value: string | null | undefined) {
     trailing_take_profit: "跟踪止盈",
     time_exit: "时间退出",
   };
-  return value ? labels[value] ?? value : "-";
+  return value ? labels[value] ?? "其他退出" : "-";
 }
 
 function tradeStatusText(value: string | null | undefined) {
@@ -159,7 +159,7 @@ function tradeStatusText(value: string | null | undefined) {
     open: "持仓中",
     closed: "已卖出",
   };
-  return value ? labels[value] ?? value : "-";
+  return value ? labels[value] ?? "未知状态" : "-";
 }
 
 function fitStatusText(value: string | null | undefined) {
@@ -170,7 +170,12 @@ function fitStatusText(value: string | null | undefined) {
     profit_giveback: "卖点待优化",
     low_sample: "样本少",
   };
-  return value ? labels[value] ?? value : "暂无";
+  return value ? labels[value] ?? "观察" : "暂无";
+}
+
+function strategyText(value: string | null | undefined) {
+  if (!value) return "未分类策略";
+  return strategyLabels[value] ?? "未分类策略";
 }
 
 function primaryPaperTrade(stock: WorkspaceStock): PaperTrade | null {
@@ -228,7 +233,7 @@ function isFocusStock(stock: WorkspaceStock) {
 
 function stockSourceLabel(stock: WorkspaceStock) {
   if (isNextSessionCandidate(stock)) return "明日候选";
-  return sourceLabels[stock.source] ?? stock.source;
+  return sourceLabels[stock.source] ?? "其他来源";
 }
 
 function stockActionLabel(stock: WorkspaceStock) {
@@ -249,19 +254,7 @@ function stockActionClass(stock: WorkspaceStock) {
 }
 
 function manualTagText(value: string, stock: WorkspaceStock) {
-  if (value === "star_pool") return manualTagTextForStock(value, stock);
-  const labels: Record<string, string> = {
-    after_close_candidate: "盘后筛选",
-    next_session: "下一交易日",
-    manual_focus: "手动关注",
-    "mode:exploration": "探索池",
-    "mode:observation": "观察池",
-    "mode:potential_watch": "潜力观察",
-    "mode:formal_strategy": "策略池",
-  };
-  if (value.startsWith("rule:")) return `策略 ${value.slice(5)}`;
-  if (value.startsWith("strategy:")) return strategyLabels[value.slice(9)] ?? value.slice(9);
-  return labels[value] ?? value;
+  return manualTagTextForStock(value, stock);
 }
 
 function candidatePoolText(stock: WorkspaceStock) {
@@ -280,25 +273,13 @@ function candidateStrategyText(stock: WorkspaceStock) {
   return null;
 }
 
-const styleLabels: Record<string, string> = {
-  growth_cycle: "科技成长",
-  cyclical: "周期资源",
-  consumer_quality: "消费质量",
-  property_chain: "地产链",
-  compound: "防守复利",
-  healthcare: "医药",
-  market_beta: "市场Beta",
-  theme: "题材",
-  unknown: "未分类",
-};
-
 function candidateHorizonText(stock: WorkspaceStock) {
   const horizonTag = stock.manual_tags.find((item) => item.startsWith("style_horizon:"));
   if (!horizonTag) return null;
   const horizon = horizonTag.slice("style_horizon:".length).replace(/d$/, "");
   const styleTag = stock.manual_tags.find((item) => item.startsWith("style:"));
   const style = styleTag ? styleTag.slice("style:".length) : stock.sector_style ?? "unknown";
-  return `建议${horizon}日观察 / ${styleLabels[style] ?? style}`;
+  return `建议${horizon}日观察 / ${styleLabelForValue(style)}`;
 }
 
 function paperClosedCount(stock: WorkspaceStock) {
@@ -397,7 +378,7 @@ function decisionReasons(
   }
   if (plan) {
     return [
-      `${plan.rule_id} ${strategyLabels[plan.strategy_type] ?? plan.strategy_type}，置信分 ${price(plan.confidence_score)}`,
+      `${plan.rule_id} ${strategyText(plan.strategy_type)}，置信分 ${price(plan.confidence_score)}`,
       `触发价 ${price(plan.entry_trigger_price)} / 仓位 ${(plan.position_size * 100).toFixed(1)}%`,
       shortFitText(fit),
     ];
@@ -565,7 +546,7 @@ function buildStockReviewItems(
     : "暂无市场宽度和成交额";
   const marketMood = marketMoodText(overview);
   const sectorText = stock.industry
-    ? `板块/行业：${stock.industry}${stock.sector_style ? ` / ${stock.sector_style}` : ""}`
+    ? `板块/行业：${stock.industry}${stock.sector_style ? ` / ${styleLabelForValue(stock.sector_style)}` : ""}`
     : "板块/行业数据缺失，当前只能按个股走势复盘";
 
   return [
@@ -817,7 +798,7 @@ function replayExitText(metric: { exit_reasons?: Record<string, number> } | null
     trailing_drawdown: "回撤",
   };
   return Object.entries(reasons)
-    .map(([key, value]) => `${labels[key] ?? key}${value}`)
+    .map(([key, value]) => `${labels[key] ?? "其他退出"}${value}`)
     .join(" / ");
 }
 
@@ -835,6 +816,40 @@ function replayCoverageSummary(coverage: ReplayDataCoverage | null) {
   if (!coverage) return "";
   const { overall } = coverage;
   return `可用月份 ${overall.usable_months}/${overall.months}，风险月份 ${overall.warning_months}，活跃样本 ${overall.active_symbols}`;
+}
+
+const dingPolicyLabels: Record<string, string> = {
+  ding_core_only: "只推核心",
+  ding_action_selective: "行动精选",
+  ding_core_main_line: "主线核心推送",
+  ding_core_selective: "精选核心推送",
+  web_observe_only: "网页端观察",
+  web_support_only: "辅线只在网页端观察",
+  hold: "暂停推送",
+};
+
+const lineStatusLabels: Record<string, string> = {
+  core_enabled: "核心生效",
+  monitor_only: "仅观察",
+  web_preheat: "网页端预热",
+  selective_core: "精选核心",
+  paused: "暂停",
+  stand_down: "暂停观察",
+};
+
+function uiText(value: string | null | undefined) {
+  if (!value) return "";
+  return value.replace(/\bWeb\b/g, "网页端").replace(/\bweb\b/g, "网页端");
+}
+
+function dingPolicyText(value: string | null | undefined) {
+  if (!value) return "未定";
+  return dingPolicyLabels[value] ?? "未定策略";
+}
+
+function lineStatusText(value: string | null | undefined) {
+  if (!value) return "未定";
+  return lineStatusLabels[value] ?? "未定状态";
 }
 
 export function App() {
@@ -1245,7 +1260,7 @@ export function App() {
     {
       key: "expansion-confirm",
       title: "扩散确认",
-      hint: "板块扩散和个股启动同步，只在 Web 观察承接",
+      hint: "板块扩散和个股启动同步，只在网页端观察承接",
       stocks: candidateTierGroups.expansionConfirm,
     },
     {
@@ -1280,7 +1295,7 @@ export function App() {
         <span>
           <strong>{item.symbol}</strong>
           <small>{item.name ?? "未命名"} {item.industry ? ` / ${item.industry}` : ""}</small>
-          <small>{item.sector_style ?? "未分类"} / 胜率 {pct(paperWinRate(item))}</small>
+          <small>{styleLabelForValue(item.sector_style)} / 胜率 {pct(paperWinRate(item))}</small>
         </span>
         <span className="source-stack">
           <span className={`source-pill ${stockActionClass(item)}`}>
@@ -1611,7 +1626,7 @@ export function App() {
                 <div>
                   <span>{stockSourceLabel(selected)}</span>
                   <h2>{selected.symbol} {selected.name ?? ""}</h2>
-                  <p>{selected.industry ?? "暂无行业"} / {selected.sector_style ?? "暂无风格"}</p>
+                  <p>{selected.industry ?? "暂无行业"} / {styleLabelForValue(selected.sector_style)}</p>
                 </div>
                 <div className="latest-price">
                   <span>当前价</span>
@@ -1753,7 +1768,7 @@ export function App() {
                   selected.plans.map((plan) => (
                     <div className="plan-card" key={plan.id}>
                       <div>
-                        <strong>{plan.rule_id} / {strategyLabels[plan.strategy_type] ?? plan.strategy_type}</strong>
+                        <strong>{plan.rule_id} / {strategyText(plan.strategy_type)}</strong>
                         <span>
                           计划交易日 {plan.trade_date} / {plan.execution_label} /
                           {planStatusText(plan.status)} / 置信分 {price(plan.confidence_score)}
@@ -1795,7 +1810,7 @@ export function App() {
                         <div className="strategy-fit-head">
                           <div>
                             <span>回归日期 {strategyFit?.report_date ?? "-"}</span>
-                            <strong>{plan.rule_id} / {strategyLabels[plan.strategy_type] ?? plan.strategy_type}</strong>
+                            <strong>{plan.rule_id} / {strategyText(plan.strategy_type)}</strong>
                           </div>
                           <span className={`fit-pill ${sector?.fit_status ?? overall?.fit_status ?? "neutral"}`}>
                             {fitStatusText(sector?.fit_status ?? overall?.fit_status)}
@@ -2045,28 +2060,28 @@ export function App() {
                 <span>策略诊断</span>
                 <div className="replay-diagnosis">
                   <strong>{candidateReplayEffect.diagnosis.policy_label}</strong>
-                  <p>{candidateReplayEffect.diagnosis.summary}</p>
+                  <p>{uiText(candidateReplayEffect.diagnosis.summary)}</p>
                   <p>
                     {candidateReplayEffect.diagnosis.monthly_posture.month ?? "最近月份"}：
                     {candidateReplayEffect.diagnosis.monthly_posture.posture_label}。
-                    {candidateReplayEffect.diagnosis.monthly_posture.summary}
+                    {uiText(candidateReplayEffect.diagnosis.monthly_posture.summary)}
                   </p>
                   <div>
                     {candidateReplayEffect.diagnosis.reasons.slice(0, 3).map((reason) => (
-                      <small key={reason}>{reason}</small>
+                      <small key={reason}>{uiText(reason)}</small>
                     ))}
                   </div>
                   {candidateReplayEffect.diagnosis.overfit_guardrails.length ? (
                     <div className="replay-guardrails">
                       {candidateReplayEffect.diagnosis.overfit_guardrails.map((guardrail) => (
-                        <small key={guardrail}>{guardrail}</small>
+                        <small key={guardrail}>{uiText(guardrail)}</small>
                       ))}
                     </div>
                   ) : null}
                   {candidateReplayEffect.diagnosis.tactical_opportunities.length ? (
                     <div className="replay-tactical">
                       {candidateReplayEffect.diagnosis.tactical_opportunities.map((item) => (
-                        <small key={item}>{item}</small>
+                        <small key={item}>{uiText(item)}</small>
                       ))}
                     </div>
                   ) : null}
@@ -2075,32 +2090,32 @@ export function App() {
                     <small>
                       核心上限 {candidateReplayEffect.diagnosis.market_phase_policy.max_core_positions} 只 /{" "}
                       {candidateReplayEffect.diagnosis.market_phase_policy.expansion_allowed
-                        ? "允许Web扩散观察"
+                        ? "允许网页端扩散观察"
                         : "不扩大行动池"}
                     </small>
-                    <small>{candidateReplayEffect.diagnosis.market_phase_policy.summary}</small>
+                    <small>{uiText(candidateReplayEffect.diagnosis.market_phase_policy.summary)}</small>
                     {candidateReplayEffect.diagnosis.market_phase_policy.reasons.slice(0, 2).map((reason) => (
-                      <small key={reason}>{reason}</small>
+                      <small key={reason}>{uiText(reason)}</small>
                     ))}
                   </div>
                   <div className="replay-dual-line-policy">
-                    <strong>{candidateReplayEffect.diagnosis.dual_line_policy.summary}</strong>
+                    <strong>{uiText(candidateReplayEffect.diagnosis.dual_line_policy.summary)}</strong>
                     <small>
-                      钉钉策略 {candidateReplayEffect.diagnosis.dual_line_policy.ding_policy} / 核心上限{" "}
+                      钉钉策略 {dingPolicyText(candidateReplayEffect.diagnosis.dual_line_policy.ding_policy)} / 核心上限{" "}
                       {candidateReplayEffect.diagnosis.dual_line_policy.max_core_positions} 只
                     </small>
                     <small>
-                      主线：{candidateReplayEffect.diagnosis.dual_line_policy.main_line.status} /{" "}
-                      {candidateReplayEffect.diagnosis.dual_line_policy.main_line.summary}
+                      主线：{lineStatusText(candidateReplayEffect.diagnosis.dual_line_policy.main_line.status)} /{" "}
+                      {uiText(candidateReplayEffect.diagnosis.dual_line_policy.main_line.summary)}
                     </small>
                     <small>
-                      辅线：{candidateReplayEffect.diagnosis.dual_line_policy.support_line.status} /{" "}
-                      {candidateReplayEffect.diagnosis.dual_line_policy.support_line.summary ?? "暂无预热信号"}
+                      辅线：{lineStatusText(candidateReplayEffect.diagnosis.dual_line_policy.support_line.status)} /{" "}
+                      {uiText(candidateReplayEffect.diagnosis.dual_line_policy.support_line.summary ?? "暂无预热信号")}
                     </small>
                   </div>
                   <div className="replay-potential-policy">
                     <strong>{candidateReplayEffect.diagnosis.potential_watch_policy.label}</strong>
-                    <small>{candidateReplayEffect.diagnosis.potential_watch_policy.summary}</small>
+                    <small>{uiText(candidateReplayEffect.diagnosis.potential_watch_policy.summary)}</small>
                   </div>
                 </div>
                 <span>20日策略池收益</span>

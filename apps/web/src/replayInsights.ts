@@ -65,7 +65,7 @@ const styleLabels: Record<string, string> = {
   property_chain: "地产链",
   compound: "防守复利",
   healthcare: "医药",
-  market_beta: "市场Beta",
+  market_beta: "市场弹性",
   theme: "题材",
   unknown: "未分类",
 };
@@ -102,7 +102,7 @@ export function replayScopeRows(
     const metric = summary.horizons[horizon]?.guarded ?? null;
     return {
       scope,
-      label: scopeLabels[scope] ?? scope,
+      label: scopeLabels[scope] ?? "其他候选池",
       candidateCount: summary.candidate_count,
       metric,
       tone: toneFor(metric?.total_return),
@@ -124,7 +124,7 @@ export function replayBreakdownRows(
   return Object.entries(summaries)
     .map(([key, item]) => ({
       key,
-      label: labels[key] ?? key,
+      label: labels[key] ?? (group === "selection_mode" ? "其他模式" : "其他风格"),
       metric: item.guarded,
       tone: toneFor(item.guarded.total_return),
     }))
@@ -156,7 +156,7 @@ export function replayStylePreferenceRows(
   return Object.entries(report.style_horizon_preferences)
     .map(([style, item]) => ({
       style,
-      label: styleLabels[style] ?? style,
+      label: styleLabels[style] ?? "其他风格",
       preferredHorizon: item.preferred_horizon,
       sampleCount: item.sample_count,
       avgReturn: item.avg_return,

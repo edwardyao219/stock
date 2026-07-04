@@ -58,6 +58,11 @@ assertEqual(
   "候选风格标签需要显示为用户可读文本",
 );
 assertEqual(
+  manualTagTextForStock("style:market_beta", normalCandidateWithHistoricalStarTag),
+  "市场弹性",
+  "风格标签里不能显示英文 Beta",
+);
+assertEqual(
   manualTagTextForStock("style_horizon:10d", normalCandidateWithHistoricalStarTag),
   "建议10日观察",
   "候选周期标签需要显示为用户可读文本",
@@ -71,4 +76,37 @@ assertEqual(
   manualTagTextForStock("candidate_pool:startup_preheat", startupPreheatCandidate),
   "启动前夜池",
   "启动前夜标签需要显示为用户可读文本",
+);
+assertEqual(
+  manualTagTextForStock(
+    "candidate_pool_reason:只做Web观察，不进核心。",
+    startupPreheatCandidate,
+  ),
+  "只做网页端观察，不进核心。",
+  "后端原因里的 Web 也要显示成中文",
+);
+assertEqual(
+  manualTagTextForStock("mode:potential_watch", startupPreheatCandidate),
+  "潜力观察",
+  "候选模式标签不能露出英文枚举",
+);
+assertEqual(
+  manualTagTextForStock("tier:watch_wait", startupPreheatCandidate),
+  "分层：观察等待",
+  "候选分层标签不能露出英文枚举",
+);
+assertEqual(
+  manualTagTextForStock("strategy:watch_breakout", startupPreheatCandidate),
+  "策略：观察突破",
+  "策略标签不能露出英文枚举",
+);
+assertEqual(
+  manualTagTextForStock("rank:3", startupPreheatCandidate),
+  "排序：3",
+  "候选排序标签不能露出英文前缀",
+);
+assertEqual(
+  manualTagTextForStock("score:70.25", startupPreheatCandidate),
+  "分数：70.25",
+  "候选分数标签不能露出英文前缀",
 );
