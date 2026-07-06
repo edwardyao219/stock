@@ -126,11 +126,11 @@ def build_trade_parameters(
     )
 
     invalid_conditions = [
-        f"gap_up_pct > {profile.max_gap_up_pct:.2%}",
-        "price does not touch entry_trigger_price on trade date",
+        f"高开超过{profile.max_gap_up_pct:.2%}",
+        "交易日未触发入场价",
     ]
     if support:
-        invalid_conditions.append(f"close below support_level {support:.4f}")
+        invalid_conditions.append(f"收盘跌破支撑位{support:.4f}")
 
     evidence = {
         "profile": profile.to_dict(),

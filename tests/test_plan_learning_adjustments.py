@@ -87,6 +87,24 @@ def test_learning_adjustments_change_plan_parameters_and_evidence() -> None:
     assert plan.entry_condition["trade_parameters"]["evidence"]["learning_adjustments"]
 
 
+def test_trade_plan_risk_notes_are_user_facing_chinese() -> None:
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=MVP_RULES,
+        feature_contexts=[_context()],
+    )
+
+    risk_notes = plans[0].risk_notes
+
+    assert "高开超过6.00%" in risk_notes
+    assert "交易日未触发入场价" in risk_notes
+    assert "收盘跌破支撑位9.4000" in risk_notes
+    assert "gap_up_pct" not in risk_notes
+    assert "entry_trigger_price" not in risk_notes
+    assert "support_level" not in risk_notes
+
+
 def test_learning_adjustments_can_reduce_position_and_require_confirmation() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -121,7 +139,51 @@ def test_learning_adjustments_can_reduce_position_and_require_confirmation() -> 
     plan = plans[0]
     assert plan.position_size == pytest.approx(0.05)
     assert plan.confidence_score < 80
-    assert "learned extra confirmation required before entry" in plan.risk_notes
+    assert "学习样本提示需二次确认后再入场" in plan.risk_notes
+
+
+def test_backtest_validation_failure_requires_chinese_confirmation_note() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        _add_recommendation(
+            db,
+            source_report_type="backtest_learning_review",
+            scope_type="sector",
+            scope_value="银行",
+            target_type="entry_filter",
+            target_name="backtest_validation_quality",
+            action="observe_or_require_fresh_confirmation",
+            proposed_json={
+                "priority_score_delta": -3,
+                "require_extra_confirmation": True,
+                "source_rule_id": "R001",
+            },
+        )
+
+        plans = generate_trade_plans(
+            plan_date="2026-06-23",
+            trade_date="2026-06-24",
+            rules=MVP_RULES,
+            feature_contexts=[_context()],
+            learning_adjustment_loader=lambda rule, context, tags: load_plan_learning_adjustments(
+                db,
+                rule_id=rule.id,
+                sector_code=context.get("sector_code"),
+                signal_tags=tags,
+            ),
+        )
+
+    plan = plans[0]
+
+    assert plan.confidence_score < 80
+    assert "样本外验证转弱，入场前必须二次确认" in plan.risk_notes
+    assert "learned extra confirmation" not in plan.risk_notes
+    assert plan.entry_condition["learning_adjustments"][0]["target_name"] == (
+        "backtest_validation_quality"
+    )
 
 
 def test_backtest_learning_adjustments_match_symbol_scope() -> None:
@@ -289,8 +351,12 @@ def test_learning_adjustments_decay_with_feature_date() -> None:
     assert recent_plan.trailing_drawdown_pct == pytest.approx(0.03)
     assert old_plan.trailing_drawdown_pct > recent_plan.trailing_drawdown_pct
     assert recent_plan.confidence_score > old_plan.confidence_score
-    assert recent_plan.entry_condition["learning_adjustments"][0]["recency_weight"] == pytest.approx(1.0)
-    assert old_plan.entry_condition["learning_adjustments"][0]["recency_weight"] == pytest.approx(0.25)
+    assert recent_plan.entry_condition["learning_adjustments"][0]["recency_weight"] == (
+        pytest.approx(1.0)
+    )
+    assert old_plan.entry_condition["learning_adjustments"][0]["recency_weight"] == (
+        pytest.approx(0.25)
+    )
 
 
 def test_learning_adjustments_skip_stale_items_with_feature_date() -> None:

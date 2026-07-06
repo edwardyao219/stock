@@ -58,6 +58,14 @@ def _weighted_delta(delta: float, weight: float) -> float:
     return delta * weight
 
 
+def _extra_confirmation_condition(item: ParameterRecommendation) -> str:
+    if item.target_name == "backtest_validation_quality":
+        return "样本外验证转弱，入场前必须二次确认"
+    if item.source_report_type == "backtest_learning_review":
+        return "历史回归提示需二次确认后再入场"
+    return "学习样本提示需二次确认后再入场"
+
+
 def _matches_rule(item: ParameterRecommendation, rule_id: str) -> bool:
     proposed = item.proposed_json or {}
     source_rule_id = proposed.get("source_rule_id")
@@ -209,7 +217,11 @@ def apply_plan_learning_adjustments(
         if trailing_multiplier is not None:
             current = updates.get("trailing_drawdown_pct", params.trailing_drawdown_pct)
             updates["trailing_drawdown_pct"] = round(
-                _bounded(current * _weighted_multiplier(trailing_multiplier, recency_weight), 0.02, 0.15),
+                _bounded(
+                    current * _weighted_multiplier(trailing_multiplier, recency_weight),
+                    0.02,
+                    0.15,
+                ),
                 4,
             )
 
@@ -250,7 +262,9 @@ def apply_plan_learning_adjustments(
             )
         if max_gap is not None:
             current = updates.get("max_gap_up_pct", params.max_gap_up_pct)
-            weighted_gap = current + (min(max_gap, params.max_gap_up_pct) - current) * recency_weight
+            weighted_gap = (
+                current + (min(max_gap, params.max_gap_up_pct) - current) * recency_weight
+            )
             updates["max_gap_up_pct"] = round(_bounded(weighted_gap, 0.0, params.max_gap_up_pct), 4)
 
         holding_multiplier = _float(proposed.get("max_holding_days_multiplier"))
@@ -276,7 +290,7 @@ def apply_plan_learning_adjustments(
         if proposed.get("require_extra_confirmation") and (
             recency_weight >= 0.5 or weighted_score_delta <= -1.0
         ):
-            condition = "learned extra confirmation required before entry"
+            condition = _extra_confirmation_condition(item)
             if condition not in invalid_conditions:
                 invalid_conditions.append(condition)
 
