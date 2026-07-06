@@ -1724,6 +1724,93 @@ def test_discover_next_session_candidates_prefers_recent_learning_adjustments() 
     assert recent_candidate["score"] > old_candidate["score"]
 
 
+def test_discover_next_session_candidates_keeps_validation_failed_sector_in_observation() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="002558",
+                    name="样本外转弱票",
+                    exchange="SZ",
+                    industry="PCB",
+                    is_active=True,
+                ),
+                Security(
+                    symbol="600673",
+                    name="对照趋势票",
+                    exchange="SH",
+                    industry="通信设备",
+                    is_active=True,
+                ),
+                _bar("002558"),
+                _bar("600673"),
+                _feature(
+                    "002558",
+                    trend_score=82,
+                    relative_strength_score=76,
+                    sector_strength_score=74,
+                    sector_breadth_score=66,
+                    volume_confirmation_score=70,
+                    return_20d=0.16,
+                ),
+                _feature(
+                    "600673",
+                    trend_score=76,
+                    relative_strength_score=70,
+                    sector_strength_score=72,
+                    sector_breadth_score=64,
+                    volume_confirmation_score=66,
+                    return_20d=0.14,
+                ),
+                ParameterRecommendation(
+                    report_date=date(2026, 6, 24),
+                    rule_id="R002",
+                    scope_type="sector",
+                    scope_value="PCB",
+                    target_type="entry_filter",
+                    target_name="backtest_validation_quality",
+                    action="observe_or_require_fresh_confirmation",
+                    priority="high",
+                    rationale="validation weakened",
+                    current_json={},
+                    proposed_json={
+                        "priority_score_delta": -3,
+                        "require_extra_confirmation": True,
+                        "source_rule_id": "R002",
+                    },
+                    guardrails_json={"items": []},
+                    source_report_type="backtest_learning_review",
+                    status="pending",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            limit=10,
+        )
+        db.commit()
+        pool_items = list_pool_items(db, pool_name="experiment")
+
+    gated_candidate = next(item for item in result["candidates"] if item["symbol"] == "002558")
+    assert gated_candidate["selection_mode"] == "observation"
+    assert any("样本外验证转弱" in reason for reason in gated_candidate["reasons"])
+
+    gated_pool_item = next(item for item in pool_items if item["symbol"] == "002558")
+    assert "style_gate:stand_down" in gated_pool_item["tags"]
+    assert any(
+        tag.startswith("style_gate_reason:历史回归：PCB 样本外验证转弱")
+        for tag in gated_pool_item["tags"]
+    )
+
+
 def test_discover_next_session_candidates_reduces_candidates_in_weak_market() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

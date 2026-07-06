@@ -34,6 +34,7 @@ LEARNING_NEGATIVE_ACTIONS = {
     "test_avoid_high_position_volume_spike",
     "reduce_or_pause",
     "test_tighten_or_filter",
+    "observe_or_require_fresh_confirmation",
 }
 LEARNING_POSITIVE_ACTIONS = {
     "keep_or_test_small_priority_increase",
@@ -41,6 +42,8 @@ LEARNING_POSITIVE_ACTIONS = {
     "test_small_priority_increase",
     "test_priority_boost",
 }
+LEARNING_FORMAL_BLOCK_ACTIONS = {"observe_or_require_fresh_confirmation"}
+LEARNING_FORMAL_BLOCK_TARGETS = {"backtest_validation_quality"}
 LONG_HORIZON_LEARNING_ACTIONS = {"keep_or_test_small_priority_increase"}
 CANDIDATE_SCORE_WEIGHTS = {
     "route": 0.50,
@@ -1518,6 +1521,24 @@ def _proposed_priority_delta(item: ParameterRecommendation) -> float | None:
     return float(value) if value is not None else None
 
 
+def _learning_recommendation_matches_rule(
+    item: ParameterRecommendation,
+    rule_id: str,
+) -> bool:
+    if item.rule_id and item.rule_id != rule_id:
+        return False
+    proposed = item.proposed_json or {}
+    source_rule_id = proposed.get("source_rule_id")
+    return source_rule_id in (None, rule_id)
+
+
+def _learning_blocks_formal_upgrade(item: ParameterRecommendation) -> bool:
+    return (
+        item.action in LEARNING_FORMAL_BLOCK_ACTIONS
+        or item.target_name in LEARNING_FORMAL_BLOCK_TARGETS
+    )
+
+
 def _learning_recency_weight(report_date: date, feature_date: date) -> float:
     days_old = max(0, (feature_date - report_date).days)
     if days_old <= 0:
@@ -1532,14 +1553,15 @@ def _candidate_learning_adjustment(
     recommendations: list[ParameterRecommendation],
     *,
     feature_date: date,
-) -> tuple[float, list[str]]:
+) -> tuple[float, list[str], str | None]:
     symbol = str(context["symbol"])
     sector = context.get("sector_code") or context.get("industry")
     total_delta = 0.0
     notes: list[str] = []
+    formal_block_reason: str | None = None
 
     for item in recommendations:
-        if item.rule_id and item.rule_id != match.rule_id:
+        if not _learning_recommendation_matches_rule(item, match.rule_id):
             continue
         if item.scope_type == "symbol":
             if item.scope_value != symbol:
@@ -1562,6 +1584,7 @@ def _candidate_learning_adjustment(
         recency_days = max(0, (feature_date - item.report_date).days)
         source_label = _learning_source_label(item)
         proposed_delta = _proposed_priority_delta(item)
+        blocks_formal_upgrade = _learning_blocks_formal_upgrade(item)
         if item.action in LEARNING_NEGATIVE_ACTIONS:
             raw_delta = (
                 proposed_delta if proposed_delta is not None and proposed_delta < 0 else -6.0
@@ -1572,9 +1595,17 @@ def _candidate_learning_adjustment(
                 )
             total_delta += raw_delta * priority_weight * scope_weight * recency_weight
             recency_note = f"（{recency_days}天前）" if recency_days else ""
-            notes.append(
-                f"{source_label}{recency_note}：{match.rule_id} 在 {scope_label} 偏弱，降权观察"
-            )
+            if blocks_formal_upgrade:
+                formal_block_reason = (
+                    f"{source_label}：{scope_label} 样本外验证转弱，只保留观察"
+                )
+                notes.append(
+                    f"{source_label}{recency_note}：{scope_label} 样本外验证转弱，只保留观察"
+                )
+            else:
+                notes.append(
+                    f"{source_label}{recency_note}：{match.rule_id} 在 {scope_label} 偏弱，降权观察"
+                )
         elif item.action in LEARNING_POSITIVE_ACTIONS:
             raw_delta = proposed_delta if proposed_delta is not None and proposed_delta > 0 else 2.5
             total_delta += raw_delta * priority_weight * scope_weight * recency_weight
@@ -1582,8 +1613,14 @@ def _candidate_learning_adjustment(
             notes.append(
                 f"{source_label}{recency_note}：{match.rule_id} 在 {scope_label} 适配，排序小幅加分"
             )
+        elif blocks_formal_upgrade:
+            recency_note = f"（{recency_days}天前）" if recency_days else ""
+            formal_block_reason = f"{source_label}：{scope_label} 样本外验证转弱，只保留观察"
+            notes.append(
+                f"{source_label}{recency_note}：{scope_label} 样本外验证转弱，只保留观察"
+            )
 
-    return total_delta, notes[:2]
+    return total_delta, notes[:2], formal_block_reason
 
 
 def _candidate_long_horizon_learning(
@@ -2525,6 +2562,7 @@ def discover_next_session_candidates(
     exploration_candidates: list[NextSessionCandidate] = []
     learning_notes_by_symbol: dict[str, list[str]] = {}
     long_horizon_learning_notes_by_symbol: dict[str, list[str]] = {}
+    style_gate_reasons_by_symbol: dict[str, str] = {}
 
     for context in contexts:
         if not _passes_hard_safety_filters(context):
@@ -2537,13 +2575,19 @@ def discover_next_session_candidates(
         )
         score_delta += _sector_leadership_delta(context)
         learning_notes: list[str] = []
+        formal_upgrade_blocked = False
         if matches:
-            learning_score_delta, learning_notes = _candidate_learning_adjustment(
-                context,
-                matches[0],
-                learning_recommendations,
-                feature_date=effective_feature_date,
+            learning_score_delta, learning_notes, formal_block_reason = (
+                _candidate_learning_adjustment(
+                    context,
+                    matches[0],
+                    learning_recommendations,
+                    feature_date=effective_feature_date,
+                )
             )
+            formal_upgrade_blocked = formal_block_reason is not None
+            if formal_block_reason:
+                style_gate_reasons_by_symbol[str(context["symbol"])] = formal_block_reason
             score_delta += learning_score_delta
             long_horizon_learning_notes = _candidate_long_horizon_learning(
                 context,
@@ -2559,6 +2603,7 @@ def discover_next_session_candidates(
                 )
         if (
             matches
+            and not formal_upgrade_blocked
             and _passes_market_regime_gate(
                 context,
                 regime=market_regime.regime,
@@ -2582,6 +2627,7 @@ def discover_next_session_candidates(
             continue
         if (
             matches
+            and not formal_upgrade_blocked
             and _passes_market_regime_gate(
                 context,
                 regime=market_regime.regime,
@@ -2829,6 +2875,10 @@ def discover_next_session_candidates(
         if hold_style:
             tags.append(f"hold_style:{hold_style}")
         tags.append(f"mode:{item.selection_mode}")
+        style_gate_reason = style_gate_reasons_by_symbol.get(item.symbol)
+        if style_gate_reason:
+            tags.append("style_gate:stand_down")
+            tags.append(f"style_gate_reason:{style_gate_reason}")
         if item.startup_signal_score is not None:
             tags.append(f"startup_signal_score:{item.startup_signal_score:.1f}")
         if item.startup_signal_label:
