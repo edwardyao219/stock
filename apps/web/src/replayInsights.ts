@@ -3,6 +3,7 @@ import type {
   LowDimensionalReplayReport,
   ReplayReturnSummary,
   ReplayScopeSummary,
+  StrategyPkHorizonMetric,
 } from "./api";
 
 export type ReplayBreakdownGroup = "selection_mode" | "style";
@@ -58,6 +59,33 @@ export interface ReplayStylePreferenceRow {
   tone: ReplayTone;
 }
 
+export interface StrategyPkMetricRow {
+  horizon: number;
+  label: string;
+  metric: StrategyPkHorizonMetric | null;
+  tone: ReplayTone;
+}
+
+export interface StrategyPkDisplayRow {
+  scope: string;
+  label: string;
+  policy: string;
+  policyLabel: string;
+  candidateCount: number;
+  primaryHorizon: number;
+  primaryMetric: StrategyPkHorizonMetric | null;
+  horizonMetrics: StrategyPkMetricRow[];
+  latestMonth: string | null;
+  latestMonthMetric: StrategyPkHorizonMetric | null;
+  monthCount: number;
+  positiveMonths: number;
+  negativeMonths: number;
+  worstMonthTotalReturn: number | null;
+  bestMonthTotalReturn: number | null;
+  rankReason: string;
+  tone: ReplayTone;
+}
+
 const scopeOrder = [
   "action_long",
   "action",
@@ -97,6 +125,14 @@ const styleLabels: Record<string, string> = {
   unknown: "未分类",
 };
 
+const strategyPkPolicyLabels: Record<string, string> = {
+  core_candidate: "核心候选",
+  tactical_observe: "战术观察",
+  observe_only: "只观察",
+  low_sample: "样本不足",
+  stand_down: "休息",
+};
+
 function toneFor(value: number | null | undefined): ReplayTone {
   if (value === null || value === undefined || value === 0) return "neutral";
   return value > 0 ? "up" : "down";
@@ -120,6 +156,22 @@ function sortedScopeEntries(report: CandidateReplayEffectReport) {
   });
 }
 
+function strategyMetricFallback(
+  label: string,
+  sampleCount: number,
+  avgReturn: number | null,
+  winRate: number | null,
+  totalReturn: number | null,
+): StrategyPkHorizonMetric {
+  return {
+    metric_label: label,
+    sample_count: sampleCount,
+    avg_return: avgReturn,
+    win_rate: winRate,
+    total_return: totalReturn,
+  };
+}
+
 export function replayScopeRows(
   report: CandidateReplayEffectReport | null,
   horizon: number,
@@ -135,6 +187,61 @@ export function replayScopeRows(
       metric,
       portfolioMetric,
       tone: toneFor(metric?.total_return),
+    };
+  });
+}
+
+export function strategyPkRows(report: CandidateReplayEffectReport | null): StrategyPkDisplayRow[] {
+  const strategyPk = report?.diagnosis.strategy_pk;
+  if (!strategyPk) return [];
+  const horizons = strategyPk.horizons.length ? strategyPk.horizons : [strategyPk.primary_horizon];
+  return strategyPk.rows.map((row) => {
+    const primaryHorizon = row.primary_horizon || strategyPk.primary_horizon;
+    const primaryMetric =
+      row.metrics_by_horizon[primaryHorizon] ??
+      strategyMetricFallback(
+        `${primaryHorizon}日`,
+        row.sample_count,
+        row.avg_return,
+        row.win_rate,
+        row.total_return,
+      );
+    const latestMonthMetric =
+      row.latest_month || row.latest_month_sample_count > 0
+        ? strategyMetricFallback(
+            row.latest_month ?? "最近月",
+            row.latest_month_sample_count,
+            row.latest_month_avg_return,
+            null,
+            row.latest_month_total_return,
+          )
+        : null;
+    return {
+      scope: row.scope,
+      label: row.label || scopeLabels[row.scope] || "其他策略线",
+      policy: row.policy,
+      policyLabel: row.policy_label || strategyPkPolicyLabels[row.policy] || "未定",
+      candidateCount: row.candidate_count,
+      primaryHorizon,
+      primaryMetric,
+      horizonMetrics: horizons.map((horizon) => {
+        const metric = row.metrics_by_horizon[horizon] ?? null;
+        return {
+          horizon,
+          label: metric?.metric_label || `${horizon}日`,
+          metric,
+          tone: toneFor(metric?.total_return),
+        };
+      }),
+      latestMonth: row.latest_month,
+      latestMonthMetric,
+      monthCount: row.month_count,
+      positiveMonths: row.positive_months,
+      negativeMonths: row.negative_months,
+      worstMonthTotalReturn: row.worst_month_total_return,
+      bestMonthTotalReturn: row.best_month_total_return,
+      rankReason: row.rank_reason,
+      tone: toneFor(primaryMetric.total_return ?? row.total_return ?? row.avg_return),
     };
   });
 }

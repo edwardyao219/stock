@@ -183,6 +183,15 @@ class WalkForwardReplayResult:
         }
 
 
+ForwardReturnBundle = tuple[
+    dict[int, float | None],
+    dict[int, float | None],
+    dict[int, int | None],
+    dict[int, str | None],
+]
+ForwardReturnCacheKey = tuple[str, date, tuple[int, ...], float, float]
+
+
 def _return_summary(values: list[float]) -> dict[str, float | int | None]:
     if not values:
         return {
@@ -2280,6 +2289,7 @@ def run_candidate_walk_forward_replay(
     discovery_cache_dir: str | Path | None = None,
     stop_loss_pct: float = 0.06,
     trailing_drawdown_pct: float = 0.08,
+    forward_return_cache: dict[ForwardReturnCacheKey, ForwardReturnBundle] | None = None,
 ) -> WalkForwardReplayResult:
     start = _parse(start_date)
     end = _parse(end_date)
@@ -2392,22 +2402,49 @@ def run_candidate_walk_forward_replay(
                     raise ValueError(f"Unsupported candidate_scope: {candidate_scope}")
                 for item in candidate_items:
                     symbol = str(item.get("symbol") or "")
-                    forward_returns = _forward_returns(
-                        db,
-                        symbol=symbol,
-                        entry_date=next_date,
-                        horizons=horizons,
+                    cache_key = (
+                        symbol,
+                        next_date,
+                        tuple(horizons),
+                        stop_loss_pct,
+                        trailing_drawdown_pct,
                     )
-                    guarded_returns, guard_exit_days, guard_exit_reasons = (
-                        _guarded_forward_returns(
+                    cached_returns = (
+                        forward_return_cache.get(cache_key)
+                        if forward_return_cache is not None
+                        else None
+                    )
+                    if cached_returns is None:
+                        forward_returns = _forward_returns(
                             db,
                             symbol=symbol,
                             entry_date=next_date,
                             horizons=horizons,
-                            stop_loss_pct=stop_loss_pct,
-                            trailing_drawdown_pct=trailing_drawdown_pct,
                         )
-                    )
+                        guarded_returns, guard_exit_days, guard_exit_reasons = (
+                            _guarded_forward_returns(
+                                db,
+                                symbol=symbol,
+                                entry_date=next_date,
+                                horizons=horizons,
+                                stop_loss_pct=stop_loss_pct,
+                                trailing_drawdown_pct=trailing_drawdown_pct,
+                            )
+                        )
+                        if forward_return_cache is not None:
+                            forward_return_cache[cache_key] = (
+                                forward_returns,
+                                guarded_returns,
+                                guard_exit_days,
+                                guard_exit_reasons,
+                            )
+                    else:
+                        (
+                            forward_returns,
+                            guarded_returns,
+                            guard_exit_days,
+                            guard_exit_reasons,
+                        ) = cached_returns
                     candidates.append(
                         WalkForwardCandidate(
                             symbol=symbol,
@@ -2487,6 +2524,7 @@ def compare_candidate_walk_forward_scopes(
     trailing_drawdown_pct: float = 0.08,
 ) -> dict[str, Any]:
     cache_dir = discovery_cache_dir
+    forward_return_cache: dict[ForwardReturnCacheKey, ForwardReturnBundle] = {}
     scope_summaries: dict[str, Any] = {}
     for scope in scopes:
         result = run_candidate_walk_forward_replay(
@@ -2500,6 +2538,7 @@ def compare_candidate_walk_forward_scopes(
             discovery_cache_dir=cache_dir,
             stop_loss_pct=stop_loss_pct,
             trailing_drawdown_pct=trailing_drawdown_pct,
+            forward_return_cache=forward_return_cache,
         )
         scope_summaries[scope] = summarize_walk_forward_replay(
             result,

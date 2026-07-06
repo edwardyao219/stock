@@ -486,7 +486,7 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     payload = get_candidate_replay_effect()
 
     assert captured == {
-        "start_date": "2024-01-01",
+        "start_date": "2026-04-01",
         "end_date": "2026-07-01",
         "scopes": (
             "all",

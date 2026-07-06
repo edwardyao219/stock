@@ -4,6 +4,7 @@ import {
   replayBreakdownRows,
   replayWeakMonthRows,
   replayStylePreferenceRows,
+  strategyPkRows,
   startupPreheatRows,
   replayMonthlyStyleRows,
 } from "./replayInsights";
@@ -132,6 +133,60 @@ const candidateReplay = {
           positive_months: 1,
           negative_months: 1,
           summary: "允许从普通潜力观察升级为Web重点和盘中验证。",
+        },
+      ],
+    },
+    strategy_pk: {
+      return_mode: "simple_sum_no_compounding",
+      horizons: [5, 10, 20],
+      primary_horizon: 20,
+      summary: "长期行动池作为主线，启动前夜池只做盘中观察。",
+      rules: ["先看板块再看个股，策略PK只用于动态定位。"],
+      rows: [
+        {
+          scope: "action_long",
+          label: "长期行动池",
+          policy: "core_candidate",
+          policy_label: "核心候选",
+          candidate_count: 19,
+          primary_horizon: 20,
+          sample_count: 18,
+          avg_return: 0.057108,
+          win_rate: 0.61,
+          total_return: 1.027945,
+          metrics_by_horizon: {
+            5: {
+              metric_label: "5日",
+              sample_count: 18,
+              avg_return: 0.02,
+              win_rate: 0.56,
+              total_return: 0.36,
+            },
+            10: {
+              metric_label: "10日",
+              sample_count: 18,
+              avg_return: 0.04,
+              win_rate: 0.61,
+              total_return: 0.72,
+            },
+            20: {
+              metric_label: "20日",
+              sample_count: 18,
+              avg_return: 0.057108,
+              win_rate: 0.61,
+              total_return: 1.027945,
+            },
+          },
+          latest_month: "2026-06",
+          latest_month_sample_count: 5,
+          latest_month_avg_return: 0.08,
+          latest_month_total_return: 0.4,
+          month_count: 5,
+          positive_months: 4,
+          negative_months: 1,
+          worst_month_total_return: -0.12,
+          best_month_total_return: 0.52,
+          rank_reason: "样本跨月更稳，适合作为核心线。",
         },
       ],
     },
@@ -332,6 +387,7 @@ const weakRows = replayWeakMonthRows(lowDimensional, 20);
 const preferenceRows = replayStylePreferenceRows(lowDimensional);
 const startupRows = startupPreheatRows(candidateReplay);
 const monthlyStyleRows = replayMonthlyStyleRows(candidateReplay.scopes.all, 10);
+const strategyRows = strategyPkRows(candidateReplay);
 
 scopeRows[0].scope satisfies "all" | "action" | "action_long" | string;
 breakdownRows[0].label satisfies string;
@@ -341,3 +397,5 @@ startupRows[0].horizon satisfies number;
 startupRows[0].highSignalMetric?.sample_count satisfies number | undefined;
 monthlyStyleRows[0].month satisfies string;
 candidateReplay.diagnosis.primary_scope satisfies string;
+strategyRows[0].policyLabel satisfies string;
+strategyRows[0].primaryMetric?.total_return satisfies number | null | undefined;

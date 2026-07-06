@@ -777,8 +777,35 @@ def test_compare_candidate_walk_forward_scopes_reuses_discovery_cache(
         calls += 1
         return discovery
 
+    forward_calls: list[tuple[str, date]] = []
+    guarded_calls: list[tuple[str, date]] = []
+
+    def fake_forward_returns(_db, *, symbol, entry_date, horizons):
+        forward_calls.append((symbol, entry_date))
+        value = 0.1 if symbol == "600001" else 0.2
+        return {horizon: value for horizon in horizons}
+
+    def fake_guarded_returns(
+        _db,
+        *,
+        symbol,
+        entry_date,
+        horizons,
+        stop_loss_pct,
+        trailing_drawdown_pct,
+    ):
+        guarded_calls.append((symbol, entry_date))
+        value = 0.1 if symbol == "600001" else 0.2
+        return (
+            {horizon: value for horizon in horizons},
+            {horizon: horizon for horizon in horizons},
+            {horizon: "horizon" for horizon in horizons},
+        )
+
     monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
     monkeypatch.setattr(walk_forward, "discover_next_session_candidates", fake_discover)
+    monkeypatch.setattr(walk_forward, "_forward_returns", fake_forward_returns)
+    monkeypatch.setattr(walk_forward, "_guarded_forward_returns", fake_guarded_returns)
 
     comparison = compare_candidate_walk_forward_scopes(
         start_date="2026-01-02",
@@ -790,6 +817,8 @@ def test_compare_candidate_walk_forward_scopes_reuses_discovery_cache(
     )
 
     assert calls == 1
+    assert forward_calls == [("600001", date(2026, 1, 5)), ("600002", date(2026, 1, 5))]
+    assert guarded_calls == [("600001", date(2026, 1, 5)), ("600002", date(2026, 1, 5))]
     assert comparison["scopes"]["all"]["candidate_count"] == 2
     assert comparison["scopes"]["action"]["candidate_count"] == 2
     assert comparison["scopes"]["action_long"]["candidate_count"] == 1

@@ -614,6 +614,47 @@ export interface CandidateReplayStyleGatePolicy {
   stand_down_styles: string[];
 }
 
+export interface StrategyPkHorizonMetric {
+  metric_label: string;
+  sample_count: number;
+  avg_return: number | null;
+  win_rate: number | null;
+  total_return: number | null;
+}
+
+export interface StrategyPkRow {
+  scope: string;
+  label: string;
+  policy: string;
+  policy_label: string;
+  candidate_count: number;
+  primary_horizon: number;
+  sample_count: number;
+  avg_return: number | null;
+  win_rate: number | null;
+  total_return: number | null;
+  metrics_by_horizon: Record<number, StrategyPkHorizonMetric>;
+  latest_month: string | null;
+  latest_month_sample_count: number;
+  latest_month_avg_return: number | null;
+  latest_month_total_return: number | null;
+  month_count: number;
+  positive_months: number;
+  negative_months: number;
+  worst_month_total_return: number | null;
+  best_month_total_return: number | null;
+  rank_reason: string;
+}
+
+export interface StrategyPkReport {
+  return_mode: "simple_sum_no_compounding" | string;
+  horizons: number[];
+  primary_horizon: number;
+  summary: string;
+  rows: StrategyPkRow[];
+  rules: string[];
+}
+
 export interface CandidateReplayDiagnosis {
   horizon: number;
   primary_scope: string;
@@ -675,6 +716,7 @@ export interface CandidateReplayDiagnosis {
     rules: string[];
   };
   style_gate_policy: CandidateReplayStyleGatePolicy;
+  strategy_pk: StrategyPkReport;
   monthly_posture: {
     month: string | null;
     posture: string;
@@ -692,6 +734,14 @@ export interface CandidateReplayEffectReport {
   discovery_cache_dir: string | null;
   data_coverage: ReplayDataCoverage;
   diagnosis: CandidateReplayDiagnosis;
+}
+
+export interface CandidateReplayEffectQuery {
+  start_date?: string;
+  end_date?: string;
+  limit?: number;
+  min_coverage_ratio?: number;
+  include_fundamentals?: boolean;
 }
 
 export type PipelineStage = "daily" | "prepare" | "intraday" | "after-close";
@@ -932,8 +982,30 @@ export function fetchLowDimensionalReplay() {
   return request<LowDimensionalReplayReport>("/rules/low-dimensional-replay");
 }
 
-export function fetchCandidateReplayEffect() {
-  return request<CandidateReplayEffectReport>("/rules/candidate-replay-effect");
+function formatDateParam(value: Date) {
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${value.getFullYear()}-${month}-${day}`;
+}
+
+function defaultCandidateReplayStartDate() {
+  const start = new Date();
+  start.setMonth(start.getMonth() - 3, 1);
+  return formatDateParam(start);
+}
+
+export function fetchCandidateReplayEffect(query: CandidateReplayEffectQuery = {}) {
+  const params = new URLSearchParams();
+  params.set("start_date", query.start_date ?? defaultCandidateReplayStartDate());
+  if (query.end_date) params.set("end_date", query.end_date);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.min_coverage_ratio !== undefined) {
+    params.set("min_coverage_ratio", String(query.min_coverage_ratio));
+  }
+  if (query.include_fundamentals !== undefined) {
+    params.set("include_fundamentals", String(query.include_fundamentals));
+  }
+  return request<CandidateReplayEffectReport>(`/rules/candidate-replay-effect?${params.toString()}`);
 }
 
 export function addManualStock(symbol: string, note: string, tags: string[], poolName = "experiment") {

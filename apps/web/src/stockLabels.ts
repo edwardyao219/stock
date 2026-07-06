@@ -69,8 +69,42 @@ function readableDateTime(value: string) {
   return value.replace("T", " ");
 }
 
-function cleanDisplayText(value: string) {
-  return value.replace(/\bWeb\b/g, "网页端").replace(/\bweb\b/g, "网页端");
+const displayTokenLabels: Record<string, string> = {
+  ...styleLabels,
+  ...modeLabels,
+  ...styleGateLabels,
+  ...holdStyleLabels,
+  action: "行动池",
+  action_long: "长期行动池",
+  all: "全候选池",
+  core_candidate: "核心候选",
+  low_sample: "样本不足",
+  observe_only: "只观察",
+  simple_sum_no_compounding: "简单相加不复利",
+  stand_down: "休息",
+  startup_confirmed: "启动确认池",
+  startup_preheat: "启动前夜池",
+  tactical_observe: "战术观察",
+  watch_wait: "观察等待",
+};
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function cleanDisplayText(value: string | null | undefined) {
+  if (!value) return "";
+  const base = value
+    .replace(/\bWeb\b/g, "网页端")
+    .replace(/\bweb\b/g, "网页端")
+    .replace(/策略PK/g, "策略对比")
+    .replace(/\bPK\b/g, "对比");
+  return Object.entries(displayTokenLabels)
+    .sort(([left], [right]) => right.length - left.length)
+    .reduce(
+      (text, [token, label]) => text.replace(new RegExp(`\\b${escapeRegExp(token)}\\b`, "g"), label),
+      base,
+    );
 }
 
 export function candidatePoolTextForStock(stock: StockPoolLabelInput) {

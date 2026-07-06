@@ -104,6 +104,14 @@ assertEqual(
   "后端原因里的 Web 也要显示成中文",
 );
 assertEqual(
+  manualTagTextForStock(
+    "candidate_pool_reason:风格周期：unknown偏10日观察；允许升级为Web重点；growth_cycle继续看承接。",
+    startupPreheatCandidate,
+  ),
+  "风格周期：未分类偏10日观察；允许升级为网页端重点；科技成长继续看承接。",
+  "后端原因里的风格枚举也要显示成中文",
+);
+assertEqual(
   manualTagTextForStock("mode:potential_watch", startupPreheatCandidate),
   "潜力观察",
   "候选模式标签不能露出英文枚举",

@@ -53,11 +53,17 @@ import {
   replayMonthlyStyleRows,
   replayScopeRows,
   replayStylePreferenceRows,
+  strategyPkRows,
   startupPreheatRows,
   replayWeakMonthRows,
 } from "./replayInsights";
 import { StrategyEvidenceChart } from "./StrategyEvidenceChart";
-import { candidatePoolTextForStock, manualTagTextForStock, styleLabelForValue } from "./stockLabels";
+import {
+  candidatePoolTextForStock,
+  cleanDisplayText,
+  manualTagTextForStock,
+  styleLabelForValue,
+} from "./stockLabels";
 
 const AUTO_REFRESH_MS = 15_000;
 
@@ -448,7 +454,7 @@ function candidateRankText(stock: WorkspaceStock) {
 
 function cleanCandidateNote(value: string | null | undefined) {
   if (!value) return null;
-  return value.replace(/^候选理由：/, "").replace(/^策略\s+/, "策略 ");
+  return cleanDisplayText(value.replace(/^候选理由：/, "").replace(/^策略\s+/, "策略 "));
 }
 
 function latestCandle(candles: Candle[]) {
@@ -552,7 +558,7 @@ function featureSummary(stock: WorkspaceStock) {
     stock.relative_strength_score !== null ? `相对强度 ${stock.relative_strength_score.toFixed(1)}` : null,
     stock.sector_strength_score !== null ? `板块 ${stock.sector_strength_score.toFixed(1)}` : null,
     stock.volume_confirmation_score !== null ? `量能 ${stock.volume_confirmation_score.toFixed(1)}` : null,
-    stock.route_reason ? `判断 ${stock.route_reason}` : null,
+    stock.route_reason ? `判断 ${cleanDisplayText(stock.route_reason)}` : null,
   ].filter(Boolean);
   return items.slice(0, 4) as string[];
 }
@@ -771,8 +777,8 @@ function catalystMetaText(catalysts: SectorCatalysts | null) {
 }
 
 function cautionText(item: { selection_reason?: string; caution_reasons: string[]; summary: string }) {
-  if (item.selection_reason) return item.selection_reason;
-  return item.caution_reasons.length ? item.caution_reasons.join("；") : item.summary;
+  if (item.selection_reason) return cleanDisplayText(item.selection_reason);
+  return cleanDisplayText(item.caution_reasons.length ? item.caution_reasons.join("；") : item.summary);
 }
 
 function candidateExplanationText(item: {
@@ -783,7 +789,7 @@ function candidateExplanationText(item: {
 }) {
   const base = cautionText(item);
   if (!item.theme_signal_reason || base.includes(item.theme_signal_reason)) return base;
-  return `${base}；${item.theme_signal_reason}`;
+  return cleanDisplayText(`${base}；${item.theme_signal_reason}`);
 }
 
 function candidateBatchText(batch: IntradayCandidateList["candidate_batch"] | undefined) {
@@ -869,8 +875,7 @@ const lineStatusLabels: Record<string, string> = {
 };
 
 function uiText(value: string | null | undefined) {
-  if (!value) return "";
-  return value.replace(/\bWeb\b/g, "网页端").replace(/\bweb\b/g, "网页端");
+  return cleanDisplayText(value);
 }
 
 function dingPolicyText(value: string | null | undefined) {
@@ -1260,6 +1265,8 @@ export function App() {
     ["20日", replay20d],
   ];
   const candidateReplayScopeRows = replayScopeRows(candidateReplayEffect, 20);
+  const candidateStrategyPk = candidateReplayEffect?.diagnosis.strategy_pk ?? null;
+  const candidateStrategyPkRows = strategyPkRows(candidateReplayEffect);
   const replayModeRows = replayBreakdownRows(lowDimensionalReplay, 20, "selection_mode").slice(0, 4);
   const replayStyleRows = replayBreakdownRows(lowDimensionalReplay, 20, "style").slice(0, 5);
   const replayWeakMonths = replayWeakMonthRows(lowDimensionalReplay, 20, 5);
@@ -1357,10 +1364,10 @@ export function App() {
           {candidateHorizonText(item) ? <small>{candidateHorizonText(item)}</small> : null}
           {startupSignalText(item) ? <small>{startupSignalText(item)}</small> : null}
           {item.startup_signal_reasons[0] ? (
-            <small className="tier-reason">{item.startup_signal_reasons[0]}</small>
+            <small className="tier-reason">{uiText(item.startup_signal_reasons[0])}</small>
           ) : null}
-          {poolReason ? <small className="tier-reason">{poolReason}</small> : null}
-          {tierMeta?.reason ? <small className="tier-reason">{tierMeta.reason}</small> : null}
+          {poolReason ? <small className="tier-reason">{uiText(poolReason)}</small> : null}
+          {tierMeta?.reason ? <small className="tier-reason">{uiText(tierMeta.reason)}</small> : null}
         </span>
         <span>
           <em className={(item.return_5d ?? 0) >= 0 ? "up" : "down"}>{pct(item.return_5d)}</em>
@@ -1638,7 +1645,7 @@ export function App() {
               ? (
                   <>
                     {candidateBlockReason && !candidateTierGroups.coreAction.length ? (
-                      <div className="candidate-block-reason">{candidateBlockReason}</div>
+                      <div className="candidate-block-reason">{uiText(candidateBlockReason)}</div>
                     ) : null}
                     {candidateTierSections.map((section) => (
                       <div className="candidate-tier-section" key={section.key}>
@@ -1697,13 +1704,13 @@ export function App() {
                     <span>关注理由</span>
                     <strong>{stockSourceLabel(selected)}</strong>
                   </div>
-                  {selected.manual_note ? <p>{selected.manual_note}</p> : null}
+                  {selected.manual_note ? <p>{uiText(selected.manual_note)}</p> : null}
                   {candidatePoolText(selected) ? <p>{candidatePoolText(selected)}</p> : null}
                   {candidateStrategyText(selected) ? <p>{candidateStrategyText(selected)}</p> : null}
                   {candidateHorizonText(selected) ? <p>{candidateHorizonText(selected)}</p> : null}
                   {startupSignalText(selected) ? <p>{startupSignalText(selected)}</p> : null}
                   {selected.startup_signal_reasons.map((reason) => (
-                    <p key={reason}>{reason}</p>
+                    <p key={reason}>{uiText(reason)}</p>
                   ))}
                   {selected.manual_tags.length ? (
                     <div className="tag-row">
@@ -2166,6 +2173,56 @@ export function App() {
                     <small>{uiText(candidateReplayEffect.diagnosis.potential_watch_policy.summary)}</small>
                   </div>
                 </div>
+                {candidateStrategyPkRows.length ? (
+                  <>
+                    <span>多策略对比</span>
+                    <div className="strategy-pk-summary">
+                      <strong>{uiText(candidateStrategyPk?.summary)}</strong>
+                      <small>
+                        口径：简单相加不复利 / 主周期 {candidateStrategyPk?.primary_horizon ?? 20}日 /{" "}
+                        候选线 {candidateStrategyPkRows.length}
+                      </small>
+                      {candidateStrategyPk?.rules.slice(0, 2).map((rule) => (
+                        <small key={rule}>{uiText(rule)}</small>
+                      ))}
+                    </div>
+                    <div className="strategy-pk-list">
+                      {candidateStrategyPkRows.map((row) => (
+                        <div className="strategy-pk-row" key={row.scope}>
+                          <div className="strategy-pk-main">
+                            <strong>{row.label}</strong>
+                            <span className={`strategy-pk-policy ${row.tone}`}>{row.policyLabel}</span>
+                          </div>
+                          <div className="strategy-pk-score">
+                            <em className={row.tone}>{pct(row.primaryMetric?.avg_return)}</em>
+                            <small>
+                              {row.primaryHorizon}日均值 / 总收益 {pct(row.primaryMetric?.total_return)} / 胜率{" "}
+                              {pct(row.primaryMetric?.win_rate)} / 样本 {row.primaryMetric?.sample_count ?? 0}
+                            </small>
+                          </div>
+                          <div className="strategy-pk-meta">
+                            <small>
+                              候选 {row.candidateCount} / 月份 {row.monthCount} / 正负{" "}
+                              {row.positiveMonths}:{row.negativeMonths}
+                            </small>
+                            <small>
+                              最近 {row.latestMonth ?? "暂无"} {pct(row.latestMonthMetric?.total_return)} / 最差{" "}
+                              {pct(row.worstMonthTotalReturn)} / 最好 {pct(row.bestMonthTotalReturn)}
+                            </small>
+                          </div>
+                          <div className="strategy-pk-metrics">
+                            {row.horizonMetrics.map((metric) => (
+                              <span className={metric.tone} key={`${row.scope}-${metric.horizon}`}>
+                                {metric.label} {pct(metric.metric?.total_return)}
+                              </span>
+                            ))}
+                          </div>
+                          <small className="strategy-pk-reason">{uiText(row.rankReason)}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
                 <span>启动前夜短周期</span>
                 <div className="replay-row-list">
                   {startupPreheatEffectRows.map((row) => (

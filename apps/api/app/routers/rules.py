@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
@@ -30,6 +30,7 @@ _PRIMARY_POLICY_SCOPES = {"action_long", "action", "all"}
 _CORE_POLICY_SCOPES = {"action_long", "action"}
 _TACTICAL_POLICY_SCOPES = {"potential_watch", "startup_preheat", "startup_confirmed"}
 DEFAULT_REPLAY_START_DATE = "2024-01-01"
+DEFAULT_INTERACTIVE_REPLAY_MONTHS = 3
 _STYLE_LABELS = {
     "growth_cycle": "科技成长",
     "cyclical": "周期资源",
@@ -41,6 +42,18 @@ _STYLE_LABELS = {
     "theme": "题材",
     "unknown": "未分类",
 }
+
+
+def _month_start_shift(value: date, months: int) -> date:
+    month_index = value.year * 12 + value.month - 1 + months
+    return date(month_index // 12, month_index % 12 + 1, 1)
+
+
+def _default_interactive_replay_start_date(end_date: str) -> str:
+    return _month_start_shift(
+        date.fromisoformat(end_date),
+        -DEFAULT_INTERACTIVE_REPLAY_MONTHS,
+    ).isoformat()
 
 
 def _empty_return_metric() -> dict[str, Any]:
@@ -1064,16 +1077,17 @@ def get_low_dimensional_replay(
 
 @router.get("/candidate-replay-effect")
 def get_candidate_replay_effect(
-    start_date: str = DEFAULT_REPLAY_START_DATE,
+    start_date: str | None = None,
     end_date: str | None = None,
     limit: Annotated[int, Query(ge=1, le=30)] = 15,
     min_coverage_ratio: Annotated[float, Query(ge=0.0, le=1.0)] = 0.70,
     include_fundamentals: bool = False,
 ) -> dict:
     resolved_end_date = end_date or (now_local().date() - timedelta(days=1)).isoformat()
+    resolved_start_date = start_date or _default_interactive_replay_start_date(resolved_end_date)
     horizons = (1, 5, 10, 20)
     comparison = compare_candidate_walk_forward_scopes(
-        start_date=start_date,
+        start_date=resolved_start_date,
         end_date=resolved_end_date,
         scopes=(
             "all",
@@ -1091,7 +1105,7 @@ def get_candidate_replay_effect(
     return {
         **comparison,
         "data_coverage": build_replay_data_coverage_report(
-            start_date=start_date,
+            start_date=resolved_start_date,
             end_date=resolved_end_date,
         ),
         "diagnosis": diagnose_candidate_replay_effect(comparison, horizon=20),
