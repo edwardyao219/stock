@@ -58,11 +58,19 @@ export interface ReplayStylePreferenceRow {
   tone: ReplayTone;
 }
 
-const scopeOrder = ["action_long", "action", "startup_preheat", "potential_watch", "all"];
+const scopeOrder = [
+  "action_long",
+  "action",
+  "startup_confirmed",
+  "startup_preheat",
+  "potential_watch",
+  "all",
+];
 
 const scopeLabels: Record<string, string> = {
   action_long: "长期行动池",
   action: "钉钉行动池",
+  startup_confirmed: "启动确认池",
   startup_preheat: "启动前夜池",
   potential_watch: "潜力观察池",
   all: "全候选池",

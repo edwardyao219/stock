@@ -459,6 +459,114 @@ def test_candidate_walk_forward_replay_can_use_startup_preheat_candidates(
     assert "不代表买点" in result.days[0].candidates[0].startup_signal_reasons[1]
 
 
+def test_candidate_walk_forward_replay_can_use_startup_confirmed_candidates(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600001", "弱承接启动", "互联网"),
+                _security("600002", "承接确认启动", "元器件"),
+                _security("600003", "伸展过高启动", "半导体"),
+            ]
+        )
+        db.add_all(
+            [
+                _bar("600001", date(2026, 1, 2), "10"),
+                _bar("600001", date(2026, 1, 5), "11", "10", open_price="10"),
+                _bar("600002", date(2026, 1, 2), "10"),
+                _bar("600002", date(2026, 1, 5), "12", "10", open_price="10"),
+                _bar("600003", date(2026, 1, 2), "10"),
+                _bar("600003", date(2026, 1, 5), "9", "10", open_price="10"),
+                _feature("600001", date(2026, 1, 2)),
+                _feature("600002", date(2026, 1, 2)),
+                _feature("600003", date(2026, 1, 2)),
+            ]
+        )
+        db.commit()
+
+    discovery = {
+        "universe_size": 3,
+        "candidates": [
+            {
+                "symbol": "600001",
+                "name": "弱承接启动",
+                "sector": "互联网",
+                "selection_mode": "potential_watch",
+                "score": 72,
+                "startup_signal_score": 86,
+                "startup_signal_label": "启动观察",
+                "sector_strength_score": 52,
+                "volume_confirmation_score": 70,
+                "price_volume_trend_score": 72,
+                "return_20d": 0.10,
+                "distance_to_ma20": 0.03,
+                "sector_avg_return_20d": 0.01,
+                "reasons": ["启动前夜：T-1量价修复"],
+                "risk_flags": [],
+            },
+            {
+                "symbol": "600002",
+                "name": "承接确认启动",
+                "sector": "元器件",
+                "selection_mode": "potential_watch",
+                "score": 78,
+                "startup_signal_score": 88,
+                "startup_signal_label": "启动观察",
+                "sector_strength_score": 60,
+                "volume_confirmation_score": 82,
+                "price_volume_trend_score": 79,
+                "return_20d": 0.12,
+                "distance_to_ma20": 0.04,
+                "sector_avg_return_20d": 0.02,
+                "startup_signal_reasons": ["板块修复", "量价修复", "风险可控：不代表买点"],
+                "reasons": ["启动前夜：T-1量价修复"],
+                "risk_flags": [],
+            },
+            {
+                "symbol": "600003",
+                "name": "伸展过高启动",
+                "sector": "半导体",
+                "selection_mode": "potential_watch",
+                "score": 82,
+                "startup_signal_score": 93,
+                "startup_signal_label": "启动观察",
+                "sector_strength_score": 66,
+                "volume_confirmation_score": 85,
+                "price_volume_trend_score": 80,
+                "return_20d": 0.19,
+                "distance_to_ma20": 0.09,
+                "sector_avg_return_20d": 0.04,
+                "reasons": ["启动前夜：T-1量价修复"],
+                "risk_flags": [],
+            },
+        ],
+    }
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(
+        walk_forward,
+        "discover_next_session_candidates",
+        lambda *_args, **_kwargs: discovery,
+    )
+
+    result = walk_forward.run_candidate_walk_forward_replay(
+        start_date="2026-01-02",
+        end_date="2026-01-05",
+        limit=3,
+        horizons=(1,),
+        candidate_scope="startup_confirmed",
+    )
+
+    assert [item.symbol for item in result.days[0].candidates] == ["600002"]
+    assert result.days[0].candidates[0].forward_returns[1] == 0.2
+    assert result.days[0].candidates[0].startup_signal_score == 88
+    assert result.days[0].candidates[0].startup_signal_label == "启动观察"
+
+
 def test_candidate_walk_forward_replay_can_use_long_horizon_action_candidates(
     monkeypatch,
 ) -> None:

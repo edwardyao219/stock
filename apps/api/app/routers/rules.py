@@ -24,6 +24,7 @@ _SCOPE_LABELS = {
     "action_long": "长期行动池",
     "potential_watch": "潜力观察池",
     "startup_preheat": "启动前夜池",
+    "startup_confirmed": "启动确认池",
 }
 _PRIMARY_POLICY_SCOPES = {"action_long", "action", "all"}
 DEFAULT_REPLAY_START_DATE = "2024-01-01"
@@ -929,7 +930,14 @@ def get_candidate_replay_effect(
     comparison = compare_candidate_walk_forward_scopes(
         start_date=start_date,
         end_date=resolved_end_date,
-        scopes=("all", "action", "action_long", "potential_watch", "startup_preheat"),
+        scopes=(
+            "all",
+            "action",
+            "action_long",
+            "potential_watch",
+            "startup_preheat",
+            "startup_confirmed",
+        ),
         limit=limit,
         horizons=horizons,
         min_coverage_ratio=min_coverage_ratio,

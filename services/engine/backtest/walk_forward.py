@@ -766,6 +766,29 @@ def _is_startup_preheat_candidate_item(item: dict[str, Any]) -> bool:
     return "启动前夜：T-1量价修复" in reasons_text
 
 
+def _is_startup_confirmed_candidate_item(item: dict[str, Any]) -> bool:
+    if not _is_startup_preheat_candidate_item(item):
+        return False
+    startup_score = _optional_float(item, "startup_signal_score") or 0.0
+    sector_strength = _optional_float(item, "sector_strength_score") or 0.0
+    sector_return = _optional_float(item, "sector_avg_return_20d", "sector_return_20d")
+    volume = _optional_float(item, "volume_confirmation_score", "volume_score") or 0.0
+    price_volume = _optional_float(item, "price_volume_trend_score") or volume
+    return_20d = _optional_float(item, "return_20d") or 0.0
+    distance_to_ma20 = _optional_float(item, "distance_to_ma20") or 0.0
+    risk_flags_text = " ".join(str(flag) for flag in item.get("risk_flags") or [])
+    return (
+        startup_score >= 80.0
+        and sector_strength >= 58.0
+        and sector_return is not None
+        and sector_return >= 0.0
+        and (volume >= 80.0 or price_volume >= 78.0)
+        and 0.0 <= return_20d <= 0.16
+        and 0.0 <= distance_to_ma20 <= 0.08
+        and "拥挤" not in risk_flags_text
+    )
+
+
 def _candidate_discovery_cache_path(
     cache_dir: str | Path,
     *,
@@ -2358,6 +2381,12 @@ def run_candidate_walk_forward_replay(
                 elif candidate_scope == "startup_preheat":
                     candidate_items = [
                         item for item in candidate_items if _is_startup_preheat_candidate_item(item)
+                    ]
+                elif candidate_scope == "startup_confirmed":
+                    candidate_items = [
+                        item
+                        for item in candidate_items
+                        if _is_startup_confirmed_candidate_item(item)
                     ]
                 elif candidate_scope != "all":
                     raise ValueError(f"Unsupported candidate_scope: {candidate_scope}")

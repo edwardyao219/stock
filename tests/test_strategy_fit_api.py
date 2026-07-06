@@ -410,7 +410,14 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     assert captured == {
         "start_date": "2024-01-01",
         "end_date": "2026-07-01",
-        "scopes": ("all", "action", "action_long", "potential_watch", "startup_preheat"),
+        "scopes": (
+            "all",
+            "action",
+            "action_long",
+            "potential_watch",
+            "startup_preheat",
+            "startup_confirmed",
+        ),
         "limit": 15,
         "horizons": (1, 5, 10, 20),
         "min_coverage_ratio": 0.7,
