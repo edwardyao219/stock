@@ -487,6 +487,11 @@ export interface ReplaySelectionModeCount extends ReplayCountItem {
   selection_mode: string;
 }
 
+export interface ReplayStartupSignalCount extends ReplayCountItem {
+  bucket: string;
+  label: string;
+}
+
 export interface ReplayDataCoverageMonth {
   month: string;
   grade: string;
@@ -531,15 +536,21 @@ export interface ReplayScopeSummary {
   top_sectors: ReplaySectorCount[];
   style_counts: ReplayStyleCount[];
   selection_mode_counts: ReplaySelectionModeCount[];
+  startup_signal_counts?: ReplayStartupSignalCount[];
   horizons: Record<number, ReplayHorizonSummary>;
   portfolio_horizons: Record<number, ReplayPortfolioHorizonSummary>;
   style_horizons: Record<number, Record<string, ReplayHorizonSummary>>;
   selection_mode_horizons: Record<number, Record<string, ReplayHorizonSummary>>;
+  startup_signal_horizons?: Record<number, Record<string, ReplayHorizonSummary>>;
   style_horizon_preferences: Record<string, ReplayStylePreference>;
   monthly_horizons: Record<number, Record<string, ReplayMonthlyHorizonSummary>>;
   monthly_portfolio_horizons: Record<number, Record<string, ReplayPortfolioHorizonSummary>>;
   monthly_style_horizons: Record<number, Record<string, Record<string, ReplayHorizonSummary>>>;
   monthly_selection_mode_horizons: Record<
+    number,
+    Record<string, Record<string, ReplayHorizonSummary>>
+  >;
+  monthly_startup_signal_horizons?: Record<
     number,
     Record<string, Record<string, ReplayHorizonSummary>>
   >;

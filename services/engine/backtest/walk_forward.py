@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Numeric, Text, cast, delete, func, select
+from sqlalchemy.exc import IntegrityError
 
 from services.engine.research_pool.candidates import discover_next_session_candidates
 from services.engine.risk.trend_guard import (
@@ -34,7 +35,7 @@ MAINLINE_RETURN_20D_MAX = 0.18
 OVEREXTENDED_RETURN_20D_MIN = 0.24
 OVEREXTENDED_POSITIVE_20D_MIN = 85.0
 LONG_HORIZON_STRENGTH_REASON = "中期强者：相对强度或板块扩散足够强"
-CANDIDATE_DISCOVERY_CACHE_VERSION = "candidate-replay-v4-sector"
+CANDIDATE_DISCOVERY_CACHE_VERSION = "candidate-v5-startup-signal"
 DEFAULT_CANDIDATE_DISCOVERY_CACHE_DIR = Path(".tmp/candidate-replay-discovery-cache")
 NOISE_WALK_FORWARD_SYMBOLS = {"000001"}
 PORTFOLIO_SUMMARY_MAX_POSITIONS = 3
@@ -133,6 +134,9 @@ class WalkForwardCandidate:
     sector_strength_score: float | None = None
     sector_return_20d: float | None = None
     sector_style: str | None = None
+    startup_signal_score: float | None = None
+    startup_signal_label: str | None = None
+    startup_signal_reasons: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -347,6 +351,54 @@ def _selection_mode_return_summaries(
     return summaries
 
 
+STARTUP_SIGNAL_BUCKET_LABELS = {
+    "high": "高分启动观察",
+    "medium": "中分启动观察",
+    "low": "低分预热观察",
+}
+
+
+def _startup_signal_bucket(candidate: WalkForwardCandidate) -> str | None:
+    score = candidate.startup_signal_score
+    if score is None:
+        return None
+    if score >= 80.0:
+        return "high"
+    if score >= 70.0:
+        return "medium"
+    return "low"
+
+
+def _startup_signal_return_summaries(
+    candidates: list[WalkForwardCandidate],
+    *,
+    horizon: int,
+) -> dict[str, dict[str, Any]]:
+    summaries: dict[str, dict[str, Any]] = {}
+    for bucket in ("high", "medium", "low"):
+        bucket_candidates = [
+            candidate for candidate in candidates if _startup_signal_bucket(candidate) == bucket
+        ]
+        if not bucket_candidates:
+            continue
+        raw_values = [
+            value
+            for candidate in bucket_candidates
+            if (value := candidate.forward_returns.get(horizon)) is not None
+        ]
+        guarded_values = [
+            value
+            for candidate in bucket_candidates
+            if (value := candidate.guarded_forward_returns.get(horizon)) is not None
+        ]
+        summaries[bucket] = {
+            "label": STARTUP_SIGNAL_BUCKET_LABELS[bucket],
+            "raw": _return_summary(raw_values),
+            "guarded": _return_summary(guarded_values),
+        }
+    return summaries
+
+
 def _monthly_return_summaries(
     candidates: list[WalkForwardCandidate],
     *,
@@ -410,6 +462,31 @@ def _monthly_selection_mode_return_summaries(
     months = sorted({_month_key(candidate.entry_date) for candidate in candidates})
     return {
         month: _selection_mode_return_summaries(
+            [
+                candidate
+                for candidate in candidates
+                if _month_key(candidate.entry_date) == month
+            ],
+            horizon=horizon,
+        )
+        for month in months
+    }
+
+
+def _monthly_startup_signal_return_summaries(
+    candidates: list[WalkForwardCandidate],
+    *,
+    horizon: int,
+) -> dict[str, dict[str, Any]]:
+    months = sorted(
+        {
+            _month_key(candidate.entry_date)
+            for candidate in candidates
+            if _startup_signal_bucket(candidate) is not None
+        }
+    )
+    return {
+        month: _startup_signal_return_summaries(
             [
                 candidate
                 for candidate in candidates
@@ -573,9 +650,13 @@ def summarize_walk_forward_replay(
     selection_mode_counts = Counter(
         str(candidate.selection_mode or "unknown") for candidate in candidates
     )
+    startup_signal_counts = Counter(
+        bucket for candidate in candidates if (bucket := _startup_signal_bucket(candidate))
+    )
     horizon_summaries: dict[int, dict[str, Any]] = {}
     style_horizon_summaries: dict[int, dict[str, Any]] = {}
     selection_mode_horizon_summaries: dict[int, dict[str, Any]] = {}
+    startup_signal_horizon_summaries: dict[int, dict[str, Any]] = {}
     for horizon in horizons:
         raw_values = [
             value
@@ -607,6 +688,10 @@ def summarize_walk_forward_replay(
             candidates,
             horizon=horizon,
         )
+        startup_signal_horizon_summaries[horizon] = _startup_signal_return_summaries(
+            candidates,
+            horizon=horizon,
+        )
     return {
         "start_date": result.start_date,
         "end_date": result.end_date,
@@ -626,6 +711,15 @@ def summarize_walk_forward_replay(
             {"selection_mode": mode, "count": count}
             for mode, count in sorted(selection_mode_counts.items())
         ],
+        "startup_signal_counts": [
+            {
+                "bucket": bucket,
+                "label": STARTUP_SIGNAL_BUCKET_LABELS[bucket],
+                "count": startup_signal_counts[bucket],
+            }
+            for bucket in ("high", "medium", "low")
+            if startup_signal_counts[bucket]
+        ],
         "horizons": horizon_summaries,
         "portfolio_horizons": {
             horizon: _portfolio_return_summary(result.days, horizon=horizon)
@@ -633,6 +727,7 @@ def summarize_walk_forward_replay(
         },
         "style_horizons": style_horizon_summaries,
         "selection_mode_horizons": selection_mode_horizon_summaries,
+        "startup_signal_horizons": startup_signal_horizon_summaries,
         "style_horizon_preferences": _style_horizon_preferences(
             style_horizon_summaries,
         ),
@@ -650,6 +745,10 @@ def summarize_walk_forward_replay(
         },
         "monthly_selection_mode_horizons": {
             horizon: _monthly_selection_mode_return_summaries(candidates, horizon=horizon)
+            for horizon in horizons
+        },
+        "monthly_startup_signal_horizons": {
+            horizon: _monthly_startup_signal_return_summaries(candidates, horizon=horizon)
             for horizon in horizons
         },
     }
@@ -774,6 +873,24 @@ def _load_candidate_discovery_db_cache(
     return discovery
 
 
+def _candidate_discovery_snapshot_row(
+    db: Any,
+    *,
+    signal_date: date,
+    next_date: date,
+    limit: int,
+    include_fundamentals: bool,
+) -> CandidateDiscoverySnapshot | None:
+    return db.execute(
+        select(CandidateDiscoverySnapshot)
+        .where(CandidateDiscoverySnapshot.cache_version == CANDIDATE_DISCOVERY_CACHE_VERSION)
+        .where(CandidateDiscoverySnapshot.signal_date == signal_date)
+        .where(CandidateDiscoverySnapshot.next_trade_date == next_date)
+        .where(CandidateDiscoverySnapshot.candidate_limit == limit)
+        .where(CandidateDiscoverySnapshot.include_fundamentals.is_(include_fundamentals))
+    ).scalar_one_or_none()
+
+
 def _store_candidate_discovery_db_cache(
     db: Any,
     *,
@@ -784,14 +901,13 @@ def _store_candidate_discovery_db_cache(
     discovery: dict[str, Any],
 ) -> None:
     payload = _normalized_candidate_discovery(discovery)
-    row = db.execute(
-        select(CandidateDiscoverySnapshot)
-        .where(CandidateDiscoverySnapshot.cache_version == CANDIDATE_DISCOVERY_CACHE_VERSION)
-        .where(CandidateDiscoverySnapshot.signal_date == signal_date)
-        .where(CandidateDiscoverySnapshot.next_trade_date == next_date)
-        .where(CandidateDiscoverySnapshot.candidate_limit == limit)
-        .where(CandidateDiscoverySnapshot.include_fundamentals.is_(include_fundamentals))
-    ).scalar_one_or_none()
+    row = _candidate_discovery_snapshot_row(
+        db,
+        signal_date=signal_date,
+        next_date=next_date,
+        limit=limit,
+        include_fundamentals=include_fundamentals,
+    )
     now = datetime.utcnow()
     if row is None:
         db.add(
@@ -809,7 +925,22 @@ def _store_candidate_discovery_db_cache(
     else:
         row.discovery_json = payload
         row.updated_at = now
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        row = _candidate_discovery_snapshot_row(
+            db,
+            signal_date=signal_date,
+            next_date=next_date,
+            limit=limit,
+            include_fundamentals=include_fundamentals,
+        )
+        if row is None:
+            raise
+        row.discovery_json = payload
+        row.updated_at = datetime.utcnow()
+        db.commit()
 
 
 def _store_candidate_discovery_cache(
@@ -2275,6 +2406,19 @@ def run_candidate_walk_forward_replay(
                                 "sector_return_20d",
                                 "sector_avg_return_20d",
                             ),
+                            startup_signal_score=_optional_float(
+                                item,
+                                "startup_signal_score",
+                            ),
+                            startup_signal_label=(
+                                str(item.get("startup_signal_label"))
+                                if item.get("startup_signal_label")
+                                else None
+                            ),
+                            startup_signal_reasons=[
+                                str(reason)
+                                for reason in item.get("startup_signal_reasons") or []
+                            ],
                         )
                     )
                 db.rollback()

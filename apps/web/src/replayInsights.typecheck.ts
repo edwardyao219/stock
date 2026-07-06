@@ -194,6 +194,41 @@ const candidateReplay = {
     ],
   },
   scopes: {
+    startup_preheat: {
+      start_date: "2024-01-01",
+      end_date: "2026-07-01",
+      candidate_count: 8,
+      warning_days: 0,
+      top_sectors: [],
+      style_counts: [],
+      selection_mode_counts: [{ selection_mode: "potential_watch", count: 8 }],
+      startup_signal_counts: [{ bucket: "high", label: "高分启动观察", count: 3 }],
+      horizons: {
+        5: {
+          raw: { sample_count: 8, avg_return: 0.04, win_rate: 0.63, total_return: 0.32 },
+          guarded: { sample_count: 8, avg_return: 0.03, win_rate: 0.63, total_return: 0.24 },
+        },
+      },
+      portfolio_horizons: {},
+      monthly_horizons: {},
+      monthly_portfolio_horizons: {},
+      style_horizons: {},
+      selection_mode_horizons: {},
+      startup_signal_horizons: {
+        5: {
+          high: {
+            raw: { sample_count: 3, avg_return: 0.08, win_rate: 1, total_return: 0.24 },
+            guarded: { sample_count: 3, avg_return: 0.07, win_rate: 1, total_return: 0.21 },
+          },
+        },
+      },
+      monthly_style_horizons: {},
+      monthly_selection_mode_horizons: {},
+      monthly_startup_signal_horizons: {},
+      style_horizon_preferences: {},
+      processed_days: 300,
+      excluded_symbols: [],
+    },
     all: {
       start_date: "2024-01-01",
       end_date: "2026-07-01",
@@ -303,5 +338,6 @@ breakdownRows[0].label satisfies string;
 weakRows[0].month satisfies string;
 preferenceRows[0].preferredHorizon satisfies number;
 startupRows[0].horizon satisfies number;
+startupRows[0].highSignalMetric?.sample_count satisfies number | undefined;
 monthlyStyleRows[0].month satisfies string;
 candidateReplay.diagnosis.primary_scope satisfies string;

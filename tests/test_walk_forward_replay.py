@@ -422,6 +422,12 @@ def test_candidate_walk_forward_replay_can_use_startup_preheat_candidates(
                 "sector": "互联网",
                 "selection_mode": "potential_watch",
                 "score": 72,
+                "startup_signal_score": 82.5,
+                "startup_signal_label": "启动观察",
+                "startup_signal_reasons": [
+                    "板块修复：扩散和韧性转暖",
+                    "风险可控：不代表买点，只观察次日承接",
+                ],
                 "reasons": [
                     "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接",
                     "成交量开始确认：温和放量配合价格修复，但未进入核心行动",
@@ -448,6 +454,9 @@ def test_candidate_walk_forward_replay_can_use_startup_preheat_candidates(
 
     assert [item.symbol for item in result.days[0].candidates] == ["600002"]
     assert result.days[0].candidates[0].forward_returns[1] == 0.2
+    assert result.days[0].candidates[0].startup_signal_score == 82.5
+    assert result.days[0].candidates[0].startup_signal_label == "启动观察"
+    assert "不代表买点" in result.days[0].candidates[0].startup_signal_reasons[1]
 
 
 def test_candidate_walk_forward_replay_can_use_long_horizon_action_candidates(
@@ -936,6 +945,76 @@ def test_candidate_discovery_snapshot_uses_large_mysql_json_storage() -> None:
 
 def test_candidate_discovery_cache_version_fits_database_column() -> None:
     assert len(walk_forward.CANDIDATE_DISCOVERY_CACHE_VERSION) <= 32
+
+
+def test_store_candidate_discovery_db_cache_updates_after_unique_key_race() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 1, 2)
+    next_date = date(2026, 1, 5)
+
+    class _StaleReadResult:
+        def scalar_one_or_none(self):
+            return None
+
+    class _StaleReadOnceSession:
+        def __init__(self, session: Session) -> None:
+            self.session = session
+            self.stale_read_used = False
+            self.rollback_calls = 0
+
+        def execute(self, *args, **kwargs):
+            if not self.stale_read_used:
+                self.stale_read_used = True
+                return _StaleReadResult()
+            return self.session.execute(*args, **kwargs)
+
+        def add(self, *args, **kwargs):
+            return self.session.add(*args, **kwargs)
+
+        def commit(self) -> None:
+            self.session.commit()
+
+        def rollback(self) -> None:
+            self.rollback_calls += 1
+            self.session.rollback()
+
+    with Session(engine) as db:
+        db.add(
+            CandidateDiscoverySnapshot(
+                cache_version=walk_forward.CANDIDATE_DISCOVERY_CACHE_VERSION,
+                signal_date=signal_date,
+                next_trade_date=next_date,
+                candidate_limit=3,
+                include_fundamentals=False,
+                discovery_json={
+                    "feature_date": "2026-01-02",
+                    "universe_size": 1,
+                    "candidates": [{"symbol": "600001"}],
+                },
+            )
+        )
+        db.commit()
+
+        race_db = _StaleReadOnceSession(db)
+        walk_forward._store_candidate_discovery_db_cache(
+            race_db,
+            signal_date=signal_date,
+            next_date=next_date,
+            limit=3,
+            include_fundamentals=False,
+            discovery={
+                "feature_date": "2026-01-02",
+                "universe_size": 2,
+                "candidates": [{"symbol": "600002"}],
+            },
+        )
+
+        rows = db.execute(select(CandidateDiscoverySnapshot)).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].discovery_json["universe_size"] == 2
+        assert rows[0].discovery_json["candidates"][0]["symbol"] == "600002"
+        assert race_db.rollback_calls == 1
 
 
 def test_candidate_walk_forward_replay_batches_feature_coverage(monkeypatch) -> None:
@@ -2249,6 +2328,74 @@ def test_summarize_walk_forward_replay_groups_selection_modes() -> None:
     assert summary["monthly_selection_mode_horizons"][5]["2026-02"]["observation"][
         "guarded"
     ]["total_return"] == 0.10
+
+
+def test_summarize_walk_forward_replay_groups_by_startup_signal_bucket() -> None:
+    result = WalkForwardReplayResult(
+        start_date="2026-01-01",
+        end_date="2026-01-31",
+        processed_days=1,
+        days=[
+            WalkForwardDay(
+                signal_date="2026-01-02",
+                next_trade_date="2026-01-05",
+                universe_size=2,
+                feature_rows=2,
+                active_symbols=2,
+                feature_coverage_ratio=1.0,
+                candidates=[
+                    WalkForwardCandidate(
+                        symbol="600010",
+                        name="高分启动",
+                        sector="互联网",
+                        selection_mode="potential_watch",
+                        score=78,
+                        entry_date="2026-01-05",
+                        forward_returns={5: 0.11},
+                        guarded_forward_returns={5: 0.09},
+                        startup_signal_score=82.5,
+                        startup_signal_label="启动观察",
+                        startup_signal_reasons=["板块修复", "风险可控：不代表买点"],
+                    ),
+                    WalkForwardCandidate(
+                        symbol="600011",
+                        name="低分启动",
+                        sector="互联网",
+                        selection_mode="potential_watch",
+                        score=66,
+                        entry_date="2026-01-05",
+                        forward_returns={5: -0.04},
+                        guarded_forward_returns={5: -0.05},
+                        startup_signal_score=62.0,
+                        startup_signal_label="预热观察",
+                        startup_signal_reasons=["量价修复不足"],
+                    ),
+                    WalkForwardCandidate(
+                        symbol="600012",
+                        name="非启动",
+                        sector="半导体",
+                        selection_mode="formal_strategy",
+                        score=82,
+                        entry_date="2026-01-05",
+                        forward_returns={5: 0.02},
+                        guarded_forward_returns={5: 0.02},
+                    ),
+                ],
+            )
+        ],
+    )
+
+    summary = summarize_walk_forward_replay(result, horizons=(5,))
+
+    assert summary["startup_signal_counts"] == [
+        {"bucket": "high", "label": "高分启动观察", "count": 1},
+        {"bucket": "low", "label": "低分预热观察", "count": 1},
+    ]
+    assert summary["startup_signal_horizons"][5]["high"]["guarded"]["total_return"] == 0.09
+    assert summary["startup_signal_horizons"][5]["low"]["guarded"]["total_return"] == -0.05
+    assert summary["monthly_startup_signal_horizons"][5]["2026-01"]["high"]["guarded"][
+        "avg_return"
+    ] == 0.09
 
 
 def test_summarize_walk_forward_replay_excludes_noise_and_attributes_strong_sectors() -> None:

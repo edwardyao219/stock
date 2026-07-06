@@ -2155,6 +2155,13 @@ export function App() {
                         均值 {pct(row.metric?.avg_return)} / 胜率 {pct(row.metric?.win_rate)} / 样本{" "}
                         {row.metric?.sample_count ?? 0}
                       </small>
+                      {row.highSignalMetric ? (
+                        <small>
+                          高分启动组 {pct(row.highSignalMetric.total_return)} / 均值{" "}
+                          {pct(row.highSignalMetric.avg_return)} / 样本{" "}
+                          {row.highSignalMetric.sample_count}
+                        </small>
+                      ) : null}
                     </div>
                   ))}
                 </div>

@@ -42,6 +42,7 @@ export interface StartupPreheatRow {
   horizon: number;
   label: string;
   metric: ReplayReturnSummary | null;
+  highSignalMetric: ReplayReturnSummary | null;
   tone: ReplayTone;
 }
 
@@ -134,10 +135,12 @@ export function startupPreheatRows(report: CandidateReplayEffectReport | null): 
   const scope = report?.scopes.startup_preheat;
   return [1, 5, 10].map((horizon) => {
     const metric = scope?.horizons[horizon]?.guarded ?? null;
+    const highSignalMetric = scope?.startup_signal_horizons?.[horizon]?.high?.guarded ?? null;
     return {
       horizon,
       label: `${horizon}日`,
       metric,
+      highSignalMetric,
       tone: toneFor(metric?.total_return),
     };
   });
