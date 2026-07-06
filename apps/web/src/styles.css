@@ -1968,6 +1968,13 @@ button {
   color: #8a341b;
 }
 
+.fit-pill.validation_failed,
+.fit-metric.validation_failed {
+  border-color: #e8b4b4;
+  background: #fff2f2;
+  color: #842029;
+}
+
 .fit-pill.profit_giveback,
 .fit-metric.profit_giveback {
   border-color: #f2d18c;

@@ -168,11 +168,21 @@ function fitStatusText(value: string | null | undefined) {
   const labels: Record<string, string> = {
     fit: "适配",
     weak: "降权",
+    validation_failed: "验证失败",
     neutral: "观察",
     profit_giveback: "卖点待优化",
     low_sample: "样本少",
   };
   return value ? labels[value] ?? "观察" : "暂无";
+}
+
+function outOfSampleText(value: string | null | undefined) {
+  const labels: Record<string, string> = {
+    passed: "通过",
+    failed: "失败",
+    insufficient: "不足",
+  };
+  return value ? labels[value] ?? "待验证" : "待验证";
 }
 
 function strategyText(value: string | null | undefined) {
@@ -335,6 +345,15 @@ function metricReason(metric: StrategyFitMetric | null) {
   return metric?.recommendations[0]?.rationale ?? metric?.summary ?? "暂无可用回归样本。";
 }
 
+function validationLine(metric: StrategyFitMetric | null) {
+  if (!metric || !metric.out_of_sample_status) return "样本外 待验证";
+  return [
+    `样本外 ${outOfSampleText(metric.out_of_sample_status)}`,
+    `训练 ${pct(metric.train_avg_return)}`,
+    `验证 ${pct(metric.validation_avg_return)}`,
+  ].join(" / ");
+}
+
 function decisionTitle(stock: WorkspaceStock) {
   if (hasOpenAutoTrade(stock)) return "持仓跟踪";
   if (hasTradablePlan(stock)) return "当前可买";
@@ -366,6 +385,7 @@ function bestFitMetric(
 
 function shortFitText(metric: StrategyFitMetric | null) {
   if (!metric) return "历史样本不足，先轻仓观察";
+  if (metric.fit_status === "validation_failed") return "样本外验证转弱，只观察不加权";
   if (metric.fit_status === "weak") return "历史适配偏弱，降低优先级";
   if (metric.fit_status === "fit") return "历史适配较好，但仍按计划风控";
   if (metric.fit_status === "profit_giveback") return "卖点待优化，注意浮盈回撤";
@@ -1856,6 +1876,7 @@ export function App() {
                               <small>
                                 胜率 {pct(metric?.win_rate)} / 平均 {pct(metric?.avg_return)}
                               </small>
+                              <small>{validationLine(metric)}</small>
                             </div>
                           ))}
                         </div>

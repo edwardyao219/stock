@@ -13,7 +13,12 @@ from apps.api.app.routers.rules import (
     get_strategy_fit,
 )
 from services.shared.database import Base
-from services.shared.models import BacktestTradeRecord, ParameterRecommendation, Security
+from services.shared.models import (
+    BacktestTradeRecord,
+    ParameterRecommendation,
+    ReviewReport,
+    Security,
+)
 
 
 def _trade(rule_id: str, symbol: str, signal_day: int, pnl: str) -> BacktestTradeRecord:
@@ -158,6 +163,78 @@ def test_strategy_fit_prefers_stable_long_term_returns_over_win_rate() -> None:
     assert overall["max_drawdown"] <= 0
     assert overall["return_stability"] >= 0
     assert "稳健分" in overall["summary"]
+
+
+def test_strategy_fit_surfaces_out_of_sample_learning_audit() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(
+            Security(
+                symbol="603083",
+                name="剑桥科技",
+                exchange="SH",
+                list_date=None,
+                industry="通信设备",
+                is_active=True,
+            )
+        )
+        db.add_all(
+            [
+                _trade("R007", "603083", 1, "0.05"),
+                _trade("R007", "603083", 2, "0.04"),
+                _trade("R007", "603083", 3, "-0.03"),
+            ]
+        )
+        db.add(
+            ReviewReport(
+                report_date=date(2026, 6, 24),
+                report_type="backtest_learning_review",
+                scope="backtest",
+                generator="mechanical",
+                content_md="# 回归学习报告",
+                metrics_json={
+                    "insights": [
+                        {
+                            "rule_id": "R007",
+                            "scope_type": "sector",
+                            "scope_value": "通信设备",
+                            "positive_learning_allowed": False,
+                            "evidence_quality": "broad",
+                            "train_sample_count": 8,
+                            "validation_sample_count": 4,
+                            "train_avg_return": 0.035,
+                            "validation_avg_return": -0.02,
+                            "train_win_rate": 0.75,
+                            "validation_win_rate": 0.25,
+                            "train_profit_factor": 3.2,
+                            "validation_profit_factor": 0.0,
+                            "train_total_return": 0.28,
+                            "validation_total_return": -0.08,
+                            "out_of_sample_passed": False,
+                            "out_of_sample_status": "failed",
+                            "summary": "训练段表现尚可，但样本外验证转弱",
+                        }
+                    ]
+                },
+            )
+        )
+        db.commit()
+
+        payload = get_strategy_fit(db=db, report_date="2026-06-24", rule_id="R007")
+
+    sector = payload["rules"][0]["sectors"][0]
+
+    assert sector["fit_status"] == "validation_failed"
+    assert sector["out_of_sample_status"] == "failed"
+    assert sector["out_of_sample_passed"] is False
+    assert sector["train_sample_count"] == 8
+    assert sector["validation_sample_count"] == 4
+    assert sector["train_avg_return"] == 0.035
+    assert sector["validation_avg_return"] == -0.02
+    assert "样本外" in sector["summary"]
 
 
 def test_get_low_dimensional_replay_uses_default_long_window_without_compounding(

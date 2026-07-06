@@ -8,7 +8,12 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from services.shared.models import BacktestTradeRecord, ParameterRecommendation, Security
+from services.shared.models import (
+    BacktestTradeRecord,
+    ParameterRecommendation,
+    ReviewReport,
+    Security,
+)
 
 
 @dataclass(frozen=True)
@@ -24,6 +29,20 @@ class StrategyFitMetrics:
     return_stability: float
     avg_mfe: float
     avg_mae: float
+    evidence_quality: str | None
+    positive_learning_allowed: bool | None
+    train_sample_count: int | None
+    validation_sample_count: int | None
+    train_avg_return: float | None
+    validation_avg_return: float | None
+    train_win_rate: float | None
+    validation_win_rate: float | None
+    train_profit_factor: float | None
+    validation_profit_factor: float | None
+    train_total_return: float | None
+    validation_total_return: float | None
+    out_of_sample_passed: bool | None
+    out_of_sample_status: str | None
     fit_status: str
     summary: str
     recommendations: list[dict]
@@ -103,6 +122,8 @@ def _recommendation_payload(item: ParameterRecommendation) -> dict:
 def _recommendation_status(recommendations: list[ParameterRecommendation]) -> str:
     actions = {item.action for item in recommendations}
     target_names = {item.target_name for item in recommendations}
+    if "backtest_validation_quality" in target_names:
+        return "validation_failed"
     if "reduce_priority_or_require_confirmation" in actions:
         return "weak"
     if "keep_or_test_small_priority_increase" in actions:
@@ -110,6 +131,69 @@ def _recommendation_status(recommendations: list[ParameterRecommendation]) -> st
     if "backtest_profit_giveback" in target_names:
         return "profit_giveback"
     return "neutral"
+
+
+def _learning_status(insight: dict | None) -> str:
+    if not insight:
+        return "neutral"
+    if insight.get("out_of_sample_status") == "failed":
+        return "validation_failed"
+    if insight.get("out_of_sample_status") == "insufficient":
+        return "low_sample"
+    if insight.get("positive_learning_allowed") is True:
+        return "fit"
+    return "neutral"
+
+
+def _status_label(value: str | None) -> str:
+    labels = {
+        "passed": "通过",
+        "failed": "失败",
+        "insufficient": "不足",
+    }
+    return labels.get(value or "", "暂无")
+
+
+def _insight_float(insight: dict | None, key: str) -> float | None:
+    if insight is None or insight.get(key) is None:
+        return None
+    return float(insight[key])
+
+
+def _insight_int(insight: dict | None, key: str) -> int | None:
+    if insight is None or insight.get(key) is None:
+        return None
+    return int(insight[key])
+
+
+def _load_learning_insights(
+    db: Session,
+    report_date: date,
+    rule_ids: set[str] | None,
+) -> dict[tuple[str, str, str], dict]:
+    stmt = (
+        select(ReviewReport)
+        .where(ReviewReport.report_date == report_date)
+        .where(ReviewReport.report_type == "backtest_learning_review")
+        .order_by(ReviewReport.id.desc())
+        .limit(1)
+    )
+    report = db.execute(stmt).scalar_one_or_none()
+    if report is None:
+        return {}
+
+    insights = report.metrics_json.get("insights", [])
+    mapped: dict[tuple[str, str, str], dict] = {}
+    for insight in insights:
+        rule_id = str(insight.get("rule_id") or "")
+        scope_type = str(insight.get("scope_type") or "")
+        scope_value = str(insight.get("scope_value") or "")
+        if not rule_id or not scope_type or not scope_value:
+            continue
+        if rule_ids and rule_id not in rule_ids:
+            continue
+        mapped[(rule_id, scope_type, scope_value)] = insight
+    return mapped
 
 
 def _metric_status(
@@ -125,7 +209,12 @@ def _metric_status(
         return "low_sample"
     if avg_return <= 0 or win_rate < 0.4:
         return "weak"
-    if avg_return >= 0.008 and profit_factor >= 1.15 and max_drawdown >= -0.18 and return_stability >= 0.45:
+    if (
+        avg_return >= 0.008
+        and profit_factor >= 1.15
+        and max_drawdown >= -0.18
+        and return_stability >= 0.45
+    ):
         return "fit"
     return "neutral"
 
@@ -154,6 +243,7 @@ def _build_metrics(
     scope_value: str,
     trades: list[BacktestTradeRecord],
     recommendations: list[ParameterRecommendation],
+    learning_insight: dict | None,
 ) -> StrategyFitMetrics:
     returns = [_float(item.pnl_pct) for item in trades]
     wins = [value for value in returns if value > 0]
@@ -169,6 +259,8 @@ def _build_metrics(
     avg_mfe = _avg([_float(item.mfe_pct) for item in trades])
     avg_mae = _avg([_float(item.mae_pct) for item in trades])
     fit_status = _recommendation_status(recommendations)
+    if fit_status == "neutral":
+        fit_status = _learning_status(learning_insight)
     if fit_status == "neutral":
         fit_status = _metric_status(
             trade_count=trade_count,
@@ -190,6 +282,12 @@ def _build_metrics(
         f"胜率{win_rate:.2%}，平均收益{avg_return:.2%}，盈亏因子{profit_factor:.2f}，"
         f"最大回撤{max_drawdown:.2%}，稳定度{return_stability:.2f}，稳健分{robustness_score:.1f}"
     )
+    if learning_insight:
+        summary += (
+            f"，样本外{_status_label(str(learning_insight.get('out_of_sample_status') or ''))}"
+            f"，训练均值{_insight_float(learning_insight, 'train_avg_return') or 0:.2%}"
+            f"，验证均值{_insight_float(learning_insight, 'validation_avg_return') or 0:.2%}"
+        )
     return StrategyFitMetrics(
         rule_id=rule_id,
         scope_type=scope_type,
@@ -202,6 +300,28 @@ def _build_metrics(
         return_stability=return_stability,
         avg_mfe=avg_mfe,
         avg_mae=avg_mae,
+        evidence_quality=str(learning_insight.get("evidence_quality"))
+        if learning_insight and learning_insight.get("evidence_quality") is not None
+        else None,
+        positive_learning_allowed=bool(learning_insight["positive_learning_allowed"])
+        if learning_insight and learning_insight.get("positive_learning_allowed") is not None
+        else None,
+        train_sample_count=_insight_int(learning_insight, "train_sample_count"),
+        validation_sample_count=_insight_int(learning_insight, "validation_sample_count"),
+        train_avg_return=_insight_float(learning_insight, "train_avg_return"),
+        validation_avg_return=_insight_float(learning_insight, "validation_avg_return"),
+        train_win_rate=_insight_float(learning_insight, "train_win_rate"),
+        validation_win_rate=_insight_float(learning_insight, "validation_win_rate"),
+        train_profit_factor=_insight_float(learning_insight, "train_profit_factor"),
+        validation_profit_factor=_insight_float(learning_insight, "validation_profit_factor"),
+        train_total_return=_insight_float(learning_insight, "train_total_return"),
+        validation_total_return=_insight_float(learning_insight, "validation_total_return"),
+        out_of_sample_passed=bool(learning_insight["out_of_sample_passed"])
+        if learning_insight and learning_insight.get("out_of_sample_passed") is not None
+        else None,
+        out_of_sample_status=str(learning_insight.get("out_of_sample_status"))
+        if learning_insight and learning_insight.get("out_of_sample_status") is not None
+        else None,
         fit_status=fit_status,
         summary=summary,
         recommendations=[_recommendation_payload(item) for item in recommendations],
@@ -255,6 +375,7 @@ def load_strategy_fit_report(
     securities = _load_security_map(db, {item.symbol for item in trades})
     rule_ids = {item.rule_id for item in trades}
     recommendations = _load_recommendations(db, parsed_date, rule_ids)
+    learning_insights = _load_learning_insights(db, parsed_date, rule_ids)
 
     overall: dict[str, list[BacktestTradeRecord]] = defaultdict(list)
     by_sector: dict[tuple[str, str], list[BacktestTradeRecord]] = defaultdict(list)
@@ -274,6 +395,7 @@ def load_strategy_fit_report(
             scope_value=current_rule_id,
             trades=overall[current_rule_id],
             recommendations=recommendations.get((current_rule_id, "rule", current_rule_id), []),
+            learning_insight=learning_insights.get((current_rule_id, "rule", current_rule_id)),
         )
         sector_metrics = [
             _build_metrics(
@@ -282,6 +404,7 @@ def load_strategy_fit_report(
                 scope_value=scope_value,
                 trades=items,
                 recommendations=recommendations.get((current_rule_id, "sector", scope_value), []),
+                learning_insight=learning_insights.get((current_rule_id, "sector", scope_value)),
             )
             for (group_rule_id, scope_value), items in by_sector.items()
             if group_rule_id == current_rule_id and len(items) >= min_samples
@@ -293,6 +416,7 @@ def load_strategy_fit_report(
                 scope_value=scope_value,
                 trades=items,
                 recommendations=recommendations.get((current_rule_id, "symbol", scope_value), []),
+                learning_insight=learning_insights.get((current_rule_id, "symbol", scope_value)),
             )
             for (group_rule_id, scope_value), items in by_symbol.items()
             if group_rule_id == current_rule_id and len(items) >= min_samples
