@@ -27,6 +27,8 @@ _SCOPE_LABELS = {
     "startup_confirmed": "启动确认池",
 }
 _PRIMARY_POLICY_SCOPES = {"action_long", "action", "all"}
+_CORE_POLICY_SCOPES = {"action_long", "action"}
+_TACTICAL_POLICY_SCOPES = {"potential_watch", "startup_preheat", "startup_confirmed"}
 DEFAULT_REPLAY_START_DATE = "2024-01-01"
 _STYLE_LABELS = {
     "growth_cycle": "科技成长",
@@ -171,6 +173,140 @@ def _scope_monthly_guarded_rows(
             }
         )
     return rows
+
+
+def _strategy_pk_policy(
+    *,
+    scope: str,
+    sample_count: int,
+    avg_return: float | None,
+    latest_month_total_return: float | None,
+    min_samples: int,
+) -> tuple[str, str]:
+    if sample_count < min_samples:
+        return "low_sample", "样本不足"
+    if avg_return is None or avg_return <= 0.0:
+        return "stand_down", "休息"
+    if latest_month_total_return is not None and latest_month_total_return < 0.0:
+        return "stand_down", "休息"
+    if scope in _CORE_POLICY_SCOPES:
+        return "core_candidate", "核心候选"
+    if scope in _TACTICAL_POLICY_SCOPES:
+        return "tactical_observe", "战术观察"
+    return "observe_only", "只观察"
+
+
+def diagnose_strategy_pk(
+    comparison: dict[str, Any],
+    *,
+    horizons: tuple[int, ...] = (5, 10, 20),
+    primary_horizon: int = 20,
+    min_samples: int = 3,
+) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for scope, summary in (comparison.get("scopes") or {}).items():
+        metrics_by_horizon: dict[int, dict[str, Any]] = {}
+        for horizon in horizons:
+            metric = _guarded_metric(summary, horizon)
+            metrics_by_horizon[horizon] = {
+                "metric_label": _metric_label(summary, horizon),
+                "sample_count": int(metric.get("sample_count") or 0),
+                "avg_return": _metric_float(metric, "avg_return"),
+                "win_rate": _metric_float(metric, "win_rate"),
+                "total_return": _metric_float(metric, "total_return"),
+            }
+
+        monthly_rows = _scope_monthly_guarded_rows(
+            comparison,
+            scope=scope,
+            horizon=primary_horizon,
+        )
+        latest_month = monthly_rows[-1] if monthly_rows else {}
+        month_total_returns = [
+            float(row["total_return"])
+            for row in monthly_rows
+            if row.get("total_return") is not None
+        ]
+        positive_months = sum(1 for value in month_total_returns if value > 0.0)
+        negative_months = sum(1 for value in month_total_returns if value < 0.0)
+        primary_metric = metrics_by_horizon.get(primary_horizon, {})
+        policy, policy_label = _strategy_pk_policy(
+            scope=str(scope),
+            sample_count=int(primary_metric.get("sample_count") or 0),
+            avg_return=primary_metric.get("avg_return"),
+            latest_month_total_return=latest_month.get("total_return"),
+            min_samples=min_samples,
+        )
+        latest_total = latest_month.get("total_return")
+        reason = (
+            f"{_SCOPE_LABELS.get(scope, scope)}：{primary_horizon}日均值"
+            f"{_format_pct(primary_metric.get('avg_return'))}，"
+            f"总收益{_format_pct(primary_metric.get('total_return'))}，"
+            f"最近月{_format_pct(latest_total)}"
+        )
+        rows.append(
+            {
+                "scope": str(scope),
+                "label": _SCOPE_LABELS.get(str(scope), str(scope)),
+                "policy": policy,
+                "policy_label": policy_label,
+                "candidate_count": int(summary.get("candidate_count") or 0),
+                "primary_horizon": primary_horizon,
+                "sample_count": int(primary_metric.get("sample_count") or 0),
+                "avg_return": primary_metric.get("avg_return"),
+                "win_rate": primary_metric.get("win_rate"),
+                "total_return": primary_metric.get("total_return"),
+                "metrics_by_horizon": metrics_by_horizon,
+                "latest_month": latest_month.get("month"),
+                "latest_month_sample_count": latest_month.get("sample_count", 0),
+                "latest_month_avg_return": latest_month.get("avg_return"),
+                "latest_month_total_return": latest_total,
+                "month_count": len(monthly_rows),
+                "positive_months": positive_months,
+                "negative_months": negative_months,
+                "worst_month_total_return": (
+                    round(min(month_total_returns), 6) if month_total_returns else None
+                ),
+                "best_month_total_return": (
+                    round(max(month_total_returns), 6) if month_total_returns else None
+                ),
+                "rank_reason": reason,
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            row["avg_return"] if row["avg_return"] is not None else -999.0,
+            row["total_return"] if row["total_return"] is not None else -999.0,
+            row["latest_month_total_return"]
+            if row["latest_month_total_return"] is not None
+            else -999.0,
+        ),
+        reverse=True,
+    )
+    best = rows[0] if rows else None
+    core = next((row for row in rows if row["policy"] == "core_candidate"), None)
+    summary = (
+        "策略PK：暂无足够回放样本。"
+        if best is None
+        else (
+            f"策略PK：{best['label']}暂时领先，"
+            f"{primary_horizon}日均值{_format_pct(best['avg_return'])}；"
+            f"核心线{core['label'] if core else '暂无'}。"
+        )
+    )
+    return {
+        "return_mode": "simple_sum_no_compounding",
+        "horizons": list(horizons),
+        "primary_horizon": primary_horizon,
+        "summary": summary,
+        "rows": rows,
+        "rules": [
+            "收益用简单相加，不计算复利。",
+            "潜力观察和启动线即使阶段领先，也默认只做Web/盘中观察，不自动进入钉钉核心。",
+            "核心行动优先看长期行动池和钉钉行动池，样本不足时保持克制。",
+        ],
+    }
 
 
 def _scope_monthly_style_guarded_rows(
@@ -847,6 +983,11 @@ def diagnose_candidate_replay_effect(
         "summary": summary_text,
         "scope_rows": ranked_rows,
         "reasons": reasons,
+        "strategy_pk": diagnose_strategy_pk(
+            comparison,
+            horizons=(5, 10, 20),
+            primary_horizon=horizon,
+        ),
         "overfit_guardrails": diagnose_overfit_guardrails(comparison, horizon=horizon),
         "tactical_opportunities": diagnose_tactical_opportunities(comparison),
         "potential_watch_policy": potential_watch_policy,

@@ -8,6 +8,7 @@ from apps.api.app.main import create_app
 from apps.api.app.routers import rules
 from apps.api.app.routers.rules import (
     diagnose_candidate_replay_effect,
+    diagnose_strategy_pk,
     get_candidate_replay_effect,
     get_low_dimensional_replay,
     get_strategy_fit,
@@ -520,6 +521,133 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     assert monthly_posture["posture"] == "tighten_core"
     assert monthly_posture["posture_label"] == "核心收敛"
     assert any("全候选池" in reason for reason in monthly_posture["reasons"])
+    strategy_pk = diagnosis["strategy_pk"]
+    assert strategy_pk["return_mode"] == "simple_sum_no_compounding"
+    assert strategy_pk["primary_horizon"] == 20
+    assert strategy_pk["rows"][0]["scope"] == "potential_watch"
+    assert strategy_pk["rows"][0]["policy"] == "tactical_observe"
+    assert strategy_pk["rows"][0]["metrics_by_horizon"][20]["total_return"] == 6.0
+    assert "compounded_return" not in strategy_pk["rows"][0]["metrics_by_horizon"][20]
+    core_row = next(row for row in strategy_pk["rows"] if row["scope"] == "action_long")
+    assert core_row["policy"] == "core_candidate"
+
+
+def test_strategy_pk_keeps_tactical_lines_out_of_core_even_when_strong() -> None:
+    comparison = {
+        "scopes": {
+            "action_long": {
+                "candidate_count": 7,
+                "horizons": {
+                    5: {"guarded": {"sample_count": 7, "avg_return": 0.03, "total_return": 0.21}},
+                    10: {"guarded": {"sample_count": 7, "avg_return": 0.04, "total_return": 0.28}},
+                    20: {"guarded": {"sample_count": 7, "avg_return": 0.05, "total_return": 0.35}},
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-05": {
+                            "guarded": {
+                                "sample_count": 3,
+                                "avg_return": 0.04,
+                                "total_return": 0.12,
+                            }
+                        },
+                        "2026-06": {
+                            "guarded": {
+                                "sample_count": 4,
+                                "avg_return": 0.06,
+                                "total_return": 0.24,
+                            }
+                        },
+                    }
+                },
+            },
+            "potential_watch": {
+                "candidate_count": 18,
+                "horizons": {
+                    5: {"guarded": {"sample_count": 18, "avg_return": 0.09, "total_return": 1.62}},
+                    10: {"guarded": {"sample_count": 18, "avg_return": 0.10, "total_return": 1.80}},
+                    20: {"guarded": {"sample_count": 18, "avg_return": 0.08, "total_return": 1.44}},
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-05": {
+                            "guarded": {
+                                "sample_count": 8,
+                                "avg_return": -0.02,
+                                "total_return": -0.16,
+                            }
+                        },
+                        "2026-06": {
+                            "guarded": {
+                                "sample_count": 10,
+                                "avg_return": 0.16,
+                                "total_return": 1.60,
+                            }
+                        },
+                    }
+                },
+            },
+            "startup_preheat": {
+                "candidate_count": 5,
+                "horizons": {
+                    5: {"guarded": {"sample_count": 5, "avg_return": 0.11, "total_return": 0.55}},
+                    10: {"guarded": {"sample_count": 5, "avg_return": 0.13, "total_return": 0.65}},
+                    20: {"guarded": {"sample_count": 5, "avg_return": 0.06, "total_return": 0.30}},
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-06": {
+                            "guarded": {
+                                "sample_count": 5,
+                                "avg_return": 0.06,
+                                "total_return": 0.30,
+                            }
+                        },
+                    }
+                },
+            },
+            "all": {
+                "candidate_count": 40,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 40,
+                            "avg_return": -0.01,
+                            "total_return": -0.40,
+                        }
+                    },
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-06": {
+                            "guarded": {
+                                "sample_count": 40,
+                                "avg_return": -0.01,
+                                "total_return": -0.40,
+                            }
+                        },
+                    }
+                },
+            },
+        }
+    }
+
+    pk = diagnose_strategy_pk(comparison, horizons=(5, 10, 20), primary_horizon=20)
+
+    assert pk["return_mode"] == "simple_sum_no_compounding"
+    assert pk["summary"].startswith("策略PK：")
+    assert pk["rows"][0]["scope"] == "potential_watch"
+    assert pk["rows"][0]["policy"] == "tactical_observe"
+    assert pk["rows"][0]["latest_month"] == "2026-06"
+    assert pk["rows"][0]["latest_month_total_return"] == 1.6
+    assert pk["rows"][0]["worst_month_total_return"] == -0.16
+    assert pk["rows"][0]["positive_months"] == 1
+    assert pk["rows"][0]["metrics_by_horizon"][10]["avg_return"] == 0.10
+    assert "compounded_return" not in pk["rows"][0]["metrics_by_horizon"][20]
+    core_row = next(row for row in pk["rows"] if row["scope"] == "action_long")
+    assert core_row["policy"] == "core_candidate"
+    preheat_row = next(row for row in pk["rows"] if row["scope"] == "startup_preheat")
+    assert preheat_row["policy"] == "tactical_observe"
 
 
 def test_candidate_replay_diagnosis_marks_potential_watch_as_tactical_only() -> None:
