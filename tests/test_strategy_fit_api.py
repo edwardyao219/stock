@@ -947,6 +947,104 @@ def test_candidate_replay_effect_enriches_legacy_cached_diagnosis(monkeypatch, t
 
     assert payload["replay_cache"]["hit"] is True
     assert payload["diagnosis"]["sector_leadership_policy"]["label"] == "板块顺势有效"
+    assert (
+        payload["diagnosis"]["sector_leadership_policy"]["rhythm_status"]
+        == "follow_with_confirmation"
+    )
+
+
+def test_candidate_replay_effect_refreshes_stale_cached_sector_policy(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    start_date = "2026-06-01"
+    end_date = "2026-06-30"
+    cache_key = rules._candidate_replay_effect_cache_key(
+        start_date=start_date,
+        end_date=end_date,
+        limit=15,
+        min_coverage_ratio=0.7,
+        include_fundamentals=False,
+    )
+    legacy_payload = {
+        "start_date": start_date,
+        "end_date": end_date,
+        "scopes": {
+            "action_long": {
+                "candidate_count": 5,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 5,
+                            "avg_return": 0.04,
+                            "win_rate": 0.6,
+                            "total_return": 0.2,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-06": {
+                            "guarded": {
+                                "sample_count": 5,
+                                "avg_return": 0.04,
+                                "total_return": 0.2,
+                            },
+                            "sector_leadership": {
+                                "strong_sector": {
+                                    "guarded": {
+                                        "sample_count": 5,
+                                        "avg_return": 0.06,
+                                        "win_rate": 0.75,
+                                        "total_return": 0.30,
+                                    }
+                                },
+                                "other_sector": {
+                                    "guarded": {
+                                        "sample_count": 1,
+                                        "avg_return": -0.04,
+                                        "win_rate": 0.0,
+                                        "total_return": -0.04,
+                                    }
+                                },
+                            },
+                        }
+                    }
+                },
+            }
+        },
+        "discovery_cache_dir": ".tmp/candidate-replay-discovery-cache",
+        "diagnosis": {
+            "horizon": 20,
+            "primary_scope": "action_long",
+            "policy_label": "核心少量行动",
+            "sector_leadership_policy": {
+                "status": "supported",
+                "label": "板块顺势有效",
+                "horizon": 20,
+                "summary": "旧缓存里只有上一版字段。",
+                "rows": [],
+                "rules": ["板块顺势只作门控验证，不直接当买点。"],
+            },
+        },
+        "data_coverage": {"overall": {"grade": "usable"}},
+    }
+
+    monkeypatch.setattr(rules, "CANDIDATE_REPLAY_EFFECT_CACHE_DIR", tmp_path)
+    rules._store_candidate_replay_effect_cache(
+        rules._candidate_replay_effect_cache_path(cache_key),
+        cache_key=cache_key,
+        payload=legacy_payload,
+    )
+
+    payload = get_candidate_replay_effect(start_date=start_date, end_date=end_date)
+    policy = payload["diagnosis"]["sector_leadership_policy"]
+
+    assert payload["replay_cache"]["hit"] is True
+    assert policy["summary"] != "旧缓存里只有上一版字段。"
+    assert policy["rhythm_status"] == "follow_with_confirmation"
+    assert policy["rhythm_label"] == "顺势跟随"
+    assert policy["warnings"] == []
 
 
 def test_strategy_pk_keeps_tactical_lines_out_of_core_even_when_strong() -> None:
@@ -1331,7 +1429,94 @@ def test_candidate_replay_diagnosis_reports_sector_leadership_effect() -> None:
     assert policy["rows"][0]["monthly_rows"][0]["month"] == "2026-05"
     assert policy["rows"][0]["monthly_rows"][0]["status"] == "effective"
     assert policy["rows"][0]["monthly_rows"][1]["avg_return_lift"] > 0
+    assert policy["rhythm_status"] == "follow_with_confirmation"
+    assert policy["rhythm_label"] == "顺势跟随"
+    assert policy["warnings"] == []
     assert any("不直接当买点" in rule for rule in policy["rules"])
+
+
+def test_candidate_replay_sector_leadership_warns_when_strong_sector_has_weak_month() -> None:
+    comparison = {
+        "scopes": {
+            "action_long": {
+                "candidate_count": 12,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 12,
+                            "avg_return": 0.025,
+                            "total_return": 0.3,
+                            "win_rate": 0.58,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-05": {
+                            "guarded": {
+                                "sample_count": 6,
+                                "avg_return": -0.01,
+                                "total_return": -0.06,
+                            },
+                            "sector_leadership": {
+                                "strong_sector": {
+                                    "guarded": {
+                                        "sample_count": 6,
+                                        "avg_return": -0.01,
+                                        "win_rate": 0.33,
+                                        "total_return": -0.06,
+                                    }
+                                },
+                                "other_sector": {
+                                    "guarded": {
+                                        "sample_count": 2,
+                                        "avg_return": 0.0,
+                                        "win_rate": 0.5,
+                                        "total_return": 0.0,
+                                    }
+                                },
+                            },
+                        },
+                        "2026-06": {
+                            "guarded": {
+                                "sample_count": 6,
+                                "avg_return": 0.08,
+                                "total_return": 0.48,
+                            },
+                            "sector_leadership": {
+                                "strong_sector": {
+                                    "guarded": {
+                                        "sample_count": 6,
+                                        "avg_return": 0.08,
+                                        "win_rate": 0.83,
+                                        "total_return": 0.48,
+                                    }
+                                },
+                                "other_sector": {
+                                    "guarded": {
+                                        "sample_count": 2,
+                                        "avg_return": -0.02,
+                                        "win_rate": 0.0,
+                                        "total_return": -0.04,
+                                    }
+                                },
+                            },
+                        },
+                    }
+                },
+            }
+        }
+    }
+
+    policy = rules.diagnose_sector_leadership_policy(comparison, horizon=20)
+
+    assert policy["status"] == "supported"
+    assert policy["rhythm_status"] == "selective_follow"
+    assert policy["rhythm_label"] == "顺势有效但有弱月"
+    assert "弱月先收敛核心" in policy["rhythm_summary"]
+    assert policy["warnings"] == ["板块顺势不是全月有效，弱月先收敛核心。"]
+    assert policy["rows"][0]["positive_months"] == 1
+    assert policy["rows"][0]["negative_months"] == 1
 
 
 def test_candidate_replay_diagnosis_uses_equal_weight_portfolio_metrics() -> None:

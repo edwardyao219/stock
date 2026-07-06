@@ -1176,6 +1176,67 @@ def _sector_leadership_month_row(month: str, item: dict[str, Any]) -> dict[str, 
     }
 
 
+def _sector_leadership_rhythm(
+    *,
+    status: str,
+    best: dict[str, Any] | None,
+    horizon: int,
+) -> dict[str, Any]:
+    if best is None:
+        return {
+            "rhythm_status": "observe_only",
+            "rhythm_label": "样本不足",
+            "rhythm_summary": "强板块拆分样本不足，先观察策略池整体表现。",
+            "latest_month_status": None,
+            "warnings": [],
+        }
+
+    monthly_rows = best.get("monthly_rows") or []
+    latest_row = monthly_rows[-1] if monthly_rows else None
+    latest_month_status = latest_row.get("status") if isinstance(latest_row, dict) else None
+    if status != "supported":
+        return {
+            "rhythm_status": "observe_only",
+            "rhythm_label": "只观察",
+            "rhythm_summary": "板块顺势贡献还不稳定，暂不升级为行动节奏。",
+            "latest_month_status": latest_month_status,
+            "warnings": [],
+        }
+
+    if isinstance(latest_row, dict) and latest_row.get("status") == "weak":
+        latest_month = latest_row.get("month") or best.get("latest_month") or "最近月份"
+        return {
+            "rhythm_status": "tighten_core",
+            "rhythm_label": "最近弱月，收敛核心",
+            "rhythm_summary": (
+                f"{latest_month}强板块{horizon}日表现转弱，"
+                "先收敛核心，不把潜力观察升级为行动。"
+            ),
+            "latest_month_status": latest_month_status,
+            "warnings": ["最近月份板块顺势转弱，暂停潜力观察升级。"],
+        }
+
+    if int(best.get("negative_months") or 0) > 0:
+        return {
+            "rhythm_status": "selective_follow",
+            "rhythm_label": "顺势有效但有弱月",
+            "rhythm_summary": (
+                "板块顺势不是全月有效，强月顺势跟随，弱月先收敛核心，"
+                "不扩大行动池。"
+            ),
+            "latest_month_status": latest_month_status,
+            "warnings": ["板块顺势不是全月有效，弱月先收敛核心。"],
+        }
+
+    return {
+        "rhythm_status": "follow_with_confirmation",
+        "rhythm_label": "顺势跟随",
+        "rhythm_summary": "强板块连续有效时允许顺势跟随，但仍要确认个股趋势、量能和风险位。",
+        "latest_month_status": latest_month_status,
+        "warnings": [],
+    }
+
+
 def diagnose_sector_leadership_policy(
     comparison: dict[str, Any],
     *,
@@ -1277,11 +1338,13 @@ def diagnose_sector_leadership_policy(
             "强板块候选尚未稳定跑赢其他候选，先保留观察，"
             "不把板块门控升级成硬性买入条件。"
         )
+    rhythm = _sector_leadership_rhythm(status=status, best=best, horizon=horizon)
     return {
         "status": status,
         "label": label,
         "horizon": horizon,
         "summary": summary,
+        **rhythm,
         "rows": rows,
         "rules": [
             "板块顺势只作门控验证，不直接当买点。",
@@ -1291,9 +1354,23 @@ def diagnose_sector_leadership_policy(
     }
 
 
+def _sector_leadership_policy_needs_enrichment(diagnosis: dict[str, Any]) -> bool:
+    policy = diagnosis.get("sector_leadership_policy")
+    if not isinstance(policy, dict):
+        return True
+    required_keys = {
+        "rhythm_status",
+        "rhythm_label",
+        "rhythm_summary",
+        "latest_month_status",
+        "warnings",
+    }
+    return not required_keys.issubset(policy)
+
+
 def _enrich_candidate_replay_effect_payload(payload: dict[str, Any]) -> dict[str, Any]:
     diagnosis = payload.get("diagnosis") if isinstance(payload.get("diagnosis"), dict) else {}
-    if "sector_leadership_policy" in diagnosis:
+    if not _sector_leadership_policy_needs_enrichment(diagnosis):
         return payload
     comparison = {
         "start_date": payload.get("start_date"),

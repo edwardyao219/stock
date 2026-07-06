@@ -695,6 +695,11 @@ export interface CandidateReplaySectorLeadershipPolicy {
   label: string;
   horizon: number;
   summary: string;
+  rhythm_status: string;
+  rhythm_label: string;
+  rhythm_summary: string;
+  latest_month_status: string | null;
+  warnings: string[];
   rows: CandidateReplaySectorLeadershipRow[];
   rules: string[];
 }

@@ -2193,8 +2193,17 @@ export function App() {
                     </small>
                   </div>
                   <div className="replay-sector-policy">
-                    <strong>{candidateReplayEffect.diagnosis.sector_leadership_policy.label}</strong>
+                    <strong>
+                      {candidateReplayEffect.diagnosis.sector_leadership_policy.label} /{" "}
+                      {candidateReplayEffect.diagnosis.sector_leadership_policy.rhythm_label}
+                    </strong>
                     <small>{uiText(candidateReplayEffect.diagnosis.sector_leadership_policy.summary)}</small>
+                    <small>{uiText(candidateReplayEffect.diagnosis.sector_leadership_policy.rhythm_summary)}</small>
+                    {candidateReplayEffect.diagnosis.sector_leadership_policy.warnings.slice(0, 1).map((warning) => (
+                      <small className="replay-warning" key={warning}>
+                        {uiText(warning)}
+                      </small>
+                    ))}
                     {candidateReplayEffect.diagnosis.sector_leadership_policy.rows.slice(0, 2).map((row) => (
                       <small key={row.scope}>
                         {row.label}：有效 {row.positive_months}/{row.month_count} 月 / 弱月{" "}

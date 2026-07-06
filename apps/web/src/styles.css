@@ -1677,6 +1677,11 @@ button {
   color: #9a3412;
 }
 
+.replay-diagnosis .replay-sector-policy .replay-warning {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
 .replay-diagnosis .replay-potential-policy {
   background: #f8fafc;
   border: 1px solid #dbe4ee;

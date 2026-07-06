@@ -224,6 +224,11 @@ const candidateReplay = {
       label: "板块顺势有效",
       horizon: 20,
       summary: "强板块候选跑赢其他候选，只作门控验证，不直接当买点。",
+      rhythm_status: "follow_with_confirmation",
+      rhythm_label: "顺势跟随",
+      rhythm_summary: "强板块连续有效时允许顺势跟随，但仍要确认个股趋势、量能和风险位。",
+      latest_month_status: "effective",
+      warnings: [],
       rules: ["板块顺势只作门控验证，不直接当买点。"],
       rows: [
         {
