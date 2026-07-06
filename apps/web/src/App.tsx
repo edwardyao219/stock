@@ -2197,7 +2197,13 @@ export function App() {
                     <small>{uiText(candidateReplayEffect.diagnosis.sector_leadership_policy.summary)}</small>
                     {candidateReplayEffect.diagnosis.sector_leadership_policy.rows.slice(0, 2).map((row) => (
                       <small key={row.scope}>
-                        {row.label}：强板块均值 {pct(row.strong_avg_return)} / 总收益{" "}
+                        {row.label}：有效 {row.positive_months}/{row.month_count} 月 / 弱月{" "}
+                        {row.negative_months} / 最近 {row.latest_month ?? "-"}
+                      </small>
+                    ))}
+                    {candidateReplayEffect.diagnosis.sector_leadership_policy.rows.slice(0, 1).map((row) => (
+                      <small key={`${row.scope}-metric`}>
+                        强板块均值 {pct(row.strong_avg_return)} / 总收益{" "}
                         {pct(row.strong_total_return)} / 相对均值 {pct(row.avg_return_lift)}
                       </small>
                     ))}

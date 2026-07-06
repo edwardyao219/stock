@@ -1126,12 +1126,54 @@ def _monthly_sector_leadership_items(
     summary: dict[str, Any],
     *,
     horizon: int,
-) -> list[dict[str, Any]]:
+) -> list[tuple[str, dict[str, Any]]]:
     monthly_horizons = summary.get("monthly_horizons") or {}
     items = monthly_horizons.get(horizon)
     if items is None:
         items = monthly_horizons.get(str(horizon))
-    return [item for item in (items or {}).values() if isinstance(item, dict)]
+    return [
+        (str(month), item)
+        for month, item in sorted((items or {}).items())
+        if isinstance(item, dict)
+    ]
+
+
+def _sector_leadership_month_row(month: str, item: dict[str, Any]) -> dict[str, Any]:
+    strong = (
+        ((item.get("sector_leadership") or {}).get("strong_sector") or {}).get("guarded")
+    ) or {}
+    other = (((item.get("sector_leadership") or {}).get("other_sector") or {}).get("guarded")) or {}
+    strong_avg = _metric_float(strong, "avg_return")
+    other_avg = _metric_float(other, "avg_return")
+    strong_total = _metric_float(strong, "total_return")
+    other_total = _metric_float(other, "total_return")
+    avg_lift = (
+        round(strong_avg - other_avg, 6)
+        if strong_avg is not None and other_avg is not None
+        else None
+    )
+    total_lift = (
+        round(strong_total - other_total, 6)
+        if strong_total is not None and other_total is not None
+        else None
+    )
+    status = (
+        "effective"
+        if (avg_lift or 0.0) > 0.0 and (strong_total or 0.0) > 0.0
+        else "weak"
+    )
+    return {
+        "month": month,
+        "status": status,
+        "strong_sample_count": int(strong.get("sample_count") or 0),
+        "strong_avg_return": strong_avg,
+        "strong_total_return": strong_total,
+        "other_sample_count": int(other.get("sample_count") or 0),
+        "other_avg_return": other_avg,
+        "other_total_return": other_total,
+        "avg_return_lift": avg_lift,
+        "total_return_lift": total_lift,
+    }
 
 
 def diagnose_sector_leadership_policy(
@@ -1145,15 +1187,18 @@ def diagnose_sector_leadership_policy(
     for scope in scopes:
         summary = (comparison.get("scopes") or {}).get(scope) or {}
         monthly_items = _monthly_sector_leadership_items(summary, horizon=horizon)
+        monthly_rows = [
+            _sector_leadership_month_row(month, item) for month, item in monthly_items
+        ]
         strong_metrics = [
             (((item.get("sector_leadership") or {}).get("strong_sector") or {}).get("guarded"))
             or {}
-            for item in monthly_items
+            for _month, item in monthly_items
         ]
         other_metrics = [
             (((item.get("sector_leadership") or {}).get("other_sector") or {}).get("guarded"))
             or {}
-            for item in monthly_items
+            for _month, item in monthly_items
         ]
         strong = _merge_return_metrics(strong_metrics)
         other = _merge_return_metrics(other_metrics)
@@ -1189,6 +1234,12 @@ def diagnose_sector_leadership_policy(
                 "other_total_return": other_total,
                 "avg_return_lift": avg_lift,
                 "total_return_lift": total_lift,
+                "positive_months": sum(
+                    1 for row in monthly_rows if row["status"] == "effective"
+                ),
+                "negative_months": sum(1 for row in monthly_rows if row["status"] == "weak"),
+                "latest_month": monthly_rows[-1]["month"] if monthly_rows else None,
+                "monthly_rows": monthly_rows,
             }
         )
 
@@ -1216,6 +1267,7 @@ def diagnose_sector_leadership_policy(
             f"{best['label']}里强板块候选{horizon}日均值"
             f"{_format_pct(best['strong_avg_return'])}，"
             f"比其他候选高{_format_pct(best['avg_return_lift'])}。"
+            f"近{best['month_count']}个月有效{best['positive_months']}个月。"
             "这只作门控验证，不直接当买点。"
         )
     else:

@@ -1325,6 +1325,12 @@ def test_candidate_replay_diagnosis_reports_sector_leadership_effect() -> None:
     assert policy["rows"][0]["strong_total_return"] == 0.4
     assert policy["rows"][0]["other_total_return"] == -0.05
     assert policy["rows"][0]["avg_return_lift"] > 0
+    assert policy["rows"][0]["positive_months"] == 2
+    assert policy["rows"][0]["negative_months"] == 0
+    assert policy["rows"][0]["latest_month"] == "2026-06"
+    assert policy["rows"][0]["monthly_rows"][0]["month"] == "2026-05"
+    assert policy["rows"][0]["monthly_rows"][0]["status"] == "effective"
+    assert policy["rows"][0]["monthly_rows"][1]["avg_return_lift"] > 0
     assert any("不直接当买点" in rule for rule in policy["rules"])
 
 

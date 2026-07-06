@@ -671,6 +671,23 @@ export interface CandidateReplaySectorLeadershipRow {
   other_total_return: number | null;
   avg_return_lift: number | null;
   total_return_lift: number | null;
+  positive_months: number;
+  negative_months: number;
+  latest_month: string | null;
+  monthly_rows: CandidateReplaySectorLeadershipMonthRow[];
+}
+
+export interface CandidateReplaySectorLeadershipMonthRow {
+  month: string;
+  status: string;
+  strong_sample_count: number;
+  strong_avg_return: number | null;
+  strong_total_return: number | null;
+  other_sample_count: number;
+  other_avg_return: number | null;
+  other_total_return: number | null;
+  avg_return_lift: number | null;
+  total_return_lift: number | null;
 }
 
 export interface CandidateReplaySectorLeadershipPolicy {
