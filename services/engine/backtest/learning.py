@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import date
 from decimal import Decimal
+from math import ceil
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,6 +28,18 @@ class BacktestLearningInsight:
     top_symbol_share: float
     evidence_quality: str
     positive_learning_allowed: bool
+    train_sample_count: int
+    validation_sample_count: int
+    train_avg_return: float
+    validation_avg_return: float
+    train_win_rate: float
+    validation_win_rate: float
+    train_profit_factor: float
+    validation_profit_factor: float
+    train_total_return: float
+    validation_total_return: float
+    out_of_sample_passed: bool
+    out_of_sample_status: str
     win_rate: float
     avg_return: float
     profit_factor: float
@@ -41,6 +54,24 @@ class BacktestLearningInsight:
         data = asdict(self)
         data["suggestions"] = [item.to_dict() for item in self.suggestions]
         return data
+
+
+@dataclass(frozen=True)
+class ReturnMetrics:
+    sample_count: int
+    avg_return: float
+    win_rate: float
+    profit_factor: float
+    total_return: float
+
+
+@dataclass(frozen=True)
+class OutOfSampleAudit:
+    train: ReturnMetrics
+    validation: ReturnMetrics
+    passed: bool
+    status: str
+    guardrails: list[str]
 
 
 def _float(value: Decimal | None) -> float:
@@ -84,6 +115,87 @@ def _return_stability(values: list[float]) -> float:
     if std == 0:
         return abs(mean)
     return abs(mean) / std
+
+
+def _return_metrics(values: list[float]) -> ReturnMetrics:
+    sample_count = len(values)
+    return ReturnMetrics(
+        sample_count=sample_count,
+        avg_return=_avg(values),
+        win_rate=sum(1 for value in values if value > 0) / sample_count
+        if sample_count
+        else 0.0,
+        profit_factor=_profit_factor(values),
+        total_return=sum(values),
+    )
+
+
+def _split_train_validation(
+    trades: list[BacktestTradeRecord],
+) -> tuple[list[BacktestTradeRecord], list[BacktestTradeRecord]]:
+    if len(trades) < 10:
+        return trades, []
+
+    ordered = sorted(
+        trades,
+        key=lambda item: (
+            item.signal_date or date.min,
+            item.symbol,
+            item.id or 0,
+        ),
+    )
+    validation_count = max(3, ceil(len(ordered) * 0.3))
+    validation_count = min(validation_count, len(ordered) - 1)
+    return ordered[:-validation_count], ordered[-validation_count:]
+
+
+def _profit_factor_passes(metrics: ReturnMetrics, threshold: float) -> bool:
+    if metrics.sample_count == 0:
+        return False
+    if metrics.win_rate == 1.0 and metrics.avg_return > 0:
+        return True
+    return metrics.profit_factor >= threshold
+
+
+def _out_of_sample_audit(trades: list[BacktestTradeRecord]) -> OutOfSampleAudit:
+    train_trades, validation_trades = _split_train_validation(trades)
+    train = _return_metrics([_float(item.pnl_pct) for item in train_trades])
+    validation = _return_metrics([_float(item.pnl_pct) for item in validation_trades])
+
+    guardrails: list[str] = []
+    if validation.sample_count < 3:
+        return OutOfSampleAudit(
+            train=train,
+            validation=validation,
+            passed=False,
+            status="insufficient",
+            guardrails=["样本外验证不足3笔，正向学习只允许观察"],
+        )
+    if train.sample_count < 7:
+        return OutOfSampleAudit(
+            train=train,
+            validation=validation,
+            passed=False,
+            status="insufficient",
+            guardrails=["训练段样本不足7笔，不能用少量历史样本拟合阈值"],
+        )
+
+    if train.avg_return <= 0:
+        guardrails.append("训练段平均收益未转正")
+    if validation.avg_return <= 0:
+        guardrails.append("样本外验证平均收益未转正")
+    if validation.win_rate < 0.45:
+        guardrails.append("样本外验证胜率低于45%")
+    if not _profit_factor_passes(validation, 1.05):
+        guardrails.append("样本外验证盈亏因子不足1.05")
+
+    return OutOfSampleAudit(
+        train=train,
+        validation=validation,
+        passed=not guardrails,
+        status="passed" if not guardrails else "failed",
+        guardrails=guardrails,
+    )
 
 
 def _breadth_metrics(trades: list[BacktestTradeRecord]) -> dict[str, float | int]:
@@ -264,6 +376,15 @@ def _suggestions(
     rule_id: str,
     scope_type: str,
     scope_value: str,
+    positive_learning_allowed: bool,
+    out_of_sample_status: str,
+    out_of_sample_guardrails: list[str],
+    train_sample_count: int,
+    validation_sample_count: int,
+    train_avg_return: float,
+    validation_avg_return: float,
+    validation_win_rate: float,
+    validation_profit_factor: float,
     sample_count: int,
     distinct_symbols: int,
     distinct_signal_months: int,
@@ -286,17 +407,42 @@ def _suggestions(
         signal_span_days=signal_span_days,
         top_symbol_share=top_symbol_share,
     )
-    positive_learning_allowed = _positive_learning_allowed(
-        scope_type=scope_type,
-        sample_count=sample_count,
-        distinct_symbols=distinct_symbols,
-        distinct_signal_months=distinct_signal_months,
-        signal_span_days=signal_span_days,
-        top_symbol_share=top_symbol_share,
-    )
+    guardrails += out_of_sample_guardrails
     suggestions: list[ParameterSuggestion] = []
     learned_scope_type = scope_type
     learned_scope_value = scope_value
+
+    if out_of_sample_status == "failed":
+        suggestions.append(
+            ParameterSuggestion(
+                target_type="entry_filter",
+                target_name="backtest_validation_quality",
+                action="observe_or_require_fresh_confirmation",
+                priority="high",
+                scope_type=learned_scope_type,
+                scope_value=learned_scope_value,
+                rationale=(
+                    f"{rule_id} 在 {scope_type}:{scope_value} 的训练段表现尚可，"
+                    "但最近样本外验证转弱，不能把旧样本收益直接学成正向规则。"
+                ),
+                current={
+                    "rule_id": rule_id,
+                    "sample_count": sample_count,
+                    "train_sample_count": train_sample_count,
+                    "validation_sample_count": validation_sample_count,
+                    "train_avg_return": train_avg_return,
+                    "validation_avg_return": validation_avg_return,
+                    "validation_win_rate": validation_win_rate,
+                    "validation_profit_factor": validation_profit_factor,
+                },
+                proposed={
+                    "priority_score_delta": -3,
+                    "require_extra_confirmation": True,
+                    "source_rule_id": rule_id,
+                },
+                guardrails=guardrails + ["不能用训练段收益抵消最近样本外失败"],
+            )
+        )
 
     if avg_return <= 0 or win_rate < 0.4:
         suggestions.append(
@@ -459,7 +605,12 @@ def _suggestions(
     return suggestions
 
 
-def _candidate_label(scope_type: str, avg_return: float, profit_factor: float, max_drawdown: float) -> str:
+def _candidate_label(
+    scope_type: str,
+    avg_return: float,
+    profit_factor: float,
+    max_drawdown: float,
+) -> str:
     if avg_return > 0 and profit_factor >= 1.2 and max_drawdown >= -0.12:
         if scope_type == "rule":
             return "稳健规则"
@@ -493,7 +644,7 @@ def _build_insight(
         signal_span_days=signal_span_days,
         top_symbol_share=top_symbol_share,
     )
-    positive_learning_allowed = _positive_learning_allowed(
+    breadth_learning_allowed = _positive_learning_allowed(
         scope_type=scope_type,
         sample_count=sample_count,
         distinct_symbols=distinct_symbols,
@@ -501,6 +652,8 @@ def _build_insight(
         signal_span_days=signal_span_days,
         top_symbol_share=top_symbol_share,
     )
+    out_of_sample = _out_of_sample_audit(trades)
+    positive_learning_allowed = breadth_learning_allowed and out_of_sample.passed
     win_rate = sum(1 for value in returns if value > 0) / sample_count if sample_count else 0.0
     avg_return = _avg(returns)
     profit_factor = _profit_factor(returns)
@@ -512,6 +665,15 @@ def _build_insight(
         rule_id=rule_id,
         scope_type=scope_type,
         scope_value=scope_value,
+        positive_learning_allowed=positive_learning_allowed,
+        out_of_sample_status=out_of_sample.status,
+        out_of_sample_guardrails=out_of_sample.guardrails,
+        train_sample_count=out_of_sample.train.sample_count,
+        validation_sample_count=out_of_sample.validation.sample_count,
+        train_avg_return=out_of_sample.train.avg_return,
+        validation_avg_return=out_of_sample.validation.avg_return,
+        validation_win_rate=out_of_sample.validation.win_rate,
+        validation_profit_factor=out_of_sample.validation.profit_factor,
         sample_count=sample_count,
         distinct_symbols=distinct_symbols,
         distinct_signal_months=distinct_signal_months,
@@ -542,6 +704,10 @@ def _build_insight(
         f"覆盖{distinct_symbols}只票，跨{distinct_signal_months}个月，"
         f"跨度{signal_span_days}天，集中度{top_symbol_share:.0%}，"
         f"证据{evidence_quality}，正向可学习{'是' if positive_learning_allowed else '否'}，"
+        f"样本外{out_of_sample.status}，训练{out_of_sample.train.sample_count}笔"
+        f"均值{out_of_sample.train.avg_return:.2%}，"
+        f"验证{out_of_sample.validation.sample_count}笔"
+        f"均值{out_of_sample.validation.avg_return:.2%}，"
         f"胜率{win_rate:.2%}，平均收益{avg_return:.2%}，盈亏因子{profit_factor:.2f}，"
         f"最大回撤{max_drawdown:.2%}，稳定度{return_stability:.2f}，"
         f"平均浮盈{avg_mfe:.2%}，平均不利波动{avg_mae:.2%}，"
@@ -558,6 +724,18 @@ def _build_insight(
         top_symbol_share=top_symbol_share,
         evidence_quality=evidence_quality,
         positive_learning_allowed=positive_learning_allowed,
+        train_sample_count=out_of_sample.train.sample_count,
+        validation_sample_count=out_of_sample.validation.sample_count,
+        train_avg_return=out_of_sample.train.avg_return,
+        validation_avg_return=out_of_sample.validation.avg_return,
+        train_win_rate=out_of_sample.train.win_rate,
+        validation_win_rate=out_of_sample.validation.win_rate,
+        train_profit_factor=out_of_sample.train.profit_factor,
+        validation_profit_factor=out_of_sample.validation.profit_factor,
+        train_total_return=out_of_sample.train.total_return,
+        validation_total_return=out_of_sample.validation.total_return,
+        out_of_sample_passed=out_of_sample.passed,
+        out_of_sample_status=out_of_sample.status,
         win_rate=win_rate,
         avg_return=avg_return,
         profit_factor=profit_factor,
@@ -633,7 +811,12 @@ def _render_report(report_date: str, insights: list[BacktestLearningInsight]) ->
         lines.append(f"## {insight.rule_id} {insight.scope_type}:{insight.scope_value}")
         lines.append(f"- {insight.summary}")
         if not insight.positive_learning_allowed:
-            lines.append("- 说明：样本分散度不够，正向结论只做观察，不放大权重。")
+            if insight.out_of_sample_status != "passed":
+                lines.append(
+                    "- 说明：样本外验证未通过或样本不足，正向结论只做观察，不放大权重。"
+                )
+            else:
+                lines.append("- 说明：样本分散度不够，正向结论只做观察，不放大权重。")
         for suggestion in insight.suggestions:
             lines.append(f"- 参数建议：{suggestion.rationale}")
         lines.append("")

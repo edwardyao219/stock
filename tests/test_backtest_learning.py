@@ -57,6 +57,53 @@ def _trade_on_dates(
     )
 
 
+def _add_sector_securities(db, industry: str = "半导体") -> None:
+    db.add_all(
+        [
+            Security(
+                symbol="603986",
+                name="兆易创新",
+                exchange="SH",
+                list_date=None,
+                industry=industry,
+                is_active=True,
+            ),
+            Security(
+                symbol="002371",
+                name="北方华创",
+                exchange="SZ",
+                list_date=None,
+                industry=industry,
+                is_active=True,
+            ),
+            Security(
+                symbol="300750",
+                name="宁德时代",
+                exchange="SZ",
+                list_date=None,
+                industry=industry,
+                is_active=True,
+            ),
+            Security(
+                symbol="002475",
+                name="立讯精密",
+                exchange="SZ",
+                list_date=None,
+                industry=industry,
+                is_active=True,
+            ),
+        ]
+    )
+
+
+def _sector_insight(report: ReviewReport, scope_value: str = "半导体") -> dict:
+    return next(
+        item
+        for item in report.metrics_json["insights"]
+        if item["scope_type"] == "sector" and item["scope_value"] == scope_value
+    )
+
+
 def test_backtest_learning_generates_scope_adjustments() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -299,3 +346,88 @@ def test_backtest_learning_ranks_stable_positive_candidates_first() -> None:
     assert "其余样本" not in report.content_md
     assert report.metrics_json["insights"][0]["max_drawdown"] <= 0
     assert report.metrics_json["insights"][0]["return_stability"] >= 0
+
+
+def test_backtest_learning_blocks_positive_when_validation_fails() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        _add_sector_securities(db)
+        db.add_all(
+            [
+                _trade_on_dates("603986", date(2026, 1, 5), "0.05", mfe="0.12"),
+                _trade_on_dates("002371", date(2026, 1, 20), "0.04", mfe="0.11"),
+                _trade_on_dates("300750", date(2026, 2, 12), "0.03", mfe="0.10"),
+                _trade_on_dates("002475", date(2026, 3, 8), "0.035", mfe="0.11"),
+                _trade_on_dates("603986", date(2026, 4, 2), "0.045", mfe="0.13"),
+                _trade_on_dates("002371", date(2026, 4, 20), "0.03", mfe="0.10"),
+                _trade_on_dates("300750", date(2026, 5, 8), "0.04", mfe="0.12"),
+                _trade_on_dates("002475", date(2026, 5, 25), "0.03", mfe="0.10"),
+                _trade_on_dates("603986", date(2026, 6, 5), "-0.02", mfe="0.04"),
+                _trade_on_dates("002371", date(2026, 6, 12), "-0.025", mfe="0.03"),
+                _trade_on_dates("300750", date(2026, 6, 18), "-0.015", mfe="0.04"),
+                _trade_on_dates("002475", date(2026, 6, 22), "-0.02", mfe="0.03"),
+            ]
+        )
+        persist_backtest_learning_report(db, "2026-06-24")
+        db.commit()
+
+        recommendations = db.query(ParameterRecommendation).all()
+        report = db.query(ReviewReport).one()
+
+    insight = _sector_insight(report)
+    target_names = {item.target_name for item in recommendations}
+
+    assert insight["out_of_sample_status"] == "failed"
+    assert insight["train_sample_count"] == 8
+    assert insight["validation_sample_count"] == 4
+    assert insight["train_avg_return"] > 0
+    assert insight["validation_avg_return"] < 0
+    assert insight["out_of_sample_passed"] is False
+    assert insight["positive_learning_allowed"] is False
+    assert "backtest_scope_fit" not in target_names
+    assert "learned_long_horizon_hold" not in target_names
+    assert "样本外" in report.content_md or "验证" in report.content_md
+
+
+def test_backtest_learning_allows_positive_when_train_and_validation_pass() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        _add_sector_securities(db)
+        db.add_all(
+            [
+                _trade_on_dates("603986", date(2026, 1, 5), "0.05", mfe="0.14"),
+                _trade_on_dates("002371", date(2026, 1, 20), "0.04", mfe="0.13"),
+                _trade_on_dates("300750", date(2026, 2, 12), "0.03", mfe="0.12"),
+                _trade_on_dates("002475", date(2026, 3, 8), "0.035", mfe="0.12"),
+                _trade_on_dates("603986", date(2026, 4, 2), "0.045", mfe="0.14"),
+                _trade_on_dates("002371", date(2026, 4, 20), "0.03", mfe="0.12"),
+                _trade_on_dates("300750", date(2026, 5, 8), "0.04", mfe="0.13"),
+                _trade_on_dates("002475", date(2026, 5, 25), "0.03", mfe="0.12"),
+                _trade_on_dates("603986", date(2026, 6, 5), "0.04", mfe="0.13"),
+                _trade_on_dates("002371", date(2026, 6, 12), "0.035", mfe="0.12"),
+                _trade_on_dates("300750", date(2026, 6, 18), "0.03", mfe="0.11"),
+                _trade_on_dates("002475", date(2026, 6, 22), "-0.005", mfe="0.08"),
+            ]
+        )
+        persist_backtest_learning_report(db, "2026-06-24")
+        db.commit()
+
+        recommendations = db.query(ParameterRecommendation).all()
+        report = db.query(ReviewReport).one()
+
+    insight = _sector_insight(report)
+    target_names = {item.target_name for item in recommendations}
+
+    assert insight["out_of_sample_status"] == "passed"
+    assert insight["out_of_sample_passed"] is True
+    assert insight["positive_learning_allowed"] is True
+    assert insight["train_avg_return"] > 0
+    assert insight["validation_avg_return"] > 0
+    assert "backtest_scope_fit" in target_names
+    assert "learned_long_horizon_hold" in target_names
