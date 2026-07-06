@@ -209,6 +209,16 @@ CANDIDATE_TAG_PREFIXES = (
     "style_horizon:",
     "mode:",
     "hold_style:",
+    "tier:",
+    "tier_reason:",
+    "candidate_summary:",
+    "candidate_pool:",
+    "candidate_pool_reason:",
+    "style_gate:",
+    "style_gate_reason:",
+    "startup_signal_score:",
+    "startup_signal_label:",
+    "startup_signal_reason:",
 )
 WATCH_KEEP_RETIRE_AFTER = 2
 LONG_HORIZON_WATCH_KEEP_RETIRE_AFTER = 5
@@ -252,8 +262,12 @@ class NextSessionCandidate:
     sector_strength_score: float | None
     volume_confirmation_score: float | None
     price_volume_trend_score: float | None
+    sector_avg_return_20d: float | None
     return_20d: float | None
     distance_to_ma20: float | None
+    startup_signal_score: float | None
+    startup_signal_label: str | None
+    startup_signal_reasons: list[str]
     reasons: list[str]
     risk_flags: list[str]
     matched_rules: list[CandidateStrategyMatch]
@@ -1824,6 +1838,96 @@ def _is_startup_preheat_context(context: dict[str, Any]) -> bool:
     return sector_is_warming
 
 
+def _startup_signal_profile(context: dict[str, Any]) -> dict[str, Any]:
+    if not _is_startup_preheat_context(context):
+        return {"score": None, "label": None, "reasons": []}
+
+    day_change_pct = _day_change_pct(context) or 0.0
+    trend = _float(context, "trend_score", 50.0)
+    relative = _float(context, "relative_strength_score", 50.0)
+    sector = _float(context, "sector_strength_score", 50.0)
+    sector_breadth = _float(context, "sector_breadth_score", 50.0)
+    sector_resilience = _float(context, "sector_trend_resilience_score", 50.0)
+    sector_avg_return_20d = _float(context, "sector_avg_return_20d", 0.0)
+    sector_positive_20d_rate = _float(context, "sector_positive_20d_rate", 0.0)
+    volume = _float(context, "volume_confirmation_score", _float(context, "volume_score", 50.0))
+    price_volume = _float(context, "price_volume_trend_score", volume)
+    risk = _float(context, "risk_score", 50.0)
+    overheat = _float(context, "overheat_score", 50.0)
+    volume_trap = _float(context, "volume_trap_risk_score", 50.0)
+    return_20d = _float(context, "return_20d", 0.0)
+    distance_to_ma20 = _float(context, "distance_to_ma20", 0.0)
+
+    sector_score = 0.0
+    if sector >= 52.0:
+        sector_score += 6.0
+    if sector_breadth >= 55.0:
+        sector_score += 7.0
+    if sector_resilience >= 58.0:
+        sector_score += 7.0
+    if sector_avg_return_20d >= 0.0:
+        sector_score += 5.0
+    if sector_positive_20d_rate >= 45.0:
+        sector_score += 5.0
+
+    price_volume_score = 0.0
+    if trend >= CANDIDATE_POTENTIAL_PREHEAT_TREND_MIN:
+        price_volume_score += 8.0
+    if relative >= CANDIDATE_POTENTIAL_PREHEAT_RELATIVE_MIN:
+        price_volume_score += 7.0
+    if volume >= CANDIDATE_POTENTIAL_PREHEAT_VOLUME_MIN:
+        price_volume_score += 8.0
+    if price_volume >= CANDIDATE_POTENTIAL_PREHEAT_PRICE_VOLUME_MIN:
+        price_volume_score += 8.0
+    if (
+        CANDIDATE_POTENTIAL_PREHEAT_DAY_CHANGE_MIN
+        <= day_change_pct
+        <= CANDIDATE_POTENTIAL_PREHEAT_DAY_CHANGE_MAX
+    ):
+        price_volume_score += 7.0
+    if (
+        CANDIDATE_POTENTIAL_PREHEAT_DISTANCE_TO_MA20_MIN
+        <= distance_to_ma20
+        <= CANDIDATE_POTENTIAL_PREHEAT_DISTANCE_TO_MA20_MAX
+    ):
+        price_volume_score += 7.0
+
+    risk_score = 0.0
+    if risk <= 45.0:
+        risk_score += 8.0
+    if overheat <= 45.0:
+        risk_score += 7.0
+    if volume_trap <= 40.0:
+        risk_score += 6.0
+    if (
+        CANDIDATE_POTENTIAL_PREHEAT_RETURN_20D_MIN
+        <= return_20d
+        <= CANDIDATE_POTENTIAL_PREHEAT_RETURN_20D_MAX
+    ):
+        risk_score += 4.0
+
+    score = round(min(100.0, sector_score + price_volume_score + risk_score), 1)
+    label = "启动观察" if score >= 70.0 else "预热观察"
+    reasons = [
+        (
+            "板块修复："
+            f"扩散{sector_breadth:.1f}/韧性{sector_resilience:.1f}，"
+            f"20日均涨{sector_avg_return_20d * 100:.2f}%，板块转暖但主线未确认"
+        ),
+        (
+            "量价修复："
+            f"T-1涨幅{day_change_pct * 100:.2f}%，量能{volume:.1f}/量价{price_volume:.1f}，"
+            f"距离MA20 {distance_to_ma20 * 100:.2f}%"
+        ),
+        (
+            "风险可控："
+            f"过热{overheat:.1f}/诱多{volume_trap:.1f}/20日涨幅{return_20d * 100:.2f}%，"
+            "不代表买点，只观察次日承接"
+        ),
+    ]
+    return {"score": score, "label": label, "reasons": reasons}
+
+
 def _passes_potential_watch_filters(
     context: dict[str, Any], *, score_delta: float = 0.0
 ) -> bool:
@@ -2220,6 +2324,11 @@ def _build_candidate(
 ) -> NextSessionCandidate:
     selected_match = matches[0]
     route = build_signal_route(context)
+    startup_signal = (
+        _startup_signal_profile(context)
+        if selection_mode == "potential_watch"
+        else {"score": None, "label": None, "reasons": []}
+    )
     score = _candidate_score_with_delta(context, score_delta) + sum(
         item.score_bonus for item in matches
     )
@@ -2248,6 +2357,14 @@ def _build_candidate(
         if _is_startup_preheat_context(context):
             reasons.insert(2, "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接")
             reasons.insert(3, "成交量开始确认：温和放量配合价格修复，但未进入核心行动")
+            if startup_signal["score"] is not None and startup_signal["label"]:
+                reasons.insert(
+                    4,
+                    (
+                        f"{startup_signal['label']}：评分{float(startup_signal['score']):.1f}，"
+                        "板块修复+量价修复+风险可控，不代表买点"
+                    ),
+                )
         elif _is_fresh_potential_watch_context(context):
             reasons.insert(2, "潜力启动：20日涨幅仍低，今日向上启动，后续看承接确认")
     return NextSessionCandidate(
@@ -2271,8 +2388,12 @@ def _build_candidate(
         sector_strength_score=_optional_float(context, "sector_strength_score"),
         volume_confirmation_score=_volume_confirmation_value(context),
         price_volume_trend_score=_optional_float(context, "price_volume_trend_score"),
+        sector_avg_return_20d=_optional_float(context, "sector_avg_return_20d"),
         return_20d=_optional_float(context, "return_20d"),
         distance_to_ma20=_optional_float(context, "distance_to_ma20"),
+        startup_signal_score=startup_signal["score"],
+        startup_signal_label=startup_signal["label"],
+        startup_signal_reasons=startup_signal["reasons"],
         reasons=reasons,
         risk_flags=_risk_flags(context),
         matched_rules=matches,
@@ -2708,6 +2829,18 @@ def discover_next_session_candidates(
         if hold_style:
             tags.append(f"hold_style:{hold_style}")
         tags.append(f"mode:{item.selection_mode}")
+        if item.startup_signal_score is not None:
+            tags.append(f"startup_signal_score:{item.startup_signal_score:.1f}")
+        if item.startup_signal_label:
+            tags.append(f"startup_signal_label:{item.startup_signal_label}")
+        for reason in item.startup_signal_reasons[:3]:
+            tags.append(f"startup_signal_reason:{reason}")
+        if item.selection_mode == "potential_watch" and item.startup_signal_label:
+            tags.append("candidate_pool:startup_preheat")
+            tags.append(
+                "candidate_pool_reason:启动前夜：T-1量价修复但还没确认，"
+                "先盯次日承接，不代表买点。"
+            )
         written += add_symbols_to_pool(
             db,
             [item.symbol],

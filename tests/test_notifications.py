@@ -806,6 +806,8 @@ def test_build_candidate_tiers_keeps_startup_preheat_as_watch_wait() -> None:
             "selection_mode": "potential_watch",
             "selected_strategy_type": "watch_breakout",
             "score": 70.0,
+            "startup_signal_score": 82.5,
+            "startup_signal_label": "启动观察",
             "risk_flags": [],
             "reasons": [
                 "启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接",
@@ -820,6 +822,8 @@ def test_build_candidate_tiers_keeps_startup_preheat_as_watch_wait() -> None:
     assert [item["symbol"] for item in tiers["watch_wait"]] == ["002558"]
     assert tiers["watch_wait"][0]["candidate_tier"] == "watch_wait"
     assert "启动前夜" in tiers["watch_wait"][0]["tier_reason"]
+    assert "启动观察82.5分" in tiers["watch_wait"][0]["tier_reason"]
+    assert "不代表买点" in tiers["watch_wait"][0]["tier_reason"]
     assert "10日观察" in tiers["watch_wait"][0]["tier_reason"]
 
 

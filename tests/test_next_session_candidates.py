@@ -2500,12 +2500,23 @@ def test_discover_next_session_candidates_marks_t_minus_one_startup_preheat() ->
     candidate = result["candidates"][symbols.index("002558")]
     assert candidate["selection_mode"] == "potential_watch"
     assert candidate["selected_rule_id"] == "POT001"
+    assert candidate["startup_signal_label"] == "启动观察"
+    assert candidate["startup_signal_score"] >= 70
+    assert any("板块修复" in reason for reason in candidate["startup_signal_reasons"])
+    assert any("量价修复" in reason for reason in candidate["startup_signal_reasons"])
+    assert any("风险可控" in reason for reason in candidate["startup_signal_reasons"])
+    assert any("不代表买点" in reason for reason in candidate["startup_signal_reasons"])
     assert any("启动前夜" in reason for reason in candidate["reasons"])
     assert any("成交量开始确认" in reason for reason in candidate["reasons"])
     assert any("T-1" in reason for reason in candidate["reasons"])
+    assert any("启动观察" in reason and "不代表买点" in reason for reason in candidate["reasons"])
     stock_tags = {item["symbol"]: item["tags"] for item in items}
     assert "mode:potential_watch" in stock_tags["002558"]
     assert "mode:formal_strategy" not in stock_tags["002558"]
+    assert "candidate_pool:startup_preheat" in stock_tags["002558"]
+    assert any(tag.startswith("startup_signal_score:") for tag in stock_tags["002558"])
+    assert "startup_signal_label:启动观察" in stock_tags["002558"]
+    assert any(tag.startswith("startup_signal_reason:") for tag in stock_tags["002558"])
 
 
 def test_discover_next_session_candidates_surfaces_fresh_potential_after_crowded_sector() -> None:

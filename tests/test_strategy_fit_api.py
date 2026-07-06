@@ -539,6 +539,135 @@ def test_candidate_replay_diagnosis_marks_potential_watch_as_tactical_only() -> 
     assert "不升级为钉钉核心" in diagnosis["potential_watch_policy"]["summary"]
 
 
+def test_candidate_replay_diagnosis_uses_equal_weight_portfolio_metrics() -> None:
+    def scope(
+        *,
+        candidate_count: int,
+        sample_total: float,
+        portfolio_total: float,
+        portfolio_avg: float,
+        monthly_portfolio_total: float,
+        monthly_portfolio_avg: float,
+    ) -> dict:
+        return {
+            "candidate_count": candidate_count,
+            "horizons": {
+                20: {
+                    "guarded": {
+                        "sample_count": candidate_count,
+                        "avg_return": sample_total / max(candidate_count, 1),
+                        "total_return": sample_total,
+                        "win_rate": 0.6,
+                    }
+                }
+            },
+            "portfolio_horizons": {
+                20: {
+                    "guarded": {
+                        "sample_count": 4,
+                        "avg_return": portfolio_avg,
+                        "total_return": portfolio_total,
+                        "win_rate": 0.5,
+                    }
+                }
+            },
+            "monthly_horizons": {
+                20: {
+                    "2026-04": {
+                        "guarded": {
+                            "sample_count": candidate_count,
+                            "avg_return": 0.04,
+                            "total_return": 4.0,
+                            "win_rate": 0.6,
+                        }
+                    },
+                    "2026-05": {
+                        "guarded": {
+                            "sample_count": candidate_count,
+                            "avg_return": 0.04,
+                            "total_return": 4.0,
+                            "win_rate": 0.6,
+                        }
+                    },
+                    "2026-06": {
+                        "guarded": {
+                            "sample_count": candidate_count,
+                            "avg_return": 0.04,
+                            "total_return": 4.0,
+                            "win_rate": 0.6,
+                        }
+                    },
+                }
+            },
+            "monthly_portfolio_horizons": {
+                20: {
+                    "2026-04": {
+                        "guarded": {
+                            "sample_count": 4,
+                            "avg_return": -0.02,
+                            "total_return": -0.08,
+                            "win_rate": 0.25,
+                        }
+                    },
+                    "2026-05": {
+                        "guarded": {
+                            "sample_count": 4,
+                            "avg_return": -0.03,
+                            "total_return": -0.12,
+                            "win_rate": 0.25,
+                        }
+                    },
+                    "2026-06": {
+                        "guarded": {
+                            "sample_count": 4,
+                            "avg_return": monthly_portfolio_avg,
+                            "total_return": monthly_portfolio_total,
+                            "win_rate": 0.5,
+                        }
+                    },
+                }
+            },
+        }
+
+    comparison = {
+        "scopes": {
+            "all": scope(
+                candidate_count=100,
+                sample_total=8.0,
+                portfolio_total=-0.4,
+                portfolio_avg=-0.10,
+                monthly_portfolio_total=-0.16,
+                monthly_portfolio_avg=-0.04,
+            ),
+            "action": scope(
+                candidate_count=20,
+                sample_total=2.0,
+                portfolio_total=-0.2,
+                portfolio_avg=-0.05,
+                monthly_portfolio_total=-0.08,
+                monthly_portfolio_avg=-0.02,
+            ),
+            "action_long": scope(
+                candidate_count=6,
+                sample_total=0.3,
+                portfolio_total=0.24,
+                portfolio_avg=0.06,
+                monthly_portfolio_total=0.16,
+                monthly_portfolio_avg=0.04,
+            ),
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    assert diagnosis["primary_scope"] == "action_long"
+    assert diagnosis["policy_label"] == "核心少量行动"
+    assert diagnosis["scope_rows"][0]["total_return"] == 0.24
+    assert diagnosis["monthly_posture"]["posture"] == "tighten_core"
+    assert diagnosis["market_phase_policy"]["status"] == "risk_off"
+    assert any("3只等权" in reason for reason in diagnosis["reasons"])
+
+
 def test_candidate_replay_style_gate_uses_recent_style_replay_without_sector_names() -> None:
     comparison = {
         "scopes": {

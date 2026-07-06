@@ -124,6 +124,24 @@ assertEqual(
   "候选排序标签不能露出英文前缀",
 );
 assertEqual(
+  manualTagTextForStock("startup_signal_score:82.5", startupPreheatCandidate),
+  "启动信号：82.5分",
+  "启动信号分数不能露出英文前缀",
+);
+assertEqual(
+  manualTagTextForStock("startup_signal_label:启动观察", startupPreheatCandidate),
+  "启动观察",
+  "启动信号标签需要直接显示中文",
+);
+assertEqual(
+  manualTagTextForStock(
+    "startup_signal_reason:风险可控：不代表买点，只观察次日承接",
+    startupPreheatCandidate,
+  ),
+  "风险可控：不代表买点，只观察次日承接",
+  "启动信号原因需要直接显示中文",
+);
+assertEqual(
   manualTagTextForStock("score:70.25", startupPreheatCandidate),
   "分数：70.25",
   "候选分数标签不能露出英文前缀",

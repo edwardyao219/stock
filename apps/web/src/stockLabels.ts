@@ -136,6 +136,15 @@ export function manualTagTextForStock(value: string, stock: StockPoolLabelInput)
   }
   if (value.startsWith("rank:")) return `排序：${value.slice("rank:".length)}`;
   if (value.startsWith("score:")) return `分数：${value.slice("score:".length)}`;
+  if (value.startsWith("startup_signal_score:")) {
+    return `启动信号：${value.slice("startup_signal_score:".length)}分`;
+  }
+  if (value.startsWith("startup_signal_label:")) {
+    return cleanDisplayText(value.slice("startup_signal_label:".length));
+  }
+  if (value.startsWith("startup_signal_reason:")) {
+    return cleanDisplayText(value.slice("startup_signal_reason:".length));
+  }
   if (value.startsWith("batch:")) return `批次：${readableDateTime(value.slice("batch:".length))}`;
   if (value.startsWith("hold_until:")) return `观察到：${value.slice("hold_until:".length)}`;
   if (value.startsWith("dropped:")) return `降级日：${value.slice("dropped:".length)}`;

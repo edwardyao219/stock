@@ -34,9 +34,10 @@ MAINLINE_RETURN_20D_MAX = 0.18
 OVEREXTENDED_RETURN_20D_MIN = 0.24
 OVEREXTENDED_POSITIVE_20D_MIN = 85.0
 LONG_HORIZON_STRENGTH_REASON = "中期强者：相对强度或板块扩散足够强"
-CANDIDATE_DISCOVERY_CACHE_VERSION = "candidate-replay-v3-long-ext"
+CANDIDATE_DISCOVERY_CACHE_VERSION = "candidate-replay-v4-sector"
 DEFAULT_CANDIDATE_DISCOVERY_CACHE_DIR = Path(".tmp/candidate-replay-discovery-cache")
 NOISE_WALK_FORWARD_SYMBOLS = {"000001"}
+PORTFOLIO_SUMMARY_MAX_POSITIONS = 3
 LOW_DIMENSIONAL_TEXT_PREFILTER_KEYS = (
     "trend_score",
     "relative_strength_score",
@@ -198,6 +199,14 @@ def _month_key(value: str | None) -> str:
     if not value:
         return "unknown"
     return value[:7]
+
+
+def _optional_float(payload: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = payload.get(key)
+        if value is not None:
+            return float(value)
+    return None
 
 
 def _sector_style(security_or_style: Any, sector: str | None = None) -> str | None:
@@ -412,6 +421,90 @@ def _monthly_selection_mode_return_summaries(
     }
 
 
+def _portfolio_return_points(
+    days: list[WalkForwardDay],
+    *,
+    horizon: int,
+    field_name: str,
+    max_positions: int = PORTFOLIO_SUMMARY_MAX_POSITIONS,
+) -> list[tuple[str, float]]:
+    points: list[tuple[str, float]] = []
+    for day in days:
+        selected_candidates = [
+            candidate for candidate in day.candidates if not _is_noise_candidate(candidate)
+        ][:max_positions]
+        values = [
+            value
+            for candidate in selected_candidates
+            if (value := getattr(candidate, field_name).get(horizon)) is not None
+        ]
+        if not values:
+            continue
+        entry_month = _month_key(selected_candidates[0].entry_date)
+        points.append((entry_month, round(sum(values) / len(values), 6)))
+    return points
+
+
+def _portfolio_return_summary(
+    days: list[WalkForwardDay],
+    *,
+    horizon: int,
+    max_positions: int = PORTFOLIO_SUMMARY_MAX_POSITIONS,
+) -> dict[str, Any]:
+    raw_points = _portfolio_return_points(
+        days,
+        horizon=horizon,
+        field_name="forward_returns",
+        max_positions=max_positions,
+    )
+    guarded_points = _portfolio_return_points(
+        days,
+        horizon=horizon,
+        field_name="guarded_forward_returns",
+        max_positions=max_positions,
+    )
+    return {
+        "max_positions": max_positions,
+        "weighting": "equal_weight_by_signal_day",
+        "raw": _return_summary([value for _month, value in raw_points]),
+        "guarded": _return_summary([value for _month, value in guarded_points]),
+    }
+
+
+def _monthly_portfolio_return_summaries(
+    days: list[WalkForwardDay],
+    *,
+    horizon: int,
+    max_positions: int = PORTFOLIO_SUMMARY_MAX_POSITIONS,
+) -> dict[str, Any]:
+    raw_points = _portfolio_return_points(
+        days,
+        horizon=horizon,
+        field_name="forward_returns",
+        max_positions=max_positions,
+    )
+    guarded_points = _portfolio_return_points(
+        days,
+        horizon=horizon,
+        field_name="guarded_forward_returns",
+        max_positions=max_positions,
+    )
+    months = sorted({month for month, _value in raw_points + guarded_points})
+    return {
+        month: {
+            "max_positions": max_positions,
+            "weighting": "equal_weight_by_signal_day",
+            "raw": _return_summary(
+                [value for point_month, value in raw_points if point_month == month]
+            ),
+            "guarded": _return_summary(
+                [value for point_month, value in guarded_points if point_month == month]
+            ),
+        }
+        for month in months
+    }
+
+
 def _style_horizon_preferences(
     style_horizon_summaries: dict[int, dict[str, Any]],
     *,
@@ -534,6 +627,10 @@ def summarize_walk_forward_replay(
             for mode, count in sorted(selection_mode_counts.items())
         ],
         "horizons": horizon_summaries,
+        "portfolio_horizons": {
+            horizon: _portfolio_return_summary(result.days, horizon=horizon)
+            for horizon in horizons
+        },
         "style_horizons": style_horizon_summaries,
         "selection_mode_horizons": selection_mode_horizon_summaries,
         "style_horizon_preferences": _style_horizon_preferences(
@@ -541,6 +638,10 @@ def summarize_walk_forward_replay(
         ),
         "monthly_horizons": {
             horizon: _monthly_return_summaries(candidates, horizon=horizon)
+            for horizon in horizons
+        },
+        "monthly_portfolio_horizons": {
+            horizon: _monthly_portfolio_return_summaries(result.days, horizon=horizon)
             for horizon in horizons
         },
         "monthly_style_horizons": {
@@ -2165,6 +2266,15 @@ def run_candidate_walk_forward_replay(
                             guard_exit_reasons=guard_exit_reasons,
                             reasons=[str(reason) for reason in item.get("reasons") or []],
                             risk_flags=[str(flag) for flag in item.get("risk_flags") or []],
+                            sector_strength_score=_optional_float(
+                                item,
+                                "sector_strength_score",
+                            ),
+                            sector_return_20d=_optional_float(
+                                item,
+                                "sector_return_20d",
+                                "sector_avg_return_20d",
+                            ),
                         )
                     )
                 db.rollback()

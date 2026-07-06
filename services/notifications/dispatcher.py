@@ -611,11 +611,18 @@ def _watch_wait_reason(item: dict[str, Any]) -> str:
     if str(item.get("selection_mode") or "") == "potential_watch":
         reasons_text = " ".join(str(reason) for reason in item.get("reasons") or [])
         if "启动前夜：T-1量价修复" in reasons_text:
+            signal_label = str(item.get("startup_signal_label") or "").strip()
+            signal_score = item.get("startup_signal_score")
+            signal_prefix = ""
+            if signal_label and signal_score is not None:
+                signal_prefix = f"{signal_label}{float(signal_score):.1f}分："
+            elif signal_label:
+                signal_prefix = f"{signal_label}："
             return _append_style_gate_reason(
                 item,
                 _append_horizon_reason(
                     item,
-                    "启动前夜：T-1量价已经修复，但还没到核心买点，先盯次日承接。",
+                    f"{signal_prefix}启动前夜：T-1量价已经修复，不代表买点，先盯次日承接。",
                 ),
             )
         return _append_style_gate_reason(

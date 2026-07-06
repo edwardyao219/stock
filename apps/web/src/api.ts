@@ -254,6 +254,9 @@ export interface WorkspaceStock {
   candidate_tier: "core_action" | "watch_wait" | "risk_reject" | null;
   candidate_tier_label: string | null;
   candidate_tier_reason: string | null;
+  startup_signal_score: number | null;
+  startup_signal_label: string | null;
+  startup_signal_reasons: string[];
   feature_date: string | null;
   latest_trade_date: string | null;
   latest_close: number | null;
@@ -453,6 +456,11 @@ export interface ReplayMonthlyHorizonSummary {
   guarded: ReplayReturnSummary;
 }
 
+export interface ReplayPortfolioHorizonSummary extends ReplayMonthlyHorizonSummary {
+  max_positions: number;
+  weighting: string;
+}
+
 export interface ReplayStylePreference {
   preferred_horizon: number;
   preferred_metric: string;
@@ -524,10 +532,12 @@ export interface ReplayScopeSummary {
   style_counts: ReplayStyleCount[];
   selection_mode_counts: ReplaySelectionModeCount[];
   horizons: Record<number, ReplayHorizonSummary>;
+  portfolio_horizons: Record<number, ReplayPortfolioHorizonSummary>;
   style_horizons: Record<number, Record<string, ReplayHorizonSummary>>;
   selection_mode_horizons: Record<number, Record<string, ReplayHorizonSummary>>;
   style_horizon_preferences: Record<string, ReplayStylePreference>;
   monthly_horizons: Record<number, Record<string, ReplayMonthlyHorizonSummary>>;
+  monthly_portfolio_horizons: Record<number, Record<string, ReplayPortfolioHorizonSummary>>;
   monthly_style_horizons: Record<number, Record<string, Record<string, ReplayHorizonSummary>>>;
   monthly_selection_mode_horizons: Record<
     number,
@@ -756,6 +766,9 @@ function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
     candidate_tier: item.candidate_tier ?? null,
     candidate_tier_label: item.candidate_tier_label ?? null,
     candidate_tier_reason: item.candidate_tier_reason ?? null,
+    startup_signal_score: item.startup_signal_score ?? null,
+    startup_signal_label: item.startup_signal_label ?? null,
+    startup_signal_reasons: item.startup_signal_reasons ?? [],
     feature_date: item.feature_date ?? null,
     trend_score: item.trend_score ?? null,
     relative_strength_score: item.relative_strength_score ?? null,

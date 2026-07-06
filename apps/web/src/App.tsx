@@ -284,6 +284,15 @@ function candidateHorizonText(stock: WorkspaceStock) {
   return `建议${horizon}日观察 / ${styleLabelForValue(style)}`;
 }
 
+function startupSignalText(stock: WorkspaceStock) {
+  if (!stock.startup_signal_label) return null;
+  const score =
+    stock.startup_signal_score !== null && stock.startup_signal_score !== undefined
+      ? ` ${stock.startup_signal_score.toFixed(1)}分`
+      : "";
+  return `${stock.startup_signal_label}${score}`;
+}
+
 function paperClosedCount(stock: WorkspaceStock) {
   return stock.paper_trade_summaries.reduce((total, item) => total + item.closed_count, 0);
 }
@@ -1326,6 +1335,10 @@ export function App() {
           {candidatePoolText(item) ? <small>{candidatePoolText(item)}</small> : null}
           {candidateStrategyText(item) ? <small>{candidateStrategyText(item)}</small> : null}
           {candidateHorizonText(item) ? <small>{candidateHorizonText(item)}</small> : null}
+          {startupSignalText(item) ? <small>{startupSignalText(item)}</small> : null}
+          {item.startup_signal_reasons[0] ? (
+            <small className="tier-reason">{item.startup_signal_reasons[0]}</small>
+          ) : null}
           {poolReason ? <small className="tier-reason">{poolReason}</small> : null}
           {tierMeta?.reason ? <small className="tier-reason">{tierMeta.reason}</small> : null}
         </span>
@@ -1668,6 +1681,10 @@ export function App() {
                   {candidatePoolText(selected) ? <p>{candidatePoolText(selected)}</p> : null}
                   {candidateStrategyText(selected) ? <p>{candidateStrategyText(selected)}</p> : null}
                   {candidateHorizonText(selected) ? <p>{candidateHorizonText(selected)}</p> : null}
+                  {startupSignalText(selected) ? <p>{startupSignalText(selected)}</p> : null}
+                  {selected.startup_signal_reasons.map((reason) => (
+                    <p key={reason}>{reason}</p>
+                  ))}
                   {selected.manual_tags.length ? (
                     <div className="tag-row">
                       {selected.manual_tags.map((tag) => (
@@ -2223,6 +2240,10 @@ export function App() {
                       <small>
                         均值 {pct(row.metric?.avg_return)} / 胜率 {pct(row.metric?.win_rate)} / 样本{" "}
                         {row.metric?.sample_count ?? 0} / 候选 {row.candidateCount}
+                      </small>
+                      <small>
+                        3只等权 {pct(row.portfolioMetric?.total_return)} / 均值{" "}
+                        {pct(row.portfolioMetric?.avg_return)} / 交易日 {row.portfolioMetric?.sample_count ?? 0}
                       </small>
                     </div>
                   ))}

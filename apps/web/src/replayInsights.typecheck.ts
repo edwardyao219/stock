@@ -208,7 +208,16 @@ const candidateReplay = {
           guarded: { sample_count: 3000, avg_return: 0.008, win_rate: 0.5, total_return: 24 },
         },
       },
+      portfolio_horizons: {
+        20: {
+          max_positions: 3,
+          weighting: "equal_weight_by_signal_day",
+          raw: { sample_count: 120, avg_return: 0.01, win_rate: 0.52, total_return: 1.2 },
+          guarded: { sample_count: 120, avg_return: 0.008, win_rate: 0.5, total_return: 0.96 },
+        },
+      },
       monthly_horizons: {},
+      monthly_portfolio_horizons: {},
       style_horizons: {},
       selection_mode_horizons: {},
       monthly_style_horizons: {
@@ -241,6 +250,7 @@ const lowDimensional = {
   style_counts: [{ style: "growth_cycle", count: 12 }],
   selection_mode_counts: [{ selection_mode: "potential_watch", count: 8 }],
   horizons: {},
+  portfolio_horizons: {},
   monthly_horizons: {
     20: {
       "2026-05": {
@@ -249,6 +259,7 @@ const lowDimensional = {
       },
     },
   },
+  monthly_portfolio_horizons: {},
   style_horizons: {
     20: {
       growth_cycle: {

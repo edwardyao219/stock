@@ -13,6 +13,7 @@ export interface ReplayScopeRow {
   label: string;
   candidateCount: number;
   metric: ReplayReturnSummary | null;
+  portfolioMetric: ReplayReturnSummary | null;
   tone: ReplayTone;
 }
 
@@ -117,11 +118,13 @@ export function replayScopeRows(
   if (!report) return [];
   return sortedScopeEntries(report).map(([scope, summary]) => {
     const metric = summary.horizons[horizon]?.guarded ?? null;
+    const portfolioMetric = summary.portfolio_horizons[horizon]?.guarded ?? null;
     return {
       scope,
       label: scopeLabels[scope] ?? "其他候选池",
       candidateCount: summary.candidate_count,
       metric,
+      portfolioMetric,
       tone: toneFor(metric?.total_return),
     };
   });

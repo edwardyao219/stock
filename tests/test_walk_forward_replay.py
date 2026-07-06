@@ -870,6 +870,62 @@ def test_candidate_walk_forward_replay_rejects_generated_future_feature_date(
         )
 
 
+def test_candidate_walk_forward_replay_carries_sector_strength_context(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add(_security("600001", "强板块候选", "半导体"))
+        db.add_all(
+            [
+                _bar("600001", date(2026, 1, 2), "10"),
+                _bar("600001", date(2026, 1, 5), "11", "10", open_price="10"),
+                _feature("600001", date(2026, 1, 2)),
+            ]
+        )
+        db.commit()
+
+    def fake_discover(*_args, **_kwargs):
+        return {
+            "feature_date": "2026-01-02",
+            "universe_size": 1,
+            "candidates": [
+                {
+                    "symbol": "600001",
+                    "name": "强板块候选",
+                    "sector": "半导体",
+                    "selection_mode": "formal_strategy",
+                    "score": 84,
+                    "sector_strength_score": 72,
+                    "sector_avg_return_20d": 0.11,
+                    "reasons": ["低维主线：板块趋势和个股强度共振"],
+                    "risk_flags": [],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(walk_forward, "discover_next_session_candidates", fake_discover)
+
+    result = walk_forward.run_candidate_walk_forward_replay(
+        start_date="2026-01-02",
+        end_date="2026-01-05",
+        limit=3,
+        horizons=(1,),
+        discovery_cache_dir=None,
+    )
+    summary = summarize_walk_forward_replay(result, horizons=(1,))
+
+    candidate = result.days[0].candidates[0]
+    assert candidate.sector_strength_score == 72
+    assert candidate.sector_return_20d == 0.11
+    monthly = summary["monthly_horizons"][1]["2026-01"]
+    assert monthly["sector_leadership"]["strong_sector_sample_share"] == 1.0
+    assert monthly["sector_leadership"]["strong_sector"]["raw"]["total_return"] == 0.1
+
+
 def test_candidate_discovery_snapshot_uses_large_mysql_json_storage() -> None:
     dialect_impl = CandidateDiscoverySnapshot.__table__.c.discovery_json.type.dialect_impl(
         mysql.dialect()
@@ -2260,3 +2316,106 @@ def test_summarize_walk_forward_replay_excludes_noise_and_attributes_strong_sect
     assert monthly["sector_leadership"]["strong_sector"]["raw"]["total_return"] == 0.10
     assert monthly["sector_leadership"]["other_sector"]["raw"]["total_return"] == 0.02
     assert monthly["sector_leadership"]["strong_sector_return_share"] == 0.833333
+
+
+def test_summarize_walk_forward_replay_reports_equal_weight_portfolio_returns() -> None:
+    result = WalkForwardReplayResult(
+        start_date="2026-01-01",
+        end_date="2026-01-31",
+        processed_days=2,
+        days=[
+            WalkForwardDay(
+                signal_date="2026-01-02",
+                next_trade_date="2026-01-05",
+                universe_size=4,
+                feature_rows=4,
+                active_symbols=4,
+                feature_coverage_ratio=1.0,
+                candidates=[
+                    WalkForwardCandidate(
+                        symbol="600001",
+                        name="一号",
+                        sector="半导体",
+                        selection_mode="formal_strategy",
+                        score=90,
+                        entry_date="2026-01-05",
+                        forward_returns={5: 0.09},
+                        guarded_forward_returns={5: 0.06},
+                    ),
+                    WalkForwardCandidate(
+                        symbol="600002",
+                        name="二号",
+                        sector="元器件",
+                        selection_mode="formal_strategy",
+                        score=88,
+                        entry_date="2026-01-05",
+                        forward_returns={5: -0.03},
+                        guarded_forward_returns={5: -0.02},
+                    ),
+                    WalkForwardCandidate(
+                        symbol="600003",
+                        name="三号",
+                        sector="软件服务",
+                        selection_mode="formal_strategy",
+                        score=86,
+                        entry_date="2026-01-05",
+                        forward_returns={5: 0.06},
+                        guarded_forward_returns={5: 0.03},
+                    ),
+                    WalkForwardCandidate(
+                        symbol="600004",
+                        name="四号",
+                        sector="电气设备",
+                        selection_mode="formal_strategy",
+                        score=84,
+                        entry_date="2026-01-05",
+                        forward_returns={5: 0.30},
+                        guarded_forward_returns={5: 0.20},
+                    ),
+                ],
+            ),
+            WalkForwardDay(
+                signal_date="2026-01-05",
+                next_trade_date="2026-01-06",
+                universe_size=2,
+                feature_rows=2,
+                active_symbols=2,
+                feature_coverage_ratio=1.0,
+                candidates=[
+                    WalkForwardCandidate(
+                        symbol="000001",
+                        name="噪音样本",
+                        sector="银行",
+                        selection_mode="formal_strategy",
+                        score=99,
+                        entry_date="2026-01-06",
+                        forward_returns={5: 0.50},
+                        guarded_forward_returns={5: 0.40},
+                    ),
+                    WalkForwardCandidate(
+                        symbol="600005",
+                        name="五号",
+                        sector="小金属",
+                        selection_mode="formal_strategy",
+                        score=82,
+                        entry_date="2026-01-06",
+                        forward_returns={5: -0.02},
+                        guarded_forward_returns={5: -0.01},
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    summary = summarize_walk_forward_replay(result, horizons=(5,))
+
+    portfolio = summary["portfolio_horizons"][5]
+    assert portfolio["max_positions"] == 3
+    assert portfolio["raw"]["sample_count"] == 2
+    assert portfolio["raw"]["avg_return"] == 0.01
+    assert portfolio["raw"]["total_return"] == 0.02
+    assert portfolio["raw"]["win_rate"] == 0.5
+    assert portfolio["guarded"]["avg_return"] == 0.006666
+    monthly = summary["monthly_portfolio_horizons"][5]["2026-01"]
+    assert monthly["raw"]["sample_count"] == 2
+    assert monthly["raw"]["total_return"] == 0.02

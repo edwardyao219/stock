@@ -40,16 +40,56 @@ _STYLE_LABELS = {
 }
 
 
+def _empty_return_metric() -> dict[str, Any]:
+    return {
+        "sample_count": 0,
+        "avg_return": None,
+        "win_rate": None,
+        "total_return": None,
+    }
+
+
+def _has_metric_samples(metric: dict[str, Any] | None) -> bool:
+    return bool(metric and int(metric.get("sample_count") or 0) > 0)
+
+
 def _guarded_metric(summary: dict[str, Any], horizon: int) -> dict[str, Any]:
+    portfolio_metric = (
+        ((summary.get("portfolio_horizons") or {}).get(horizon) or {}).get("guarded")
+    )
+    if _has_metric_samples(portfolio_metric):
+        return portfolio_metric
     return (
         ((summary.get("horizons") or {}).get(horizon) or {}).get("guarded")
-        or {
-            "sample_count": 0,
-            "avg_return": None,
-            "win_rate": None,
-            "total_return": None,
-        }
+        or _empty_return_metric()
     )
+
+
+def _metric_label(summary: dict[str, Any], horizon: int) -> str:
+    portfolio_metric = (
+        ((summary.get("portfolio_horizons") or {}).get(horizon) or {}).get("guarded")
+    )
+    return "3只等权" if _has_metric_samples(portfolio_metric) else "样本合计"
+
+
+def _monthly_metric_items(summary: dict[str, Any], horizon: int) -> dict[str, Any]:
+    portfolio_monthly = (summary.get("monthly_portfolio_horizons") or {}).get(horizon) or {}
+    if any(
+        _has_metric_samples((item or {}).get("guarded") or {})
+        for item in portfolio_monthly.values()
+    ):
+        return portfolio_monthly
+    return (summary.get("monthly_horizons") or {}).get(horizon) or {}
+
+
+def _monthly_metric_label(summary: dict[str, Any], horizon: int) -> str:
+    portfolio_monthly = (summary.get("monthly_portfolio_horizons") or {}).get(horizon) or {}
+    if any(
+        _has_metric_samples((item or {}).get("guarded") or {})
+        for item in portfolio_monthly.values()
+    ):
+        return "3只等权"
+    return "样本合计"
 
 
 def _monthly_guarded_metric(
@@ -60,17 +100,9 @@ def _monthly_guarded_metric(
     horizon: int,
 ) -> dict[str, Any]:
     summary = (comparison.get("scopes") or {}).get(scope) or {}
-    return (
-        ((summary.get("monthly_horizons") or {}).get(horizon) or {})
-        .get(month, {})
-        .get("guarded")
-        or {
-            "sample_count": 0,
-            "avg_return": None,
-            "win_rate": None,
-            "total_return": None,
-        }
-    )
+    return (_monthly_metric_items(summary, horizon).get(month, {}) or {}).get(
+        "guarded"
+    ) or _empty_return_metric()
 
 
 def _metric_float(metric: dict[str, Any], key: str) -> float | None:
@@ -89,6 +121,7 @@ def _scope_diagnosis_row(scope: str, summary: dict[str, Any], horizon: int) -> d
     return {
         "scope": scope,
         "label": _SCOPE_LABELS.get(scope, scope),
+        "metric_label": _metric_label(summary, horizon),
         "candidate_count": int(summary.get("candidate_count") or 0),
         "sample_count": int(metric.get("sample_count") or 0),
         "avg_return": _metric_float(metric, "avg_return"),
@@ -97,10 +130,14 @@ def _scope_diagnosis_row(scope: str, summary: dict[str, Any], horizon: int) -> d
     }
 
 
+def _required_primary_samples(row: dict[str, Any], fallback: int) -> int:
+    return 3 if row.get("metric_label") == "3只等权" else fallback
+
+
 def _month_candidates(comparison: dict[str, Any], *, horizon: int) -> list[str]:
     months: set[str] = set()
     for summary in (comparison.get("scopes") or {}).values():
-        monthly = (summary.get("monthly_horizons") or {}).get(horizon) or {}
+        monthly = _monthly_metric_items(summary, horizon)
         for month, item in monthly.items():
             guarded = (item or {}).get("guarded") or {}
             if int(guarded.get("sample_count") or 0) > 0:
@@ -115,7 +152,8 @@ def _scope_monthly_guarded_rows(
     horizon: int,
 ) -> list[dict[str, Any]]:
     summary = (comparison.get("scopes") or {}).get(scope) or {}
-    monthly = (summary.get("monthly_horizons") or {}).get(horizon) or {}
+    monthly = _monthly_metric_items(summary, horizon)
+    metric_label = _monthly_metric_label(summary, horizon)
     rows: list[dict[str, Any]] = []
     for month, item in sorted(monthly.items()):
         guarded = (item or {}).get("guarded") or {}
@@ -125,6 +163,7 @@ def _scope_monthly_guarded_rows(
         rows.append(
             {
                 "month": str(month),
+                "metric_label": metric_label,
                 "sample_count": sample_count,
                 "avg_return": _metric_float(guarded, "avg_return"),
                 "total_return": _metric_float(guarded, "total_return"),
@@ -475,6 +514,10 @@ def diagnose_monthly_replay_posture(
             {
                 "scope": scope,
                 "label": _SCOPE_LABELS.get(scope, scope),
+                "metric_label": _monthly_metric_label(
+                    (comparison.get("scopes") or {}).get(scope) or {},
+                    horizon,
+                ),
                 "sample_count": int(metric.get("sample_count") or 0),
                 "avg_return": _metric_float(metric, "avg_return"),
                 "win_rate": _metric_float(metric, "win_rate"),
@@ -508,7 +551,7 @@ def diagnose_monthly_replay_posture(
 
     reasons = [
         (
-            f"{month} {row['label']}：{horizon}日总收益"
+            f"{month} {row['label']}：{row.get('metric_label', '样本合计')}{horizon}日总收益"
             f"{_format_pct(row['total_return'])}，均值{_format_pct(row['avg_return'])}，"
             f"样本{row['sample_count']}"
         )
@@ -530,6 +573,7 @@ def diagnose_market_phase_policy(
     horizon: int,
     lookback_months: int = 3,
     min_month_samples: int = 20,
+    min_portfolio_month_samples: int = 3,
 ) -> dict[str, Any]:
     rows = [
         row
@@ -538,7 +582,12 @@ def diagnose_market_phase_policy(
             scope="all",
             horizon=horizon,
         )
-        if int(row.get("sample_count") or 0) >= min_month_samples
+        if int(row.get("sample_count") or 0)
+        >= (
+            min_portfolio_month_samples
+            if row.get("metric_label") == "3只等权"
+            else min_month_samples
+        )
     ]
     if not rows:
         return {
@@ -593,7 +642,7 @@ def diagnose_market_phase_policy(
 
     reasons = [
         (
-            f"{row['month']} 全候选池：{horizon}日总收益"
+            f"{row['month']} 全候选池：{row.get('metric_label', '样本合计')}{horizon}日总收益"
             f"{_format_pct(row['total_return'])}，均值{_format_pct(row['avg_return'])}，"
             f"样本{row['sample_count']}"
         )
@@ -693,7 +742,8 @@ def diagnose_dual_line_policy(
             "avg_return": main_row["avg_return"],
             "total_return": main_row["total_return"],
             "summary": (
-                f"{main_row['label']} {horizon}日均值{_format_pct(main_row['avg_return'])}，"
+                f"{main_row['label']} {main_row.get('metric_label', '样本合计')}"
+                f"{horizon}日均值{_format_pct(main_row['avg_return'])}，"
                 f"总收益{_format_pct(main_row['total_return'])}，样本{main_row['sample_count']}。"
             ),
         },
@@ -727,7 +777,9 @@ def diagnose_candidate_replay_effect(
     ]
     policy_rows = [row for row in scope_rows if row["scope"] in _PRIMARY_POLICY_SCOPES]
     eligible_rows = [
-        row for row in policy_rows if row["sample_count"] >= min_primary_samples
+        row
+        for row in policy_rows
+        if row["sample_count"] >= _required_primary_samples(row, min_primary_samples)
     ] or policy_rows
     primary = max(
         eligible_rows,
@@ -774,7 +826,8 @@ def diagnose_candidate_replay_effect(
     )
     reasons = [
         (
-            f"{row['label']}：{horizon}日均值{_format_pct(row['avg_return'])}，"
+            f"{row['label']}：{row.get('metric_label', '样本合计')}{horizon}日均值"
+            f"{_format_pct(row['avg_return'])}，"
             f"总收益{_format_pct(row['total_return'])}，样本{row['sample_count']}"
         )
         for row in ranked_rows[:3]

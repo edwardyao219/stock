@@ -1083,6 +1083,10 @@ def test_list_workspace_stocks_returns_candidate_tier_metadata() -> None:
                         "score:88.4",
                         "tier:core_action",
                         "tier_reason:板块和个股趋势同时在线，盘中仍看承接。",
+                        "startup_signal_score:82.5",
+                        "startup_signal_label:启动观察",
+                        "startup_signal_reason:板块修复：板块扩散和韧性转暖",
+                        "startup_signal_reason:量价修复：T-1温和放量并靠近MA20",
                     ]
                 },
                 status="active",
@@ -1099,6 +1103,12 @@ def test_list_workspace_stocks_returns_candidate_tier_metadata() -> None:
     assert payload[0].candidate_tier == "core_action"
     assert payload[0].candidate_tier_label == "核心行动"
     assert "盘中仍看承接" in payload[0].candidate_tier_reason
+    assert payload[0].startup_signal_score == 82.5
+    assert payload[0].startup_signal_label == "启动观察"
+    assert payload[0].startup_signal_reasons == [
+        "板块修复：板块扩散和韧性转暖",
+        "量价修复：T-1温和放量并靠近MA20",
+    ]
 
 
 def test_list_workspace_stocks_hides_stale_auto_candidate_batches() -> None:

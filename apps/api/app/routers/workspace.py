@@ -2,7 +2,7 @@ from datetime import datetime, time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -250,6 +250,9 @@ class WorkspaceStockResponse(BaseModel):
     candidate_tier: str | None = None
     candidate_tier_label: str | None = None
     candidate_tier_reason: str | None = None
+    startup_signal_score: float | None = None
+    startup_signal_label: str | None = None
+    startup_signal_reasons: list[str] = Field(default_factory=list)
     feature_date: str | None
     latest_trade_date: str | None
     latest_close: float | None
@@ -323,6 +326,9 @@ def _to_response(
         candidate_tier=item.candidate_tier,
         candidate_tier_label=item.candidate_tier_label,
         candidate_tier_reason=item.candidate_tier_reason,
+        startup_signal_score=item.startup_signal_score,
+        startup_signal_label=item.startup_signal_label,
+        startup_signal_reasons=item.startup_signal_reasons,
         feature_date=item.feature_date,
         latest_trade_date=item.latest_trade_date,
         latest_close=item.latest_close,

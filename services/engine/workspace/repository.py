@@ -126,6 +126,9 @@ class WorkspaceItem:
     candidate_tier: str | None
     candidate_tier_label: str | None
     candidate_tier_reason: str | None
+    startup_signal_score: float | None
+    startup_signal_label: str | None
+    startup_signal_reasons: list[str]
     feature_date: str | None
     latest_trade_date: str | None
     latest_close: float | None
@@ -532,6 +535,16 @@ def _tag_text(tags: list[str], prefix: str) -> str | None:
     return None
 
 
+def _tag_texts(tags: list[str], prefix: str) -> list[str]:
+    return [
+        value
+        for tag in tags
+        if tag.startswith(prefix)
+        for value in [tag.removeprefix(prefix).strip()]
+        if value
+    ]
+
+
 def _candidate_tier_label(value: str | None) -> str | None:
     labels = {
         "core_action": "核心行动",
@@ -756,6 +769,9 @@ def _build_workspace_item(
         candidate_tier=candidate_tier,
         candidate_tier_label=_candidate_tier_label(candidate_tier),
         candidate_tier_reason=_candidate_tier_reason(manual_tags, candidate_tier),
+        startup_signal_score=_tag_number(manual_tags, "startup_signal_score:", float),
+        startup_signal_label=_tag_text(manual_tags, "startup_signal_label:"),
+        startup_signal_reasons=_tag_texts(manual_tags, "startup_signal_reason:"),
         feature_date=feature_date,
         latest_trade_date=latest_bar.trade_date.isoformat() if latest_bar else None,
         latest_close=_float(latest_bar.close) if latest_bar else None,
