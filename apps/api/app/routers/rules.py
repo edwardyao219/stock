@@ -1122,6 +1122,146 @@ def diagnose_tactical_opportunities(
     return opportunities
 
 
+def _monthly_sector_leadership_items(
+    summary: dict[str, Any],
+    *,
+    horizon: int,
+) -> list[dict[str, Any]]:
+    monthly_horizons = summary.get("monthly_horizons") or {}
+    items = monthly_horizons.get(horizon)
+    if items is None:
+        items = monthly_horizons.get(str(horizon))
+    return [item for item in (items or {}).values() if isinstance(item, dict)]
+
+
+def diagnose_sector_leadership_policy(
+    comparison: dict[str, Any],
+    *,
+    horizon: int = 20,
+    scopes: tuple[str, ...] = ("action_long", "action", "potential_watch", "all"),
+    min_strong_samples: int = 5,
+) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for scope in scopes:
+        summary = (comparison.get("scopes") or {}).get(scope) or {}
+        monthly_items = _monthly_sector_leadership_items(summary, horizon=horizon)
+        strong_metrics = [
+            (((item.get("sector_leadership") or {}).get("strong_sector") or {}).get("guarded"))
+            or {}
+            for item in monthly_items
+        ]
+        other_metrics = [
+            (((item.get("sector_leadership") or {}).get("other_sector") or {}).get("guarded"))
+            or {}
+            for item in monthly_items
+        ]
+        strong = _merge_return_metrics(strong_metrics)
+        other = _merge_return_metrics(other_metrics)
+        strong_samples = int(strong.get("sample_count") or 0)
+        other_samples = int(other.get("sample_count") or 0)
+        if strong_samples <= 0 and other_samples <= 0:
+            continue
+        strong_avg = _metric_float(strong, "avg_return")
+        other_avg = _metric_float(other, "avg_return")
+        strong_total = _metric_float(strong, "total_return")
+        other_total = _metric_float(other, "total_return")
+        avg_lift = (
+            round(strong_avg - other_avg, 6)
+            if strong_avg is not None and other_avg is not None
+            else None
+        )
+        total_lift = (
+            round(strong_total - other_total, 6)
+            if strong_total is not None and other_total is not None
+            else None
+        )
+        rows.append(
+            {
+                "scope": scope,
+                "label": _SCOPE_LABELS.get(scope, scope),
+                "horizon": horizon,
+                "month_count": len(monthly_items),
+                "strong_sample_count": strong_samples,
+                "strong_avg_return": strong_avg,
+                "strong_total_return": strong_total,
+                "other_sample_count": other_samples,
+                "other_avg_return": other_avg,
+                "other_total_return": other_total,
+                "avg_return_lift": avg_lift,
+                "total_return_lift": total_lift,
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            row["strong_sample_count"],
+            row["avg_return_lift"] if row["avg_return_lift"] is not None else -999.0,
+            row["strong_total_return"] if row["strong_total_return"] is not None else -999.0,
+        ),
+        reverse=True,
+    )
+    best = rows[0] if rows else None
+    if best is None:
+        status = "insufficient"
+        label = "板块样本不足"
+        summary = "当前回放缺少强板块拆分样本，只能先看策略池整体表现。"
+    elif (
+        int(best["strong_sample_count"] or 0) >= min_strong_samples
+        and (best["avg_return_lift"] or 0.0) > 0.0
+        and (best["strong_total_return"] or 0.0) > 0.0
+    ):
+        status = "supported"
+        label = "板块顺势有效"
+        summary = (
+            f"{best['label']}里强板块候选{horizon}日均值"
+            f"{_format_pct(best['strong_avg_return'])}，"
+            f"比其他候选高{_format_pct(best['avg_return_lift'])}。"
+            "这只作门控验证，不直接当买点。"
+        )
+    else:
+        status = "mixed"
+        label = "板块贡献待确认"
+        summary = (
+            "强板块候选尚未稳定跑赢其他候选，先保留观察，"
+            "不把板块门控升级成硬性买入条件。"
+        )
+    return {
+        "status": status,
+        "label": label,
+        "horizon": horizon,
+        "summary": summary,
+        "rows": rows,
+        "rules": [
+            "板块顺势只作门控验证，不直接当买点。",
+            "强板块有效也需要个股趋势、量能和风险位确认。",
+            "样本不足时宁可观察，不因单月表现过拟合。",
+        ],
+    }
+
+
+def _enrich_candidate_replay_effect_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    diagnosis = payload.get("diagnosis") if isinstance(payload.get("diagnosis"), dict) else {}
+    if "sector_leadership_policy" in diagnosis:
+        return payload
+    comparison = {
+        "start_date": payload.get("start_date"),
+        "end_date": payload.get("end_date"),
+        "scopes": payload.get("scopes") or {},
+        "discovery_cache_dir": payload.get("discovery_cache_dir"),
+    }
+    horizon = int(diagnosis.get("horizon") or 20)
+    return {
+        **payload,
+        "diagnosis": {
+            **diagnosis,
+            "sector_leadership_policy": diagnose_sector_leadership_policy(
+                comparison,
+                horizon=horizon,
+            ),
+        },
+    }
+
+
 def diagnose_potential_watch_policy(
     comparison: dict[str, Any],
     *,
@@ -1592,6 +1732,10 @@ def diagnose_candidate_replay_effect(
             market_phase_policy=market_phase_policy,
             potential_watch_policy=potential_watch_policy,
         ),
+        "sector_leadership_policy": diagnose_sector_leadership_policy(
+            comparison,
+            horizon=horizon,
+        ),
         "style_gate_policy": diagnose_style_gate_policy(comparison),
         "monthly_posture": diagnose_monthly_replay_posture(comparison, horizon=horizon),
     }
@@ -1668,6 +1812,12 @@ def get_candidate_replay_effect(
     if not force_refresh:
         cached_payload = _load_candidate_replay_effect_cache(cache_path, cache_key=cache_key)
         if cached_payload is not None:
+            cached_payload = _enrich_candidate_replay_effect_payload(cached_payload)
+            _store_candidate_replay_effect_cache(
+                cache_path,
+                cache_key=cache_key,
+                payload=cached_payload,
+            )
             return _with_candidate_replay_cache_meta(
                 cached_payload,
                 cache_key=cache_key,

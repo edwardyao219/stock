@@ -2192,6 +2192,19 @@ export function App() {
                       {uiText(candidateReplayEffect.diagnosis.dual_line_policy.support_line.summary ?? "暂无预热信号")}
                     </small>
                   </div>
+                  <div className="replay-sector-policy">
+                    <strong>{candidateReplayEffect.diagnosis.sector_leadership_policy.label}</strong>
+                    <small>{uiText(candidateReplayEffect.diagnosis.sector_leadership_policy.summary)}</small>
+                    {candidateReplayEffect.diagnosis.sector_leadership_policy.rows.slice(0, 2).map((row) => (
+                      <small key={row.scope}>
+                        {row.label}：强板块均值 {pct(row.strong_avg_return)} / 总收益{" "}
+                        {pct(row.strong_total_return)} / 相对均值 {pct(row.avg_return_lift)}
+                      </small>
+                    ))}
+                    {candidateReplayEffect.diagnosis.sector_leadership_policy.rules.slice(0, 1).map((rule) => (
+                      <small key={rule}>{uiText(rule)}</small>
+                    ))}
+                  </div>
                   <div className="replay-potential-policy">
                     <strong>{candidateReplayEffect.diagnosis.potential_watch_policy.label}</strong>
                     <small>{uiText(candidateReplayEffect.diagnosis.potential_watch_policy.summary)}</small>

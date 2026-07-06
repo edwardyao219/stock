@@ -1661,6 +1661,22 @@ button {
   color: #1f6f43;
 }
 
+.replay-diagnosis .replay-sector-policy {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  padding: 6px;
+}
+
+.replay-diagnosis .replay-sector-policy strong {
+  color: #9a3412;
+  font-size: 13px;
+}
+
+.replay-diagnosis .replay-sector-policy small {
+  color: #9a3412;
+}
+
 .replay-diagnosis .replay-potential-policy {
   background: #f8fafc;
   border: 1px solid #dbe4ee;

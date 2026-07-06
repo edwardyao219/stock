@@ -658,6 +658,30 @@ export interface StrategyPkReport {
   rules: string[];
 }
 
+export interface CandidateReplaySectorLeadershipRow {
+  scope: string;
+  label: string;
+  horizon: number;
+  month_count: number;
+  strong_sample_count: number;
+  strong_avg_return: number | null;
+  strong_total_return: number | null;
+  other_sample_count: number;
+  other_avg_return: number | null;
+  other_total_return: number | null;
+  avg_return_lift: number | null;
+  total_return_lift: number | null;
+}
+
+export interface CandidateReplaySectorLeadershipPolicy {
+  status: string;
+  label: string;
+  horizon: number;
+  summary: string;
+  rows: CandidateReplaySectorLeadershipRow[];
+  rules: string[];
+}
+
 export interface CandidateReplayDiagnosis {
   horizon: number;
   primary_scope: string;
@@ -719,6 +743,7 @@ export interface CandidateReplayDiagnosis {
     rules: string[];
   };
   style_gate_policy: CandidateReplayStyleGatePolicy;
+  sector_leadership_policy: CandidateReplaySectorLeadershipPolicy;
   strategy_pk: StrategyPkReport;
   monthly_posture: {
     month: string | null;

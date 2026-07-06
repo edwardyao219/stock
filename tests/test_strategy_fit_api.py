@@ -870,6 +870,85 @@ def test_candidate_replay_effect_builds_range_from_monthly_shards(monkeypatch, t
     assert guarded["total_return"] == 0.2
 
 
+def test_candidate_replay_effect_enriches_legacy_cached_diagnosis(monkeypatch, tmp_path) -> None:
+    start_date = "2026-06-01"
+    end_date = "2026-06-30"
+    cache_key = rules._candidate_replay_effect_cache_key(
+        start_date=start_date,
+        end_date=end_date,
+        limit=15,
+        min_coverage_ratio=0.7,
+        include_fundamentals=False,
+    )
+    legacy_payload = {
+        "start_date": start_date,
+        "end_date": end_date,
+        "scopes": {
+            "action_long": {
+                "candidate_count": 5,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 5,
+                            "avg_return": 0.04,
+                            "win_rate": 0.6,
+                            "total_return": 0.2,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-06": {
+                            "guarded": {
+                                "sample_count": 5,
+                                "avg_return": 0.04,
+                                "total_return": 0.2,
+                            },
+                            "sector_leadership": {
+                                "strong_sector": {
+                                    "guarded": {
+                                        "sample_count": 5,
+                                        "avg_return": 0.06,
+                                        "win_rate": 0.75,
+                                        "total_return": 0.30,
+                                    }
+                                },
+                                "other_sector": {
+                                    "guarded": {
+                                        "sample_count": 1,
+                                        "avg_return": -0.04,
+                                        "win_rate": 0.0,
+                                        "total_return": -0.04,
+                                    }
+                                },
+                            },
+                        }
+                    }
+                },
+            }
+        },
+        "discovery_cache_dir": ".tmp/candidate-replay-discovery-cache",
+        "diagnosis": {
+            "horizon": 20,
+            "primary_scope": "action_long",
+            "policy_label": "核心少量行动",
+        },
+        "data_coverage": {"overall": {"grade": "usable"}},
+    }
+
+    monkeypatch.setattr(rules, "CANDIDATE_REPLAY_EFFECT_CACHE_DIR", tmp_path)
+    rules._store_candidate_replay_effect_cache(
+        rules._candidate_replay_effect_cache_path(cache_key),
+        cache_key=cache_key,
+        payload=legacy_payload,
+    )
+
+    payload = get_candidate_replay_effect(start_date=start_date, end_date=end_date)
+
+    assert payload["replay_cache"]["hit"] is True
+    assert payload["diagnosis"]["sector_leadership_policy"]["label"] == "板块顺势有效"
+
+
 def test_strategy_pk_keeps_tactical_lines_out_of_core_even_when_strong() -> None:
     comparison = {
         "scopes": {
@@ -1146,6 +1225,107 @@ def test_candidate_replay_diagnosis_marks_potential_watch_as_tactical_only() -> 
     assert diagnosis["potential_watch_policy"]["status"] == "tactical_watch"
     assert diagnosis["potential_watch_policy"]["label"] == "盘中重点观察"
     assert "不升级为钉钉核心" in diagnosis["potential_watch_policy"]["summary"]
+
+
+def test_candidate_replay_diagnosis_reports_sector_leadership_effect() -> None:
+    comparison = {
+        "scopes": {
+            "action_long": {
+                "candidate_count": 9,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 9,
+                            "avg_return": 0.035,
+                            "total_return": 0.315,
+                            "win_rate": 0.56,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-05": {
+                            "guarded": {
+                                "sample_count": 4,
+                                "avg_return": 0.025,
+                                "total_return": 0.10,
+                            },
+                            "sector_leadership": {
+                                "strong_sector": {
+                                    "guarded": {
+                                        "sample_count": 3,
+                                        "avg_return": 0.06,
+                                        "win_rate": 0.667,
+                                        "total_return": 0.18,
+                                    }
+                                },
+                                "other_sector": {
+                                    "guarded": {
+                                        "sample_count": 1,
+                                        "avg_return": -0.04,
+                                        "win_rate": 0.0,
+                                        "total_return": -0.04,
+                                    }
+                                },
+                            },
+                        },
+                        "2026-06": {
+                            "guarded": {
+                                "sample_count": 5,
+                                "avg_return": 0.043,
+                                "total_return": 0.215,
+                            },
+                            "sector_leadership": {
+                                "strong_sector": {
+                                    "guarded": {
+                                        "sample_count": 4,
+                                        "avg_return": 0.055,
+                                        "win_rate": 0.75,
+                                        "total_return": 0.22,
+                                    }
+                                },
+                                "other_sector": {
+                                    "guarded": {
+                                        "sample_count": 1,
+                                        "avg_return": -0.01,
+                                        "win_rate": 0.0,
+                                        "total_return": -0.01,
+                                    }
+                                },
+                            },
+                        },
+                    }
+                },
+            },
+            "all": {
+                "candidate_count": 40,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 40,
+                            "avg_return": 0.01,
+                            "total_return": 0.4,
+                            "win_rate": 0.5,
+                        }
+                    }
+                },
+                "monthly_horizons": {},
+            },
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    policy = diagnosis["sector_leadership_policy"]
+    assert policy["status"] == "supported"
+    assert policy["label"] == "板块顺势有效"
+    assert "只作门控验证" in policy["summary"]
+    assert policy["rows"][0]["scope"] == "action_long"
+    assert policy["rows"][0]["strong_sample_count"] == 7
+    assert policy["rows"][0]["strong_total_return"] == 0.4
+    assert policy["rows"][0]["other_total_return"] == -0.05
+    assert policy["rows"][0]["avg_return_lift"] > 0
+    assert any("不直接当买点" in rule for rule in policy["rules"])
 
 
 def test_candidate_replay_diagnosis_uses_equal_weight_portfolio_metrics() -> None:
