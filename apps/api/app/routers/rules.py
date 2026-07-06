@@ -1,4 +1,7 @@
+import hashlib
+import json
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
@@ -31,6 +34,24 @@ _CORE_POLICY_SCOPES = {"action_long", "action"}
 _TACTICAL_POLICY_SCOPES = {"potential_watch", "startup_preheat", "startup_confirmed"}
 DEFAULT_REPLAY_START_DATE = "2024-01-01"
 DEFAULT_INTERACTIVE_REPLAY_MONTHS = 3
+CANDIDATE_REPLAY_EFFECT_CACHE_VERSION = "candidate-replay-effect-v1"
+CANDIDATE_REPLAY_EFFECT_CACHE_DIR = Path(".tmp/candidate-replay-effect-cache")
+CANDIDATE_REPLAY_EFFECT_HORIZONS = (1, 5, 10, 20)
+CANDIDATE_REPLAY_EFFECT_SCOPES = (
+    "all",
+    "action",
+    "action_long",
+    "potential_watch",
+    "startup_preheat",
+    "startup_confirmed",
+)
+_CANDIDATE_REPLAY_NUMERIC_KEY_MAPS = {
+    "horizons",
+    "monthly_horizons",
+    "portfolio_horizons",
+    "monthly_portfolio_horizons",
+    "metrics_by_horizon",
+}
 _STYLE_LABELS = {
     "growth_cycle": "科技成长",
     "cyclical": "周期资源",
@@ -54,6 +75,112 @@ def _default_interactive_replay_start_date(end_date: str) -> str:
         date.fromisoformat(end_date),
         -DEFAULT_INTERACTIVE_REPLAY_MONTHS,
     ).isoformat()
+
+
+def _candidate_replay_effect_cache_key(
+    *,
+    start_date: str,
+    end_date: str,
+    limit: int,
+    min_coverage_ratio: float,
+    include_fundamentals: bool,
+) -> str:
+    payload = {
+        "version": CANDIDATE_REPLAY_EFFECT_CACHE_VERSION,
+        "start_date": start_date,
+        "end_date": end_date,
+        "limit": limit,
+        "min_coverage_ratio": round(float(min_coverage_ratio), 6),
+        "include_fundamentals": include_fundamentals,
+        "horizons": CANDIDATE_REPLAY_EFFECT_HORIZONS,
+        "scopes": CANDIDATE_REPLAY_EFFECT_SCOPES,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def _candidate_replay_effect_cache_path(cache_key: str) -> Path:
+    return (
+        Path(CANDIDATE_REPLAY_EFFECT_CACHE_DIR)
+        / f"{CANDIDATE_REPLAY_EFFECT_CACHE_VERSION}_{cache_key}.json"
+    )
+
+
+def _restore_candidate_replay_key_types(value: Any, *, parent_key: str | None = None) -> Any:
+    if isinstance(value, list):
+        return [_restore_candidate_replay_key_types(item, parent_key=parent_key) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    restored: dict[Any, Any] = {}
+    for key, item in value.items():
+        restored_key: Any = key
+        if (
+            parent_key in _CANDIDATE_REPLAY_NUMERIC_KEY_MAPS
+            and isinstance(key, str)
+            and key.isdigit()
+        ):
+            restored_key = int(key)
+        restored[restored_key] = _restore_candidate_replay_key_types(
+            item,
+            parent_key=str(restored_key),
+        )
+    return restored
+
+
+def _load_candidate_replay_effect_cache(path: Path, *, cache_key: str) -> dict[str, Any] | None:
+    try:
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if envelope.get("version") != CANDIDATE_REPLAY_EFFECT_CACHE_VERSION:
+        return None
+    if envelope.get("cache_key") != cache_key:
+        return None
+    payload = envelope.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    restored = _restore_candidate_replay_key_types(payload)
+    return restored if isinstance(restored, dict) else None
+
+
+def _store_candidate_replay_effect_cache(
+    path: Path,
+    *,
+    cache_key: str,
+    payload: dict[str, Any],
+) -> None:
+    envelope = {
+        "version": CANDIDATE_REPLAY_EFFECT_CACHE_VERSION,
+        "cache_key": cache_key,
+        "payload": payload,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(".tmp")
+        tmp_path.write_text(
+            json.dumps(envelope, ensure_ascii=False, sort_keys=True, default=str),
+            encoding="utf-8",
+        )
+        tmp_path.replace(path)
+    except OSError:
+        return
+
+
+def _with_candidate_replay_cache_meta(
+    payload: dict[str, Any],
+    *,
+    cache_key: str,
+    hit: bool,
+) -> dict[str, Any]:
+    return {
+        **payload,
+        "replay_cache": {
+            "hit": hit,
+            "cache_key": cache_key,
+            "version": CANDIDATE_REPLAY_EFFECT_CACHE_VERSION,
+        },
+    }
 
 
 def _empty_return_metric() -> dict[str, Any]:
@@ -1082,27 +1209,38 @@ def get_candidate_replay_effect(
     limit: Annotated[int, Query(ge=1, le=30)] = 15,
     min_coverage_ratio: Annotated[float, Query(ge=0.0, le=1.0)] = 0.70,
     include_fundamentals: bool = False,
+    force_refresh: bool = False,
 ) -> dict:
     resolved_end_date = end_date or (now_local().date() - timedelta(days=1)).isoformat()
     resolved_start_date = start_date or _default_interactive_replay_start_date(resolved_end_date)
-    horizons = (1, 5, 10, 20)
+    horizons = CANDIDATE_REPLAY_EFFECT_HORIZONS
+    cache_key = _candidate_replay_effect_cache_key(
+        start_date=resolved_start_date,
+        end_date=resolved_end_date,
+        limit=limit,
+        min_coverage_ratio=min_coverage_ratio,
+        include_fundamentals=include_fundamentals,
+    )
+    cache_path = _candidate_replay_effect_cache_path(cache_key)
+    if not force_refresh:
+        cached_payload = _load_candidate_replay_effect_cache(cache_path, cache_key=cache_key)
+        if cached_payload is not None:
+            return _with_candidate_replay_cache_meta(
+                cached_payload,
+                cache_key=cache_key,
+                hit=True,
+            )
+
     comparison = compare_candidate_walk_forward_scopes(
         start_date=resolved_start_date,
         end_date=resolved_end_date,
-        scopes=(
-            "all",
-            "action",
-            "action_long",
-            "potential_watch",
-            "startup_preheat",
-            "startup_confirmed",
-        ),
+        scopes=CANDIDATE_REPLAY_EFFECT_SCOPES,
         limit=limit,
         horizons=horizons,
         min_coverage_ratio=min_coverage_ratio,
         include_fundamentals=include_fundamentals,
     )
-    return {
+    payload = {
         **comparison,
         "data_coverage": build_replay_data_coverage_report(
             start_date=resolved_start_date,
@@ -1110,3 +1248,5 @@ def get_candidate_replay_effect(
         ),
         "diagnosis": diagnose_candidate_replay_effect(comparison, horizon=20),
     }
+    _store_candidate_replay_effect_cache(cache_path, cache_key=cache_key, payload=payload)
+    return _with_candidate_replay_cache_meta(payload, cache_key=cache_key, hit=False)

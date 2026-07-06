@@ -307,6 +307,7 @@ def test_get_low_dimensional_replay_uses_default_long_window_without_compounding
 
 def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     monkeypatch,
+    tmp_path,
 ) -> None:
     captured = {}
 
@@ -480,6 +481,7 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
         }
 
     monkeypatch.setattr(rules, "now_local", lambda: _Now())
+    monkeypatch.setattr(rules, "CANDIDATE_REPLAY_EFFECT_CACHE_DIR", tmp_path)
     monkeypatch.setattr(rules, "compare_candidate_walk_forward_scopes", fake_compare)
     monkeypatch.setattr(rules, "build_replay_data_coverage_report", fake_coverage)
 
@@ -530,6 +532,154 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     assert "compounded_return" not in strategy_pk["rows"][0]["metrics_by_horizon"][20]
     core_row = next(row for row in strategy_pk["rows"] if row["scope"] == "action_long")
     assert core_row["policy"] == "core_candidate"
+
+
+def test_candidate_replay_effect_reuses_cached_payload(monkeypatch, tmp_path) -> None:
+    call_count = 0
+
+    def fake_compare(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return {
+            "start_date": kwargs["start_date"],
+            "end_date": kwargs["end_date"],
+            "scopes": {
+                "all": {
+                    "candidate_count": 8,
+                    "horizons": {
+                        20: {
+                            "guarded": {
+                                "sample_count": 8,
+                                "avg_return": 0.01 * call_count,
+                                "win_rate": 0.5,
+                                "total_return": 0.08 * call_count,
+                            }
+                        }
+                    },
+                    "monthly_horizons": {
+                        20: {
+                            "2026-06": {
+                                "guarded": {
+                                    "sample_count": 8,
+                                    "avg_return": 0.01 * call_count,
+                                    "total_return": 0.08 * call_count,
+                                }
+                            }
+                        }
+                    },
+                },
+                "action_long": {
+                    "candidate_count": 3,
+                    "horizons": {
+                        20: {
+                            "guarded": {
+                                "sample_count": 3,
+                                "avg_return": 0.02 * call_count,
+                                "win_rate": 0.67,
+                                "total_return": 0.06 * call_count,
+                            }
+                        }
+                    },
+                    "monthly_horizons": {
+                        20: {
+                            "2026-06": {
+                                "guarded": {
+                                    "sample_count": 3,
+                                    "avg_return": 0.02 * call_count,
+                                    "total_return": 0.06 * call_count,
+                                }
+                            }
+                        }
+                    },
+                },
+            },
+            "discovery_cache_dir": ".tmp/candidate-replay-discovery-cache",
+        }
+
+    def fake_coverage(**kwargs):
+        return {
+            "start_date": kwargs["start_date"],
+            "end_date": kwargs["end_date"],
+            "overall": {"grade": "usable", "warning_months": 0},
+            "months": [{"month": "2026-06", "grade": "usable"}],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(rules, "CANDIDATE_REPLAY_EFFECT_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(rules, "compare_candidate_walk_forward_scopes", fake_compare)
+    monkeypatch.setattr(rules, "build_replay_data_coverage_report", fake_coverage)
+
+    first = get_candidate_replay_effect(start_date="2026-06-01", end_date="2026-06-30")
+    second = get_candidate_replay_effect(start_date="2026-06-01", end_date="2026-06-30")
+
+    assert call_count == 1
+    assert first["replay_cache"]["hit"] is False
+    assert second["replay_cache"]["hit"] is True
+    assert second["scopes"]["action_long"]["horizons"][20]["guarded"]["total_return"] == 0.06
+
+
+def test_candidate_replay_effect_force_refresh_recomputes_cache(monkeypatch, tmp_path) -> None:
+    call_count = 0
+
+    def fake_compare(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return {
+            "start_date": kwargs["start_date"],
+            "end_date": kwargs["end_date"],
+            "scopes": {
+                "action_long": {
+                    "candidate_count": 3,
+                    "horizons": {
+                        20: {
+                            "guarded": {
+                                "sample_count": 3,
+                                "avg_return": 0.01 * call_count,
+                                "win_rate": 0.67,
+                                "total_return": 0.03 * call_count,
+                            }
+                        }
+                    },
+                    "monthly_horizons": {
+                        20: {
+                            "2026-06": {
+                                "guarded": {
+                                    "sample_count": 3,
+                                    "avg_return": 0.01 * call_count,
+                                    "total_return": 0.03 * call_count,
+                                }
+                            }
+                        }
+                    },
+                }
+            },
+            "discovery_cache_dir": ".tmp/candidate-replay-discovery-cache",
+        }
+
+    def fake_coverage(**kwargs):
+        return {
+            "start_date": kwargs["start_date"],
+            "end_date": kwargs["end_date"],
+            "overall": {"grade": "usable", "warning_months": 0},
+            "months": [{"month": "2026-06", "grade": "usable"}],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(rules, "CANDIDATE_REPLAY_EFFECT_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(rules, "compare_candidate_walk_forward_scopes", fake_compare)
+    monkeypatch.setattr(rules, "build_replay_data_coverage_report", fake_coverage)
+
+    first = get_candidate_replay_effect(start_date="2026-06-01", end_date="2026-06-30")
+    refreshed = get_candidate_replay_effect(
+        start_date="2026-06-01",
+        end_date="2026-06-30",
+        force_refresh=True,
+    )
+
+    assert call_count == 2
+    assert first["replay_cache"]["hit"] is False
+    assert refreshed["replay_cache"]["hit"] is False
+    assert refreshed["scopes"]["action_long"]["horizons"][20]["guarded"]["total_return"] == 0.06
 
 
 def test_strategy_pk_keeps_tactical_lines_out_of_core_even_when_strong() -> None:

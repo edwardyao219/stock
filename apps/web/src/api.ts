@@ -136,6 +136,9 @@ export interface SectorOverviewItem {
   sector_momentum_score: number | null;
   sector_stock_count: number | null;
   sector_up_count: number | null;
+  sector_gate_score: number | null;
+  sector_gate_label: string | null;
+  sector_gate_reasons: string[];
 }
 
 export interface SectorOverview {
@@ -734,6 +737,11 @@ export interface CandidateReplayEffectReport {
   discovery_cache_dir: string | null;
   data_coverage: ReplayDataCoverage;
   diagnosis: CandidateReplayDiagnosis;
+  replay_cache?: {
+    hit: boolean;
+    cache_key: string;
+    version: string;
+  };
 }
 
 export interface CandidateReplayEffectQuery {
@@ -742,6 +750,7 @@ export interface CandidateReplayEffectQuery {
   limit?: number;
   min_coverage_ratio?: number;
   include_fundamentals?: boolean;
+  force_refresh?: boolean;
 }
 
 export type PipelineStage = "daily" | "prepare" | "intraday" | "after-close";
@@ -1004,6 +1013,9 @@ export function fetchCandidateReplayEffect(query: CandidateReplayEffectQuery = {
   }
   if (query.include_fundamentals !== undefined) {
     params.set("include_fundamentals", String(query.include_fundamentals));
+  }
+  if (query.force_refresh !== undefined) {
+    params.set("force_refresh", String(query.force_refresh));
   }
   return request<CandidateReplayEffectReport>(`/rules/candidate-replay-effect?${params.toString()}`);
 }

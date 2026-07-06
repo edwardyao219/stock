@@ -144,6 +144,9 @@ class SectorOverviewItem(BaseModel):
     sector_momentum_score: float | None
     sector_stock_count: int | None
     sector_up_count: int | None
+    sector_gate_score: float | None = None
+    sector_gate_label: str | None = None
+    sector_gate_reasons: list[str] = Field(default_factory=list)
 
 
 SECTOR_NAME_ALIASES = {
@@ -756,6 +759,89 @@ def _sector_continuity_score(item: SectorOverviewItem) -> float:
     return strength * 0.45 + momentum * 0.35 + breadth * 0.20
 
 
+def _sector_month_trend_score(item: SectorOverviewItem) -> float:
+    monthly_return = item.monthly_return_pct
+    if monthly_return is None:
+        return 45.0
+    if monthly_return >= 0.12:
+        return 90.0
+    if monthly_return >= 0.08:
+        return 75.0
+    if monthly_return >= 0.04:
+        return 60.0
+    if monthly_return > 0:
+        return 50.0
+    if monthly_return >= -0.03:
+        return 35.0
+    return 20.0
+
+
+def _sector_fund_flow_score(item: SectorOverviewItem) -> float:
+    net_amount = item.fund_flow_net_amount
+    rate = item.fund_flow_rate
+    if net_amount is None and rate is None:
+        return 45.0
+    if (net_amount or 0.0) > 0 and (rate or 0.0) >= 0.05:
+        return 80.0
+    if (net_amount or 0.0) > 0 and (rate or 0.0) > 0:
+        return 60.0
+    if (net_amount or 0.0) < 0 or (rate or 0.0) < 0:
+        return 25.0
+    return 40.0
+
+
+def _sector_gate(item: SectorOverviewItem) -> tuple[float, str, list[str]]:
+    month_score = _sector_month_trend_score(item)
+    strength = item.sector_strength_score if item.sector_strength_score is not None else 45.0
+    breadth = item.sector_breadth_score if item.sector_breadth_score is not None else 45.0
+    momentum = item.sector_momentum_score if item.sector_momentum_score is not None else 45.0
+    fund_flow = _sector_fund_flow_score(item)
+    score = round(
+        month_score * 0.35
+        + strength * 0.25
+        + breadth * 0.15
+        + momentum * 0.15
+        + fund_flow * 0.10,
+        2,
+    )
+    if score >= 70:
+        label = "主线允许"
+    elif score >= 50:
+        label = "观察确认"
+    else:
+        label = "降温等待"
+
+    reasons: list[str] = []
+    monthly_return = item.monthly_return_pct
+    if monthly_return is not None and monthly_return >= 0.06 and (item.month_rank or 99) <= 5:
+        reasons.append("月度排名靠前")
+    elif monthly_return is not None and monthly_return > 0:
+        reasons.append("月度趋势转正")
+    elif monthly_return is not None:
+        reasons.append("月度趋势不足")
+
+    if item.sector_strength_score is not None and item.sector_strength_score >= 70:
+        reasons.append("板块强度较好")
+    elif item.sector_strength_score is not None and item.sector_strength_score <= 50:
+        reasons.append("板块强度不足")
+
+    if item.sector_breadth_score is not None and item.sector_breadth_score >= 65:
+        reasons.append("扩散较好")
+    elif item.sector_breadth_score is not None and item.sector_breadth_score < 55:
+        reasons.append("扩散不足，先观察")
+
+    if item.sector_momentum_score is not None and item.sector_momentum_score >= 70:
+        reasons.append("动量延续")
+    if (item.fund_flow_net_amount or 0.0) > 0 and (item.fund_flow_rate or 0.0) > 0:
+        reasons.append("资金流入确认")
+    elif (item.fund_flow_net_amount or 0.0) < 0 or (item.fund_flow_rate or 0.0) < 0:
+        reasons.append("资金未确认")
+
+    if not reasons:
+        reasons.append("数据不足，先观察")
+    return score, label, reasons[:4]
+
+
 def _stored_sector_overview(db: Session) -> SectorOverviewResponse:
     latest_sector_daily_date = db.execute(
         select(func.max(SectorDaily.trade_date))
@@ -879,6 +965,11 @@ def _stored_sector_overview(db: Session) -> SectorOverviewResponse:
     )
     for index, item in enumerate(ranked_items, start=1):
         item.month_rank = index
+    for item in ranked_items:
+        gate_score, gate_label, gate_reasons = _sector_gate(item)
+        item.sector_gate_score = gate_score
+        item.sector_gate_label = gate_label
+        item.sector_gate_reasons = gate_reasons
 
     overview_sector_count = len(ranked_items)
     feature_sector_count = len(features_by_name)

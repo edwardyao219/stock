@@ -712,7 +712,17 @@ function sectorSignalText(item: SectorOverviewItem) {
   return parts.length ? parts.join(" / ") : "暂无技术侧特征";
 }
 
+function sectorGateText(item: SectorOverviewItem) {
+  if (!item.sector_gate_label) return "门控待确认";
+  return `${item.sector_gate_label} / ${scoreText(item.sector_gate_score)}分`;
+}
+
 function sectorTone(item: SectorOverviewItem) {
+  const gateScore = item.sector_gate_score;
+  if (gateScore !== null && gateScore !== undefined) {
+    if (gateScore >= 70) return "up";
+    if (gateScore < 50) return "down";
+  }
   const strength = item.sector_strength_score ?? 0;
   const month = item.monthly_return_pct ?? 0;
   if (strength >= 72 || month >= 0.12) return "up";
@@ -2066,6 +2076,9 @@ export function App() {
                     <span>异常日 {lowDimensionalReplay.warning_days}</span>
                   </>
                 ) : null}
+                {candidateReplayEffect?.replay_cache ? (
+                  <span>{candidateReplayEffect.replay_cache.hit ? "缓存命中" : "刚刚计算"}</span>
+                ) : null}
                 <button
                   className="refresh-button"
                   type="button"
@@ -2540,6 +2553,7 @@ export function App() {
                     <small>
                       月 {pct(item.monthly_return_pct)} / 强度 {scoreText(item.sector_strength_score)}
                     </small>
+                    <small>门控 {sectorGateText(item)}</small>
                   </button>
                 ))}
                 {!(items as SectorOverviewItem[]).length ? <small>暂无数据</small> : null}
@@ -2696,8 +2710,12 @@ export function App() {
                     ) : null}
                     <small>当日 {pct(item.day_change_pct)} / 月内 {pct(item.monthly_return_pct)}</small>
                     <small>{sectorBreadthText(item)}</small>
+                    <small>{item.sector_gate_reasons.slice(0, 2).join(" / ") || "门控待确认"}</small>
                   </span>
                   <span className="source-stack">
+                    <span className={`source-pill ${sectorTone(item)}`}>
+                      {item.sector_gate_label ?? "门控待确认"}
+                    </span>
                     <span className={`source-pill ${sectorTone(item)}`}>
                       {item.month_rank ? `第 ${item.month_rank} 名` : "未排名"}
                     </span>
@@ -2726,6 +2744,8 @@ export function App() {
                           <li>特征归一 {selectedSector.canonical_sector_name}</li>
                         ) : null}
                         <li>月度排名 {selectedSector.month_rank ?? "-"} / 月内收益 {pct(selectedSector.monthly_return_pct)}</li>
+                        <li>板块门控 {sectorGateText(selectedSector)}</li>
+                        <li>{selectedSector.sector_gate_reasons.join(" / ") || "门控待确认"}</li>
                         <li>当日表现 {pct(selectedSector.day_change_pct)} / 成交 {amountText(selectedSector.amount)}</li>
                         <li>资金流 {sectorFlowText(selectedSector)}</li>
                         <li>

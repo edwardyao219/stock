@@ -537,6 +537,12 @@ def test_get_sector_overview_returns_month_rank_and_fund_flow() -> None:
     assert round(payload.sectors[0].monthly_return_pct or 0, 4) == 0.18
     assert payload.sectors[0].fund_flow_net_amount == 350000000.0
     assert payload.sectors[0].sector_strength_score == 82.0
+    assert payload.sectors[0].sector_gate_label == "主线允许"
+    assert (payload.sectors[0].sector_gate_score or 0) >= 70
+    assert "月度排名靠前" in payload.sectors[0].sector_gate_reasons
+    bank = next(item for item in payload.sectors if item.sector_name == "银行")
+    assert bank.sector_gate_label == "观察确认"
+    assert "月度趋势转正" in bank.sector_gate_reasons
 
 
 def test_get_sector_overview_uses_canonical_feature_name_for_moneyflow_alias() -> None:
