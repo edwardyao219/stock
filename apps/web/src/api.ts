@@ -741,6 +741,10 @@ export interface CandidateReplayEffectReport {
     hit: boolean;
     cache_key: string;
     version: string;
+    mode?: string;
+    shard_count?: number;
+    shard_hits?: number;
+    shard_misses?: number;
   };
 }
 
@@ -751,6 +755,7 @@ export interface CandidateReplayEffectQuery {
   min_coverage_ratio?: number;
   include_fundamentals?: boolean;
   force_refresh?: boolean;
+  use_monthly_shards?: boolean;
 }
 
 export type PipelineStage = "daily" | "prepare" | "intraday" | "after-close";
@@ -1016,6 +1021,9 @@ export function fetchCandidateReplayEffect(query: CandidateReplayEffectQuery = {
   }
   if (query.force_refresh !== undefined) {
     params.set("force_refresh", String(query.force_refresh));
+  }
+  if (query.use_monthly_shards !== undefined) {
+    params.set("use_monthly_shards", String(query.use_monthly_shards));
   }
   return request<CandidateReplayEffectReport>(`/rules/candidate-replay-effect?${params.toString()}`);
 }

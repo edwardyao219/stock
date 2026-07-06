@@ -40,6 +40,83 @@ def _trade(rule_id: str, symbol: str, signal_day: int, pnl: str) -> BacktestTrad
     )
 
 
+def _candidate_scope_summary(
+    *,
+    month: str,
+    sample_count: int,
+    total_return: float,
+    win_rate: float,
+    sector: str,
+) -> dict:
+    avg_return = round(total_return / sample_count, 6) if sample_count else None
+    metric = {
+        "sample_count": sample_count,
+        "avg_return": avg_return,
+        "win_rate": win_rate,
+        "total_return": total_return,
+    }
+    guarded_metric = {**metric, "exit_reasons": {"time_exit": sample_count}}
+    return {
+        "start_date": f"{month}-01",
+        "end_date": f"{month}-28",
+        "processed_days": sample_count,
+        "candidate_count": sample_count,
+        "excluded_symbols": [],
+        "warning_days": 0,
+        "top_sectors": [{"sector": sector, "count": sample_count}],
+        "style_counts": [{"style": "growth_cycle", "count": sample_count}],
+        "selection_mode_counts": [{"selection_mode": "action", "count": sample_count}],
+        "startup_signal_counts": [],
+        "horizons": {
+            horizon: {"raw": metric, "guarded": guarded_metric}
+            for horizon in (1, 5, 10, 20)
+        },
+        "portfolio_horizons": {
+            horizon: {
+                "max_positions": 3,
+                "weighting": "equal_weight_by_signal_day",
+                "raw": metric,
+                "guarded": guarded_metric,
+            }
+            for horizon in (1, 5, 10, 20)
+        },
+        "style_horizons": {
+            horizon: {"growth_cycle": {"raw": metric, "guarded": guarded_metric}}
+            for horizon in (1, 5, 10, 20)
+        },
+        "selection_mode_horizons": {
+            horizon: {"action": {"raw": metric, "guarded": guarded_metric}}
+            for horizon in (1, 5, 10, 20)
+        },
+        "startup_signal_horizons": {horizon: {} for horizon in (1, 5, 10, 20)},
+        "style_horizon_preferences": {},
+        "monthly_horizons": {
+            horizon: {month: {"raw": metric, "guarded": guarded_metric}}
+            for horizon in (1, 5, 10, 20)
+        },
+        "monthly_portfolio_horizons": {
+            horizon: {
+                month: {
+                    "max_positions": 3,
+                    "weighting": "equal_weight_by_signal_day",
+                    "raw": metric,
+                    "guarded": guarded_metric,
+                }
+            }
+            for horizon in (1, 5, 10, 20)
+        },
+        "monthly_style_horizons": {
+            horizon: {month: {"growth_cycle": {"raw": metric, "guarded": guarded_metric}}}
+            for horizon in (1, 5, 10, 20)
+        },
+        "monthly_selection_mode_horizons": {
+            horizon: {month: {"action": {"raw": metric, "guarded": guarded_metric}}}
+            for horizon in (1, 5, 10, 20)
+        },
+        "monthly_startup_signal_horizons": {horizon: {} for horizon in (1, 5, 10, 20)},
+    }
+
+
 def test_strategy_fit_route_is_registered() -> None:
     schema = create_app().openapi()
 
@@ -485,7 +562,7 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     monkeypatch.setattr(rules, "compare_candidate_walk_forward_scopes", fake_compare)
     monkeypatch.setattr(rules, "build_replay_data_coverage_report", fake_coverage)
 
-    payload = get_candidate_replay_effect()
+    payload = get_candidate_replay_effect(use_monthly_shards=False)
 
     assert captured == {
         "start_date": "2026-04-01",
@@ -680,6 +757,117 @@ def test_candidate_replay_effect_force_refresh_recomputes_cache(monkeypatch, tmp
     assert first["replay_cache"]["hit"] is False
     assert refreshed["replay_cache"]["hit"] is False
     assert refreshed["scopes"]["action_long"]["horizons"][20]["guarded"]["total_return"] == 0.06
+
+
+def test_candidate_replay_monthly_merge_uses_simple_sum_without_compounding() -> None:
+    may = {
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "scopes": {
+            "action_long": _candidate_scope_summary(
+                month="2026-05",
+                sample_count=2,
+                total_return=0.08,
+                win_rate=0.5,
+                sector="半导体",
+            )
+        },
+        "discovery_cache_dir": ".tmp/candidate-replay-discovery-cache",
+    }
+    june = {
+        "start_date": "2026-06-01",
+        "end_date": "2026-06-30",
+        "scopes": {
+            "action_long": _candidate_scope_summary(
+                month="2026-06",
+                sample_count=3,
+                total_return=0.12,
+                win_rate=0.666667,
+                sector="消费电子",
+            )
+        },
+        "discovery_cache_dir": ".tmp/candidate-replay-discovery-cache",
+    }
+
+    merged = rules._merge_candidate_replay_comparisons(
+        start_date="2026-05-01",
+        end_date="2026-06-30",
+        shards=[may, june],
+        scopes=("action_long",),
+        horizons=(20,),
+    )
+
+    guarded = merged["scopes"]["action_long"]["horizons"][20]["guarded"]
+    assert guarded["sample_count"] == 5
+    assert guarded["total_return"] == 0.2
+    assert guarded["avg_return"] == 0.04
+    assert guarded["win_rate"] == 0.6
+    assert "compounded_return" not in guarded
+    assert sorted(merged["scopes"]["action_long"]["monthly_horizons"][20]) == [
+        "2026-05",
+        "2026-06",
+    ]
+    assert merged["scopes"]["action_long"]["top_sectors"] == [
+        {"sector": "消费电子", "count": 3},
+        {"sector": "半导体", "count": 2},
+    ]
+
+
+def test_candidate_replay_effect_builds_range_from_monthly_shards(monkeypatch, tmp_path) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def fake_compare(**kwargs):
+        start = kwargs["start_date"]
+        end = kwargs["end_date"]
+        calls.append((start, end))
+        month = start[:7]
+        return {
+            "start_date": start,
+            "end_date": end,
+            "scopes": {
+                scope: _candidate_scope_summary(
+                    month=month,
+                    sample_count=2 if month == "2026-05" else 3,
+                    total_return=0.08 if month == "2026-05" else 0.12,
+                    win_rate=0.5 if month == "2026-05" else 0.666667,
+                    sector="半导体" if month == "2026-05" else "消费电子",
+                )
+                for scope in kwargs["scopes"]
+            },
+            "discovery_cache_dir": ".tmp/candidate-replay-discovery-cache",
+        }
+
+    def fake_coverage(**kwargs):
+        return {
+            "start_date": kwargs["start_date"],
+            "end_date": kwargs["end_date"],
+            "overall": {"grade": "usable", "warning_months": 0},
+            "months": [],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(rules, "CANDIDATE_REPLAY_EFFECT_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(rules, "compare_candidate_walk_forward_scopes", fake_compare)
+    monkeypatch.setattr(rules, "build_replay_data_coverage_report", fake_coverage)
+
+    payload = get_candidate_replay_effect(
+        start_date="2026-05-01",
+        end_date="2026-06-30",
+    )
+    cached = get_candidate_replay_effect(
+        start_date="2026-05-01",
+        end_date="2026-06-30",
+    )
+
+    assert calls == [("2026-05-01", "2026-05-31"), ("2026-06-01", "2026-06-30")]
+    assert payload["replay_cache"]["hit"] is False
+    assert payload["replay_cache"]["mode"] == "monthly_shards"
+    assert payload["replay_cache"]["shard_count"] == 2
+    assert cached["replay_cache"]["hit"] is True
+    assert len(calls) == 2
+    guarded = payload["scopes"]["action_long"]["horizons"][20]["guarded"]
+    assert guarded["sample_count"] == 5
+    assert guarded["total_return"] == 0.2
 
 
 def test_strategy_pk_keeps_tactical_lines_out_of_core_even_when_strong() -> None:

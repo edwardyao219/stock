@@ -366,6 +366,15 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         "_generate_backtest_learning_step",
         lambda trade_date: "backtest-learning",
     )
+    monkeypatch.setattr(
+        pipeline,
+        "_prewarm_candidate_replay_effect_step",
+        lambda trade_date: pipeline.PipelineStepResult(
+            name="prewarm_candidate_replay_effect",
+            status="ok",
+            detail=f"prewarm:{trade_date}",
+        ),
+    )
     monkeypatch.setattr(pipeline, "_generate_daily_review_step", lambda trade_date: "daily")
     monkeypatch.setattr(
         pipeline,
@@ -401,12 +410,14 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         "generate_paper_trading_review",
         "run_rule_regression",
         "generate_backtest_learning_review",
+        "prewarm_candidate_replay_effect",
         "generate_daily_review",
     ]
     assert result.steps[2].detail == "candidates:2026-06-25:False"
     assert captured["sync_daily"] is True
     assert result.steps[4].detail == "reviews"
     assert result.steps[-1].detail == "daily"
+    assert result.steps[-2].detail == "prewarm:2026-06-24"
 
 
 def test_sync_sector_moneyflow_step_summarizes_recent_backfill(monkeypatch) -> None:

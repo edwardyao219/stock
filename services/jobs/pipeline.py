@@ -375,6 +375,28 @@ def _generate_backtest_learning_step(trade_date: str) -> str:
     return f"回归学习完成：生成或更新 {changed} 条策略适配建议。"
 
 
+def _prewarm_candidate_replay_effect_step(trade_date: str) -> PipelineStepResult:
+    from apps.api.app.routers.rules import prewarm_candidate_replay_effect_cache
+
+    result = prewarm_candidate_replay_effect_cache(end_date=trade_date)
+    detail = (
+        f"候选回放缓存预热：{result['start_date']} ~ {result['end_date']}，"
+        f"{result.get('cache_mode') or 'range_cache'}，"
+        f"分片 {result.get('shard_count') or 0} 个。"
+    )
+    return PipelineStepResult(
+        name="prewarm_candidate_replay_effect",
+        status=str(result.get("status") or "ok"),
+        detail=detail,
+        summary=detail,
+        details=[
+            f"缓存命中：{'是' if result.get('cache_hit') else '否'}",
+            f"分片命中：{result.get('shard_hits') or 0}",
+            f"分片重算：{result.get('shard_misses') or 0}",
+        ],
+    )
+
+
 def _generate_daily_review_step(trade_date: str) -> str:
     review = generate_daily_mechanical_review(trade_date)
     return review.title
@@ -895,6 +917,10 @@ def run_after_close_session(
         _run_step(
             "generate_backtest_learning_review",
             lambda: _generate_backtest_learning_step(trade_date),
+        ),
+        _run_step(
+            "prewarm_candidate_replay_effect",
+            lambda: _prewarm_candidate_replay_effect_step(trade_date),
         ),
         _run_step("generate_daily_review", lambda: _generate_daily_review_step(trade_date)),
     ]

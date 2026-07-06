@@ -717,6 +717,16 @@ function sectorGateText(item: SectorOverviewItem) {
   return `${item.sector_gate_label} / ${scoreText(item.sector_gate_score)}分`;
 }
 
+function replayCacheText(report: CandidateReplayEffectReport | null) {
+  const cache = report?.replay_cache;
+  if (!cache) return null;
+  if (cache.hit) return "缓存命中";
+  if (cache.mode === "monthly_shards") {
+    return `分片计算 ${cache.shard_hits ?? 0}/${cache.shard_count ?? 0}`;
+  }
+  return "刚刚计算";
+}
+
 function sectorTone(item: SectorOverviewItem) {
   const gateScore = item.sector_gate_score;
   if (gateScore !== null && gateScore !== undefined) {
@@ -1277,6 +1287,7 @@ export function App() {
   const candidateReplayScopeRows = replayScopeRows(candidateReplayEffect, 20);
   const candidateStrategyPk = candidateReplayEffect?.diagnosis.strategy_pk ?? null;
   const candidateStrategyPkRows = strategyPkRows(candidateReplayEffect);
+  const candidateReplayCacheText = replayCacheText(candidateReplayEffect);
   const replayModeRows = replayBreakdownRows(lowDimensionalReplay, 20, "selection_mode").slice(0, 4);
   const replayStyleRows = replayBreakdownRows(lowDimensionalReplay, 20, "style").slice(0, 5);
   const replayWeakMonths = replayWeakMonthRows(lowDimensionalReplay, 20, 5);
@@ -2076,8 +2087,8 @@ export function App() {
                     <span>异常日 {lowDimensionalReplay.warning_days}</span>
                   </>
                 ) : null}
-                {candidateReplayEffect?.replay_cache ? (
-                  <span>{candidateReplayEffect.replay_cache.hit ? "缓存命中" : "刚刚计算"}</span>
+                {candidateReplayCacheText ? (
+                  <span>{candidateReplayCacheText}</span>
                 ) : null}
                 <button
                   className="refresh-button"

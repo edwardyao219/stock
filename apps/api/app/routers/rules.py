@@ -1,5 +1,6 @@
 import hashlib
 import json
+from calendar import monthrange
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Annotated, Any
@@ -172,15 +173,456 @@ def _with_candidate_replay_cache_meta(
     *,
     cache_key: str,
     hit: bool,
+    mode: str = "range_cache",
+    shard_count: int | None = None,
+    shard_hits: int | None = None,
+    shard_misses: int | None = None,
 ) -> dict[str, Any]:
+    replay_cache = {
+        "hit": hit,
+        "cache_key": cache_key,
+        "version": CANDIDATE_REPLAY_EFFECT_CACHE_VERSION,
+        "mode": mode,
+    }
+    if shard_count is not None:
+        replay_cache["shard_count"] = shard_count
+    if shard_hits is not None:
+        replay_cache["shard_hits"] = shard_hits
+    if shard_misses is not None:
+        replay_cache["shard_misses"] = shard_misses
     return {
         **payload,
-        "replay_cache": {
-            "hit": hit,
-            "cache_key": cache_key,
-            "version": CANDIDATE_REPLAY_EFFECT_CACHE_VERSION,
-        },
+        "replay_cache": replay_cache,
     }
+
+
+def _candidate_replay_month_ranges(start_date: str, end_date: str) -> list[tuple[str, str]]:
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    ranges: list[tuple[str, str]] = []
+    current = date(start.year, start.month, 1)
+    while current <= end:
+        month_end = date(current.year, current.month, monthrange(current.year, current.month)[1])
+        ranges.append((max(start, current).isoformat(), min(end, month_end).isoformat()))
+        current = _month_start_shift(current, 1)
+    return ranges
+
+
+def _horizon_item(payload: dict[str, Any], key: str, horizon: int) -> dict[str, Any]:
+    values = payload.get(key) or {}
+    item = values.get(horizon)
+    if item is None:
+        item = values.get(str(horizon))
+    return item if isinstance(item, dict) else {}
+
+
+def _merge_return_metrics(metrics: list[dict[str, Any]]) -> dict[str, Any]:
+    sample_count = 0
+    total_return = 0.0
+    win_count = 0.0
+    exit_reasons: dict[str, int] = {}
+    for metric in metrics:
+        count = int(metric.get("sample_count") or 0)
+        if count <= 0:
+            continue
+        sample_count += count
+        if metric.get("total_return") is not None:
+            total_return += float(metric["total_return"])
+        elif metric.get("avg_return") is not None:
+            total_return += float(metric["avg_return"]) * count
+        if metric.get("win_rate") is not None:
+            win_count += float(metric["win_rate"]) * count
+        for reason, reason_count in (metric.get("exit_reasons") or {}).items():
+            exit_reasons[str(reason)] = exit_reasons.get(str(reason), 0) + int(reason_count or 0)
+    if sample_count <= 0:
+        merged: dict[str, Any] = {
+            "sample_count": 0,
+            "avg_return": None,
+            "win_rate": None,
+            "total_return": None,
+        }
+    else:
+        merged = {
+            "sample_count": sample_count,
+            "avg_return": round(total_return / sample_count, 6),
+            "win_rate": round(win_count / sample_count, 6),
+            "total_return": round(total_return, 6),
+        }
+    if exit_reasons:
+        merged["exit_reasons"] = dict(sorted(exit_reasons.items()))
+    return merged
+
+
+def _merge_metric_pair(items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "raw": _merge_return_metrics([item.get("raw") or {} for item in items]),
+        "guarded": _merge_return_metrics([item.get("guarded") or {} for item in items]),
+    }
+
+
+def _merge_portfolio_metric(items: list[dict[str, Any]]) -> dict[str, Any]:
+    first = next((item for item in items if item), {})
+    return {
+        "max_positions": first.get("max_positions", 3),
+        "weighting": first.get("weighting", "equal_weight_by_signal_day"),
+        **_merge_metric_pair(items),
+    }
+
+
+def _merge_count_rows(
+    summaries: list[dict[str, Any]],
+    key: str,
+    label_key: str,
+) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    labels: dict[str, dict[str, Any]] = {}
+    for summary in summaries:
+        for item in summary.get(key) or []:
+            label = str(item.get(label_key) or "")
+            if not label:
+                continue
+            counts[label] = counts.get(label, 0) + int(item.get("count") or 0)
+            labels.setdefault(
+                label,
+                {extra_key: extra_value for extra_key, extra_value in item.items()},
+            )
+    rows = []
+    for label, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
+        row = {**labels.get(label, {}), label_key: label, "count": count}
+        rows.append(row)
+    return rows
+
+
+def _merge_category_horizons(
+    summaries: list[dict[str, Any]],
+    key: str,
+    *,
+    horizons: tuple[int, ...],
+) -> dict[int, dict[str, Any]]:
+    merged: dict[int, dict[str, Any]] = {}
+    for horizon in horizons:
+        categories = sorted(
+            {
+                str(category)
+                for summary in summaries
+                for category in _horizon_item(summary, key, horizon)
+            }
+        )
+        merged[horizon] = {}
+        for category in categories:
+            category_items = [
+                _horizon_item(summary, key, horizon).get(category) or {}
+                for summary in summaries
+            ]
+            row = _merge_metric_pair(category_items)
+            label = next(
+                (
+                    item.get("label")
+                    for item in category_items
+                    if isinstance(item, dict) and item.get("label")
+                ),
+                None,
+            )
+            if label:
+                row["label"] = label
+            merged[horizon][category] = row
+    return merged
+
+
+def _merge_monthly_horizons(
+    summaries: list[dict[str, Any]],
+    key: str,
+    *,
+    horizons: tuple[int, ...],
+) -> dict[int, dict[str, Any]]:
+    merged: dict[int, dict[str, Any]] = {horizon: {} for horizon in horizons}
+    for horizon in horizons:
+        for summary in summaries:
+            for month, item in _horizon_item(summary, key, horizon).items():
+                merged[horizon][str(month)] = item
+    return merged
+
+
+def _style_horizon_preferences_from_summary(
+    style_horizons: dict[int, dict[str, Any]],
+    *,
+    min_actionable_samples: int = 10,
+) -> dict[str, dict[str, Any]]:
+    preferences: dict[str, dict[str, Any]] = {}
+    styles = sorted(
+        {style for horizon_summary in style_horizons.values() for style in horizon_summary}
+    )
+    for style in styles:
+        best: tuple[int, dict[str, Any]] | None = None
+        for horizon in sorted(style_horizons):
+            guarded = (style_horizons[horizon].get(style) or {}).get("guarded") or {}
+            avg_return = guarded.get("avg_return")
+            if avg_return is None:
+                continue
+            if best is None or float(avg_return) > float(best[1]["avg_return"]):
+                best = (
+                    horizon,
+                    {
+                        "avg_return": avg_return,
+                        "sample_count": int(guarded.get("sample_count") or 0),
+                        "total_return": guarded.get("total_return"),
+                    },
+                )
+        if best is None:
+            continue
+        horizon, metrics = best
+        actionable = (
+            int(metrics.get("sample_count") or 0) >= min_actionable_samples
+            and float(metrics.get("avg_return") or 0.0) > 0
+        )
+        preferences[style] = {
+            "preferred_horizon": horizon,
+            "preferred_metric": "guarded_avg_return",
+            **metrics,
+            "actionable": actionable,
+            "reason": (
+                "样本足够且风控后平均收益为正"
+                if actionable
+                else "样本不足或收益不正，只作观察"
+            ),
+        }
+    return preferences
+
+
+def _merge_candidate_replay_scope_summaries(
+    summaries: list[dict[str, Any]],
+    *,
+    start_date: str,
+    end_date: str,
+    horizons: tuple[int, ...],
+) -> dict[str, Any]:
+    horizon_summaries: dict[int, dict[str, Any]] = {}
+    portfolio_horizons: dict[int, dict[str, Any]] = {}
+    for horizon in horizons:
+        horizon_summaries[horizon] = _merge_metric_pair(
+            [_horizon_item(summary, "horizons", horizon) for summary in summaries]
+        )
+        portfolio_horizons[horizon] = _merge_portfolio_metric(
+            [_horizon_item(summary, "portfolio_horizons", horizon) for summary in summaries]
+        )
+    style_horizons = _merge_category_horizons(
+        summaries,
+        "style_horizons",
+        horizons=horizons,
+    )
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "processed_days": sum(int(summary.get("processed_days") or 0) for summary in summaries),
+        "candidate_count": sum(int(summary.get("candidate_count") or 0) for summary in summaries),
+        "excluded_symbols": sorted(
+            {
+                str(symbol)
+                for summary in summaries
+                for symbol in (summary.get("excluded_symbols") or [])
+            }
+        ),
+        "warning_days": sum(int(summary.get("warning_days") or 0) for summary in summaries),
+        "top_sectors": _merge_count_rows(summaries, "top_sectors", "sector")[:10],
+        "style_counts": _merge_count_rows(summaries, "style_counts", "style"),
+        "selection_mode_counts": _merge_count_rows(
+            summaries,
+            "selection_mode_counts",
+            "selection_mode",
+        ),
+        "startup_signal_counts": _merge_count_rows(
+            summaries,
+            "startup_signal_counts",
+            "bucket",
+        ),
+        "horizons": horizon_summaries,
+        "portfolio_horizons": portfolio_horizons,
+        "style_horizons": style_horizons,
+        "selection_mode_horizons": _merge_category_horizons(
+            summaries,
+            "selection_mode_horizons",
+            horizons=horizons,
+        ),
+        "startup_signal_horizons": _merge_category_horizons(
+            summaries,
+            "startup_signal_horizons",
+            horizons=horizons,
+        ),
+        "style_horizon_preferences": _style_horizon_preferences_from_summary(style_horizons),
+        "monthly_horizons": _merge_monthly_horizons(
+            summaries,
+            "monthly_horizons",
+            horizons=horizons,
+        ),
+        "monthly_portfolio_horizons": _merge_monthly_horizons(
+            summaries,
+            "monthly_portfolio_horizons",
+            horizons=horizons,
+        ),
+        "monthly_style_horizons": _merge_monthly_horizons(
+            summaries,
+            "monthly_style_horizons",
+            horizons=horizons,
+        ),
+        "monthly_selection_mode_horizons": _merge_monthly_horizons(
+            summaries,
+            "monthly_selection_mode_horizons",
+            horizons=horizons,
+        ),
+        "monthly_startup_signal_horizons": _merge_monthly_horizons(
+            summaries,
+            "monthly_startup_signal_horizons",
+            horizons=horizons,
+        ),
+    }
+
+
+def _merge_candidate_replay_comparisons(
+    *,
+    start_date: str,
+    end_date: str,
+    shards: list[dict[str, Any]],
+    scopes: tuple[str, ...],
+    horizons: tuple[int, ...],
+) -> dict[str, Any]:
+    scope_summaries: dict[str, Any] = {}
+    for scope in scopes:
+        summaries = [
+            (shard.get("scopes") or {}).get(scope)
+            for shard in shards
+            if isinstance((shard.get("scopes") or {}).get(scope), dict)
+        ]
+        if summaries:
+            scope_summaries[scope] = _merge_candidate_replay_scope_summaries(
+                summaries,
+                start_date=start_date,
+                end_date=end_date,
+                horizons=horizons,
+            )
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "scopes": scope_summaries,
+        "discovery_cache_dir": next(
+            (
+                shard.get("discovery_cache_dir")
+                for shard in shards
+                if shard.get("discovery_cache_dir") is not None
+            ),
+            None,
+        ),
+    }
+
+
+def _build_candidate_replay_effect_payload(
+    *,
+    start_date: str,
+    end_date: str,
+    limit: int,
+    horizons: tuple[int, ...],
+    min_coverage_ratio: float,
+    include_fundamentals: bool,
+) -> dict[str, Any]:
+    comparison = compare_candidate_walk_forward_scopes(
+        start_date=start_date,
+        end_date=end_date,
+        scopes=CANDIDATE_REPLAY_EFFECT_SCOPES,
+        limit=limit,
+        horizons=horizons,
+        min_coverage_ratio=min_coverage_ratio,
+        include_fundamentals=include_fundamentals,
+    )
+    return {
+        **comparison,
+        "data_coverage": build_replay_data_coverage_report(
+            start_date=start_date,
+            end_date=end_date,
+        ),
+        "diagnosis": diagnose_candidate_replay_effect(comparison, horizon=20),
+    }
+
+
+def _load_or_build_candidate_replay_effect_payload(
+    *,
+    start_date: str,
+    end_date: str,
+    limit: int,
+    horizons: tuple[int, ...],
+    min_coverage_ratio: float,
+    include_fundamentals: bool,
+    force_refresh: bool,
+) -> tuple[dict[str, Any], bool]:
+    cache_key = _candidate_replay_effect_cache_key(
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        min_coverage_ratio=min_coverage_ratio,
+        include_fundamentals=include_fundamentals,
+    )
+    cache_path = _candidate_replay_effect_cache_path(cache_key)
+    if not force_refresh:
+        cached_payload = _load_candidate_replay_effect_cache(cache_path, cache_key=cache_key)
+        if cached_payload is not None:
+            return cached_payload, True
+    payload = _build_candidate_replay_effect_payload(
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        horizons=horizons,
+        min_coverage_ratio=min_coverage_ratio,
+        include_fundamentals=include_fundamentals,
+    )
+    _store_candidate_replay_effect_cache(cache_path, cache_key=cache_key, payload=payload)
+    return payload, False
+
+
+def _build_candidate_replay_effect_from_monthly_shards(
+    *,
+    start_date: str,
+    end_date: str,
+    limit: int,
+    horizons: tuple[int, ...],
+    min_coverage_ratio: float,
+    include_fundamentals: bool,
+    force_refresh: bool,
+) -> tuple[dict[str, Any], int, int]:
+    shards: list[dict[str, Any]] = []
+    shard_hits = 0
+    shard_misses = 0
+    for shard_start, shard_end in _candidate_replay_month_ranges(start_date, end_date):
+        shard_payload, shard_hit = _load_or_build_candidate_replay_effect_payload(
+            start_date=shard_start,
+            end_date=shard_end,
+            limit=limit,
+            horizons=horizons,
+            min_coverage_ratio=min_coverage_ratio,
+            include_fundamentals=include_fundamentals,
+            force_refresh=force_refresh,
+        )
+        shards.append(shard_payload)
+        if shard_hit:
+            shard_hits += 1
+        else:
+            shard_misses += 1
+    comparison = _merge_candidate_replay_comparisons(
+        start_date=start_date,
+        end_date=end_date,
+        shards=shards,
+        scopes=CANDIDATE_REPLAY_EFFECT_SCOPES,
+        horizons=horizons,
+    )
+    return (
+        {
+            **comparison,
+            "data_coverage": build_replay_data_coverage_report(
+                start_date=start_date,
+                end_date=end_date,
+            ),
+            "diagnosis": diagnose_candidate_replay_effect(comparison, horizon=20),
+        },
+        shard_hits,
+        shard_misses,
+    )
 
 
 def _empty_return_metric() -> dict[str, Any]:
@@ -1210,6 +1652,7 @@ def get_candidate_replay_effect(
     min_coverage_ratio: Annotated[float, Query(ge=0.0, le=1.0)] = 0.70,
     include_fundamentals: bool = False,
     force_refresh: bool = False,
+    use_monthly_shards: bool = True,
 ) -> dict:
     resolved_end_date = end_date or (now_local().date() - timedelta(days=1)).isoformat()
     resolved_start_date = start_date or _default_interactive_replay_start_date(resolved_end_date)
@@ -1231,22 +1674,66 @@ def get_candidate_replay_effect(
                 hit=True,
             )
 
-    comparison = compare_candidate_walk_forward_scopes(
+    month_ranges = _candidate_replay_month_ranges(resolved_start_date, resolved_end_date)
+    if use_monthly_shards and len(month_ranges) > 1:
+        payload, shard_hits, shard_misses = _build_candidate_replay_effect_from_monthly_shards(
+            start_date=resolved_start_date,
+            end_date=resolved_end_date,
+            limit=limit,
+            horizons=horizons,
+            min_coverage_ratio=min_coverage_ratio,
+            include_fundamentals=include_fundamentals,
+            force_refresh=force_refresh,
+        )
+        _store_candidate_replay_effect_cache(cache_path, cache_key=cache_key, payload=payload)
+        return _with_candidate_replay_cache_meta(
+            payload,
+            cache_key=cache_key,
+            hit=False,
+            mode="monthly_shards",
+            shard_count=len(month_ranges),
+            shard_hits=shard_hits,
+            shard_misses=shard_misses,
+        )
+
+    payload = _build_candidate_replay_effect_payload(
         start_date=resolved_start_date,
         end_date=resolved_end_date,
-        scopes=CANDIDATE_REPLAY_EFFECT_SCOPES,
         limit=limit,
         horizons=horizons,
         min_coverage_ratio=min_coverage_ratio,
         include_fundamentals=include_fundamentals,
     )
-    payload = {
-        **comparison,
-        "data_coverage": build_replay_data_coverage_report(
-            start_date=resolved_start_date,
-            end_date=resolved_end_date,
-        ),
-        "diagnosis": diagnose_candidate_replay_effect(comparison, horizon=20),
-    }
     _store_candidate_replay_effect_cache(cache_path, cache_key=cache_key, payload=payload)
     return _with_candidate_replay_cache_meta(payload, cache_key=cache_key, hit=False)
+
+
+def prewarm_candidate_replay_effect_cache(
+    *,
+    end_date: str | None = None,
+    limit: int = 15,
+    min_coverage_ratio: float = 0.70,
+    include_fundamentals: bool = False,
+) -> dict[str, Any]:
+    resolved_end_date = end_date or (now_local().date() - timedelta(days=1)).isoformat()
+    resolved_start_date = _default_interactive_replay_start_date(resolved_end_date)
+    payload = get_candidate_replay_effect(
+        start_date=resolved_start_date,
+        end_date=resolved_end_date,
+        limit=limit,
+        min_coverage_ratio=min_coverage_ratio,
+        include_fundamentals=include_fundamentals,
+        force_refresh=False,
+        use_monthly_shards=True,
+    )
+    replay_cache = payload.get("replay_cache") or {}
+    return {
+        "status": "ok",
+        "start_date": resolved_start_date,
+        "end_date": resolved_end_date,
+        "cache_hit": bool(replay_cache.get("hit")),
+        "cache_mode": replay_cache.get("mode"),
+        "shard_count": replay_cache.get("shard_count"),
+        "shard_hits": replay_cache.get("shard_hits"),
+        "shard_misses": replay_cache.get("shard_misses"),
+    }
