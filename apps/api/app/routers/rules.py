@@ -286,15 +286,19 @@ def diagnose_strategy_pk(
     )
     best = rows[0] if rows else None
     core = next((row for row in rows if row["policy"] == "core_candidate"), None)
-    summary = (
-        "策略PK：暂无足够回放样本。"
-        if best is None
-        else (
+    if best is None:
+        summary = "策略PK：暂无足够回放样本。"
+    elif best["avg_return"] is None or best["avg_return"] <= 0.0:
+        summary = (
+            f"策略PK：各线{primary_horizon}日回放暂未转正，"
+            "先休息或只做复盘观察。"
+        )
+    else:
+        summary = (
             f"策略PK：{best['label']}暂时领先，"
             f"{primary_horizon}日均值{_format_pct(best['avg_return'])}；"
             f"核心线{core['label'] if core else '暂无'}。"
         )
-    )
     return {
         "return_mode": "simple_sum_no_compounding",
         "horizons": list(horizons),

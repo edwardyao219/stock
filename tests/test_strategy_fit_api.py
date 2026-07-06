@@ -650,6 +650,65 @@ def test_strategy_pk_keeps_tactical_lines_out_of_core_even_when_strong() -> None
     assert preheat_row["policy"] == "tactical_observe"
 
 
+def test_strategy_pk_summary_stands_down_when_best_line_is_negative() -> None:
+    comparison = {
+        "scopes": {
+            "action": {
+                "candidate_count": 4,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 4,
+                            "avg_return": -0.04,
+                            "total_return": -0.16,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-05": {
+                            "guarded": {
+                                "sample_count": 4,
+                                "avg_return": -0.04,
+                                "total_return": -0.16,
+                            }
+                        }
+                    }
+                },
+            },
+            "startup_preheat": {
+                "candidate_count": 3,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 3,
+                            "avg_return": -0.02,
+                            "total_return": -0.06,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-05": {
+                            "guarded": {
+                                "sample_count": 3,
+                                "avg_return": -0.02,
+                                "total_return": -0.06,
+                            }
+                        }
+                    }
+                },
+            },
+        }
+    }
+
+    pk = diagnose_strategy_pk(comparison, horizons=(20,), primary_horizon=20)
+
+    assert "暂未转正" in pk["summary"]
+    assert pk["rows"][0]["scope"] == "startup_preheat"
+    assert pk["rows"][0]["policy"] == "stand_down"
+
+
 def test_candidate_replay_diagnosis_marks_potential_watch_as_tactical_only() -> None:
     comparison = {
         "scopes": {
