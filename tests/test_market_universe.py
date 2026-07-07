@@ -138,8 +138,11 @@ def test_prepare_market_feature_universe_prefers_tushare_daily_for_full_market_s
         sync_daily=True,
     )
 
-    assert calls == [("tushare", "20260630", None)]
-    assert result.synced_daily_rows == 3
+    assert calls == [
+        ("tushare", "20260630", None),
+        ("tushare", "20260629", None),
+    ]
+    assert result.synced_daily_rows == 6
     assert result.coverage_ratio == 1
 
 
@@ -164,6 +167,9 @@ def test_full_market_daily_sync_does_not_fallback_to_slow_akshare_when_tushare_a
             return None
 
         def commit(self):
+            return None
+
+        def rollback(self):
             return None
 
     monkeypatch.setattr(market_universe, "SessionLocal", lambda: _Db())

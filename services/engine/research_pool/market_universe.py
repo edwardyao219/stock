@@ -15,6 +15,7 @@ from services.shared.database import SessionLocal
 from services.shared.models import Security, StockFeatureDaily
 
 AKSHARE_DAILY_FALLBACK_SYMBOL_LIMIT = 300
+TUSHARE_RECENT_DAILY_SYNC_DAYS = 2
 
 
 @dataclass(frozen=True)
@@ -39,18 +40,41 @@ def _feature_symbol_count(feature_date: date) -> int:
         )
 
 
+def _recent_weekdays(target_date: date, count: int) -> list[date]:
+    dates: list[date] = []
+    current = target_date
+    while len(dates) < count:
+        if current.weekday() < 5:
+            dates.append(current)
+        current -= timedelta(days=1)
+    return dates
+
+
 def _sync_market_daily_bars(target_date: date, symbols: list[str]) -> tuple[int, list[str]]:
     warnings: list[str] = []
-    try:
-        with SessionLocal() as db:
-            rows = sync_tushare_daily(
-                db,
-                trade_date=target_date.strftime("%Y%m%d"),
-            )
-            db.commit()
-        return rows, warnings
-    except Exception as exc:
-        warnings.append(f"Tushare 当日全市场日线同步失败：{type(exc).__name__}: {exc}")
+    synced_rows = 0
+    target_sync_failed = False
+    with SessionLocal() as db:
+        for sync_date in _recent_weekdays(target_date, TUSHARE_RECENT_DAILY_SYNC_DAYS):
+            try:
+                rows = sync_tushare_daily(
+                    db,
+                    trade_date=sync_date.strftime("%Y%m%d"),
+                )
+                db.commit()
+                synced_rows += rows
+            except Exception as exc:
+                db.rollback()
+                warnings.append(
+                    f"Tushare {sync_date.isoformat()} 全市场日线同步失败："
+                    f"{type(exc).__name__}: {exc}"
+                )
+                if sync_date == target_date:
+                    target_sync_failed = True
+                    break
+
+    if not target_sync_failed:
+        return synced_rows, warnings
 
     if len(symbols) > AKSHARE_DAILY_FALLBACK_SYMBOL_LIMIT:
         warnings.append(
