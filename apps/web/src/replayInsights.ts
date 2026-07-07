@@ -16,6 +16,8 @@ export const longCandidateReplayQuery = {
   use_monthly_shards: true,
 } as const satisfies CandidateReplayEffectQuery;
 
+export const initialCandidateReplayQuery = longCandidateReplayQuery;
+
 export type ReplayBreakdownGroup = "selection_mode" | "style";
 export type ReplayTone = "up" | "down" | "neutral";
 

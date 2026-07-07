@@ -1,6 +1,7 @@
 import type { CandidateReplayEffectReport, LowDimensionalReplayReport } from "./api";
 import {
   dualLineLongReplaySummary,
+  initialCandidateReplayQuery,
   longCandidateReplayQuery,
   monthlyStrategyPkRows,
   replayScopeRows,
@@ -654,3 +655,6 @@ longCandidateReplayQuery.limit satisfies 15;
 longCandidateReplayQuery.min_coverage_ratio satisfies 0.7;
 longCandidateReplayQuery.include_fundamentals satisfies false;
 longCandidateReplayQuery.use_monthly_shards satisfies true;
+initialCandidateReplayQuery.start_date satisfies "2025-01-02";
+initialCandidateReplayQuery.end_date satisfies "2026-06-05";
+initialCandidateReplayQuery.use_monthly_shards satisfies true;

@@ -51,6 +51,7 @@ import {
 } from "./candidateTiers";
 import {
   dualLineLongReplaySummary,
+  initialCandidateReplayQuery,
   longCandidateReplayQuery,
   monthlyStrategyPkRows,
   replayBreakdownRows,
@@ -1247,6 +1248,7 @@ export function App() {
     loadDataHealth();
     loadMonthlySummary();
     loadStrategyFit();
+    loadCandidateReplayEffect(initialCandidateReplayQuery);
   }, []);
 
   useEffect(() => {
