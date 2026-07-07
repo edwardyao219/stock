@@ -8,6 +8,7 @@ from services.engine.review.repository import (
     insert_review_report,
     load_candidate_pool_items_for_review,
     load_latest_review_report,
+    load_market_cross_section_for_report_date,
     load_market_indexes_for_report_date,
     load_market_summary_for_report_date,
     load_trade_plans_for_date,
@@ -22,6 +23,7 @@ from services.shared.models import (
     Security,
     TradePlan,
     TradingCalendar,
+    TushareMoneyflowIndDc,
 )
 
 
@@ -349,6 +351,264 @@ def test_load_market_indexes_uses_prefixed_index_symbols_not_stock_code_collisio
     assert sh_index["name"] == "上证指数"
     assert sh_index["close"] == 3380.0
     assert sh_index["change_pct"] == -0.005882
+
+
+def test_load_market_cross_section_attaches_sector_moneyflow() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+
+    with session() as db:
+        sectors = {
+            "消费电子": [("002101", "11"), ("002102", "10.8"), ("002103", "10.6")],
+            "半导体": [("603101", "9.5"), ("603102", "9.7"), ("603103", "9.9")],
+        }
+        for sector, rows in sectors.items():
+            for symbol, close in rows:
+                db.add(
+                    Security(
+                        symbol=symbol,
+                        name=f"样本{symbol}",
+                        exchange="SZ",
+                        industry=sector,
+                        is_active=True,
+                        is_st=False,
+                    )
+                )
+                db.add(
+                    DailyBar(
+                        symbol=symbol,
+                        trade_date=date(2026, 7, 7),
+                        open=Decimal("10"),
+                        high=Decimal("11"),
+                        low=Decimal("9"),
+                        close=Decimal(close),
+                        pre_close=Decimal("10"),
+                        volume=Decimal("100"),
+                        amount=Decimal("1000"),
+                        turnover_rate=None,
+                        limit_up=Decimal("11"),
+                        limit_down=Decimal("9"),
+                        is_suspended=False,
+                    )
+                )
+        db.add(
+            TushareMoneyflowIndDc(
+                trade_date=date(2026, 7, 7),
+                content_type="行业",
+                ts_code="BK0429",
+                name="消费电子",
+                pct_change=Decimal("3.2"),
+                close=Decimal("1234"),
+                net_amount=Decimal("123456789"),
+                net_amount_rate=Decimal("4.2"),
+            )
+        )
+        db.commit()
+
+        cross_section = load_market_cross_section_for_report_date(db, "2026-07-07")
+
+    strong = cross_section["strong_sectors"][0]
+    assert strong["sector"] == "消费电子"
+    assert strong["fund_flow_net_amount"] == 123456789.0
+    assert strong["fund_flow_rate"] == 4.2
+    assert strong["fund_flow_trade_date"] == "2026-07-07"
+    assert strong["fund_flow_stale"] is False
+    assert cross_section["sector_moneyflow_trade_date"] == "2026-07-07"
+    assert cross_section["sector_moneyflow_stale"] is False
+    assert cross_section["sector_moneyflow_missing_count"] == 1
+
+
+def test_load_market_cross_section_marks_stale_sector_moneyflow() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+
+    with session() as db:
+        db.add(
+            Security(
+                symbol="002101",
+                name="样本",
+                exchange="SZ",
+                industry="消费电子",
+                is_active=True,
+                is_st=False,
+            )
+        )
+        db.add(
+            DailyBar(
+                symbol="002101",
+                trade_date=date(2026, 7, 7),
+                open=Decimal("10"),
+                high=Decimal("11"),
+                low=Decimal("9"),
+                close=Decimal("11"),
+                pre_close=Decimal("10"),
+                volume=Decimal("100"),
+                amount=Decimal("1000"),
+                turnover_rate=None,
+                limit_up=Decimal("11"),
+                limit_down=Decimal("9"),
+                is_suspended=False,
+            )
+        )
+        db.add(
+            TushareMoneyflowIndDc(
+                trade_date=date(2026, 7, 6),
+                content_type="行业",
+                ts_code="BK0429",
+                name="消费电子",
+                pct_change=Decimal("3.2"),
+                close=Decimal("1234"),
+                net_amount=Decimal("80000000"),
+                net_amount_rate=Decimal("2.1"),
+            )
+        )
+        db.commit()
+
+        cross_section = load_market_cross_section_for_report_date(
+            db,
+            "2026-07-07",
+            min_sector_count=1,
+        )
+
+    strong = cross_section["strong_sectors"][0]
+    assert strong["fund_flow_trade_date"] == "2026-07-06"
+    assert strong["fund_flow_stale"] is True
+    assert cross_section["sector_moneyflow_trade_date"] == "2026-07-06"
+    assert cross_section["sector_moneyflow_stale"] is True
+
+
+def test_load_market_cross_section_matches_sector_moneyflow_alias() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+
+    with session() as db:
+        db.add(
+            Security(
+                symbol="002103",
+                name="样本",
+                exchange="SZ",
+                industry="元器件",
+                is_active=True,
+                is_st=False,
+            )
+        )
+        db.add(
+            DailyBar(
+                symbol="002103",
+                trade_date=date(2026, 7, 7),
+                open=Decimal("10"),
+                high=Decimal("11"),
+                low=Decimal("9"),
+                close=Decimal("11"),
+                pre_close=Decimal("10"),
+                volume=Decimal("100"),
+                amount=Decimal("1000"),
+                turnover_rate=None,
+                limit_up=Decimal("11"),
+                limit_down=Decimal("9"),
+                is_suspended=False,
+            )
+        )
+        db.add(
+            TushareMoneyflowIndDc(
+                trade_date=date(2026, 7, 7),
+                content_type="行业",
+                ts_code="BK0610",
+                name="元件",
+                pct_change=Decimal("3.2"),
+                close=Decimal("1234"),
+                net_amount=Decimal("90000000"),
+                net_amount_rate=Decimal("3.5"),
+            )
+        )
+        db.commit()
+
+        cross_section = load_market_cross_section_for_report_date(
+            db,
+            "2026-07-07",
+            min_sector_count=1,
+        )
+
+    strong = cross_section["strong_sectors"][0]
+    assert strong["sector"] == "元器件"
+    assert strong["fund_flow_net_amount"] == 90000000.0
+    assert strong["fund_flow_rate"] == 3.5
+    assert cross_section["sector_moneyflow_missing_count"] == 0
+
+
+def test_load_market_cross_section_aggregates_mapped_sector_moneyflow() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+
+    with session() as db:
+        db.add(
+            Security(
+                symbol="688101",
+                name="样本",
+                exchange="SH",
+                industry="半导体",
+                is_active=True,
+                is_st=False,
+            )
+        )
+        db.add(
+            DailyBar(
+                symbol="688101",
+                trade_date=date(2026, 7, 7),
+                open=Decimal("10"),
+                high=Decimal("11"),
+                low=Decimal("9"),
+                close=Decimal("11"),
+                pre_close=Decimal("10"),
+                volume=Decimal("100"),
+                amount=Decimal("1000"),
+                turnover_rate=None,
+                limit_up=Decimal("11"),
+                limit_down=Decimal("9"),
+                is_suspended=False,
+            )
+        )
+        db.add_all(
+            [
+                TushareMoneyflowIndDc(
+                    trade_date=date(2026, 7, 7),
+                    content_type="行业",
+                    ts_code="BK1001",
+                    name="半导体设备",
+                    pct_change=Decimal("3.2"),
+                    close=Decimal("1234"),
+                    net_amount=Decimal("100000000"),
+                    net_amount_rate=Decimal("4.5"),
+                ),
+                TushareMoneyflowIndDc(
+                    trade_date=date(2026, 7, 7),
+                    content_type="行业",
+                    ts_code="BK1002",
+                    name="集成电路设计",
+                    pct_change=Decimal("-1.2"),
+                    close=Decimal("1200"),
+                    net_amount=Decimal("-25000000"),
+                    net_amount_rate=Decimal("-1.1"),
+                ),
+            ]
+        )
+        db.commit()
+
+        cross_section = load_market_cross_section_for_report_date(
+            db,
+            "2026-07-07",
+            min_sector_count=1,
+        )
+
+    strong = cross_section["strong_sectors"][0]
+    assert strong["sector"] == "半导体"
+    assert strong["fund_flow_net_amount"] == 75000000.0
+    assert strong["fund_flow_rate"] is None
+    assert strong["fund_flow_source_count"] == 2
 
 
 def test_insert_review_report_updates_same_day_type_without_duplicates() -> None:

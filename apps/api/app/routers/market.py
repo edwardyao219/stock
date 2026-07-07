@@ -29,6 +29,7 @@ from services.engine.news.repository import (
     store_message_snapshot,
 )
 from services.engine.review.sector_replay import replay_sector_month
+from services.engine.sector.names import canonical_sector_name as _canonical_sector_name
 from services.shared.database import get_db
 from services.shared.models import (
     DailyBar,
@@ -261,45 +262,6 @@ class SectorOverviewItem(BaseModel):
     sector_gate_score: float | None = None
     sector_gate_label: str | None = None
     sector_gate_reasons: list[str] = Field(default_factory=list)
-
-
-SECTOR_NAME_ALIASES = {
-    "半导体设备": "半导体",
-    "半导体材料": "半导体",
-    "集成电路制造": "半导体",
-    "集成电路设计": "半导体",
-    "集成电路封测": "半导体",
-    "数字芯片设计": "半导体",
-    "分立器件": "半导体",
-    "通信网络设备及器件": "通信设备",
-    "通信终端及配件": "通信设备",
-    "其他通信设备": "通信设备",
-    "通信线缆及配套": "通信设备",
-    "通信设备": "通信设备",
-    "IT服务Ⅱ": "软件服务",
-    "IT服务Ⅲ": "软件服务",
-    "横向通用软件": "软件服务",
-    "垂直应用软件": "软件服务",
-    "软件开发": "软件服务",
-    "IT设备": "IT设备",
-    "计算机设备": "IT设备",
-    "其他计算机设备": "IT设备",
-    "安防设备": "IT设备",
-    "元件": "元器件",
-    "被动元件": "元器件",
-    "光学元件": "元器件",
-    "光学光电子": "元器件",
-    "LED": "元器件",
-    "光伏设备": "电气设备",
-    "光伏主材": "电气设备",
-    "光伏加工设备": "电气设备",
-    "光伏电池组件": "电气设备",
-    "光伏辅材": "电气设备",
-    "电力设备": "电气设备",
-    "其他电源设备Ⅱ": "电气设备",
-    "其他电源设备Ⅲ": "电气设备",
-    "锂电专用设备": "电气设备",
-}
 
 
 class SectorOverviewResponse(BaseModel):
@@ -984,10 +946,6 @@ def _sector_moneyflow_by_name(db: Session, trade_date: date) -> dict[str, Tushar
         .where(TushareMoneyflowIndDc.content_type == "行业")
     ).scalars()
     return {str(row.name): row for row in rows if row.name}
-
-
-def _canonical_sector_name(sector_name: str) -> str:
-    return SECTOR_NAME_ALIASES.get(sector_name, sector_name)
 
 
 def _sector_activity_score(item: SectorOverviewItem) -> float:

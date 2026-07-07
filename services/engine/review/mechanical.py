@@ -33,6 +33,10 @@ def _amount(value: object) -> str:
     return f"{amount:.0f}"
 
 
+def _flow_rate(value: object) -> str:
+    return f"{float(value):.2f}%" if value is not None else "-"
+
+
 def _status_label(value: object) -> str:
     return {
         "ok": "正常",
@@ -67,12 +71,33 @@ def _tag_number(tags: list[str], prefix: str, cast: Any) -> int | float | None:
 
 
 def _sector_line(item: dict[str, object]) -> str:
+    net_amount = item.get("fund_flow_net_amount")
+    flow_label = "资金净流入"
+    flow_amount = _amount(net_amount)
+    if net_amount is not None and float(net_amount) < 0:
+        flow_label = "资金净流出"
+        flow_amount = _amount(abs(float(net_amount)))
+    flow_text = f"{flow_label} {flow_amount} / 净流入率 {_flow_rate(item.get('fund_flow_rate'))}"
+    flow_date = str(item.get("fund_flow_trade_date") or "")
+    source_count = int(item.get("fund_flow_source_count") or 0)
+    flow_notes = []
+    if flow_date:
+        flow_notes.append(f"资金日期 {flow_date}")
+    if flow_date and item.get("fund_flow_stale"):
+        flow_notes.append("非当日")
+    if source_count > 1:
+        flow_notes.append(f"细分合计 {source_count} 个")
+    if flow_notes:
+        flow_text += f"（{'，'.join(flow_notes)}）"
+    if not flow_date and net_amount is None and item.get("fund_flow_rate") is None:
+        flow_text = "资金流 -"
     return (
         f"{item.get('sector') or '-'} "
         f"均涨 {_pct(item.get('avg_change_pct') or 0)} / "
         f"上涨占比 {_pct(item.get('up_ratio') or 0)} / "
         f"{int(item.get('stock_count') or 0)}只 / "
-        f"成交额 {_amount(item.get('total_amount'))}"
+        f"成交额 {_amount(item.get('total_amount'))} / "
+        f"{flow_text}"
     )
 
 
@@ -253,6 +278,24 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                     "当前只能看作局部样本，不能据此判断今天市场主线。"
                 )
             else:
+                moneyflow_date = str(
+                    market_cross_section.get("sector_moneyflow_trade_date") or ""
+                )
+                moneyflow_missing_count = int(
+                    market_cross_section.get("sector_moneyflow_missing_count") or 0
+                )
+                if moneyflow_date:
+                    stale_text = (
+                        "（非当日）" if market_cross_section.get("sector_moneyflow_stale") else ""
+                    )
+                    missing_text = (
+                        f"，缺失 {moneyflow_missing_count} 个板块"
+                        if moneyflow_missing_count
+                        else "，当前板块均有资金流"
+                    )
+                    lines.append(f"- 行业资金流日期 {moneyflow_date}{stale_text}{missing_text}")
+                elif moneyflow_missing_count:
+                    lines.append(f"- 行业资金流未入库，缺失 {moneyflow_missing_count} 个板块")
                 if strong_sectors:
                     lines.append(
                         "- 强势板块: "

@@ -65,6 +65,10 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
                     "up_ratio": 0.75,
                     "avg_change_pct": 0.035,
                     "total_amount": 456789000,
+                    "fund_flow_net_amount": 123456789,
+                    "fund_flow_rate": 4.2,
+                    "fund_flow_trade_date": "2026-06-22",
+                    "fund_flow_stale": True,
                 }
             ],
             "weak_sectors": [
@@ -74,6 +78,10 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
                     "up_ratio": 0.2,
                     "avg_change_pct": -0.026,
                     "total_amount": 556789000,
+                    "fund_flow_net_amount": None,
+                    "fund_flow_rate": None,
+                    "fund_flow_trade_date": "",
+                    "fund_flow_stale": False,
                 }
             ],
             "top_gainers": [
@@ -94,6 +102,9 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
                     "amount": 123456789,
                 }
             ],
+            "sector_moneyflow_trade_date": "2026-06-22",
+            "sector_moneyflow_stale": True,
+            "sector_moneyflow_missing_count": 1,
         },
     )
     monkeypatch.setattr(
@@ -192,6 +203,8 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
     assert "已有日线但缺少当日特征" in review.content_md
     assert "## 大盘强弱分化" in review.content_md
     assert "消费电子" in review.content_md
+    assert "资金净流入 1.2亿 / 净流入率 4.20%（资金日期 2026-06-22，非当日）" in review.content_md
+    assert "行业资金流日期 2026-06-22（非当日），缺失 1 个板块" in review.content_md
     assert "样本强股" in review.content_md
     assert "样本弱股" in review.content_md
     assert "强股通常来自当日更强的板块" in review.content_md
@@ -200,3 +213,23 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
     assert "第1名 / 86.4分" in review.content_md
     assert "K线 O10.00 H10.50 L9.80 C10.20" in review.content_md
     assert "## 明日候选计划" not in review.content_md
+
+
+def test_sector_line_marks_aggregated_moneyflow_sources() -> None:
+    line = review_mechanical._sector_line(
+        {
+            "sector": "半导体",
+            "stock_count": 10,
+            "up_ratio": 0.6,
+            "avg_change_pct": 0.02,
+            "total_amount": 123456789,
+            "fund_flow_net_amount": 75000000,
+            "fund_flow_rate": None,
+            "fund_flow_trade_date": "2026-07-07",
+            "fund_flow_stale": False,
+            "fund_flow_source_count": 2,
+        }
+    )
+
+    assert "资金净流入 7500.0万 / 净流入率 -" in line
+    assert "细分合计 2 个" in line

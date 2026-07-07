@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from services.engine.research_pool.repository import list_pool_items
 from services.engine.rules.seed_rules import MVP_RULES
+from services.engine.sector.names import canonical_sector_name
 from services.shared.models import (
     DailyBar,
     ParameterRecommendation,
@@ -15,6 +16,7 @@ from services.shared.models import (
     Security,
     TradePlan,
     TradingCalendar,
+    TushareMoneyflowIndDc,
 )
 
 ACTIVE_RULE_IDS = tuple(rule.id for rule in MVP_RULES)
@@ -278,6 +280,33 @@ def load_market_indexes_for_report_date(db: Session, report_date: str) -> list[d
     return indexes
 
 
+def _add_moneyflow_snapshot(
+    snapshots: dict[str, dict[str, object]],
+    sector_name: str,
+    row: TushareMoneyflowIndDc,
+) -> None:
+    snapshot = snapshots.setdefault(
+        sector_name,
+        {
+            "trade_date": row.trade_date,
+            "amount_sum": 0.0,
+            "amount_count": 0,
+            "rate_sum": 0.0,
+            "rate_count": 0,
+            "source_names": set(),
+        },
+    )
+    if row.net_amount is not None:
+        snapshot["amount_sum"] = float(snapshot["amount_sum"]) + float(row.net_amount)
+        snapshot["amount_count"] = int(snapshot["amount_count"]) + 1
+    if row.net_amount_rate is not None:
+        snapshot["rate_sum"] = float(snapshot["rate_sum"]) + float(row.net_amount_rate)
+        snapshot["rate_count"] = int(snapshot["rate_count"]) + 1
+    source_names = snapshot["source_names"]
+    if isinstance(source_names, set):
+        source_names.add(str(row.name or sector_name))
+
+
 def load_market_cross_section_for_report_date(
     db: Session,
     report_date: str,
@@ -292,11 +321,39 @@ def load_market_cross_section_for_report_date(
     if latest_date is None:
         return {
             "trade_date": "",
+            "sector_moneyflow_trade_date": "",
+            "sector_moneyflow_stale": False,
+            "sector_moneyflow_missing_count": 0,
             "strong_sectors": [],
             "weak_sectors": [],
             "top_gainers": [],
             "top_losers": [],
         }
+
+    moneyflow_date = db.execute(
+        select(func.max(TushareMoneyflowIndDc.trade_date))
+        .where(TushareMoneyflowIndDc.trade_date <= latest_date)
+        .where(TushareMoneyflowIndDc.content_type == "行业")
+    ).scalar_one_or_none()
+    moneyflow_by_name: dict[str, dict[str, object]] = {}
+    if moneyflow_date is not None:
+        moneyflow_rows = db.execute(
+            select(TushareMoneyflowIndDc)
+            .where(TushareMoneyflowIndDc.trade_date == moneyflow_date)
+            .where(TushareMoneyflowIndDc.content_type == "行业")
+            .order_by(
+                TushareMoneyflowIndDc.name.asc(),
+                func.coalesce(TushareMoneyflowIndDc.net_amount_rate, -999999999).desc(),
+                func.coalesce(TushareMoneyflowIndDc.net_amount, -999999999).desc(),
+                TushareMoneyflowIndDc.id.desc(),
+            )
+        ).scalars()
+        for row in moneyflow_rows:
+            if not row.name:
+                continue
+            raw_name = str(row.name)
+            for sector_name in {raw_name, canonical_sector_name(raw_name)}:
+                _add_moneyflow_snapshot(moneyflow_by_name, sector_name, row)
 
     rows = db.execute(
         select(DailyBar, Security)
@@ -344,13 +401,40 @@ def load_market_cross_section_for_report_date(
         stock_count = int(item["stock_count"])
         if stock_count <= 0:
             continue
+        sector_name = str(item["sector"])
+        moneyflow = moneyflow_by_name.get(sector_name)
+        source_names = (
+            moneyflow.get("source_names") if moneyflow is not None else set()
+        )
+        source_count = len(source_names) if isinstance(source_names, set) else 0
+        rate_count = int(moneyflow.get("rate_count") or 0) if moneyflow is not None else 0
         sector_rows.append(
             {
-                "sector": item["sector"],
+                "sector": sector_name,
                 "stock_count": stock_count,
                 "up_ratio": round(int(item["up_count"]) / stock_count, 6),
                 "avg_change_pct": round(float(item["change_sum"]) / stock_count, 6),
                 "total_amount": float(item["total_amount"]),
+                "fund_flow_net_amount": (
+                    float(moneyflow["amount_sum"])
+                    if moneyflow is not None and int(moneyflow["amount_count"]) > 0
+                    else None
+                ),
+                "fund_flow_rate": (
+                    float(moneyflow["rate_sum"])
+                    if moneyflow is not None and source_count == 1 and rate_count == 1
+                    else None
+                ),
+                "fund_flow_trade_date": (
+                    moneyflow["trade_date"].isoformat() if moneyflow is not None else ""
+                ),
+                "fund_flow_stale": (
+                    moneyflow["trade_date"] < latest_date if moneyflow is not None else False
+                ),
+                "fund_flow_source_count": source_count,
+                "fund_flow_source_names": sorted(source_names)
+                if isinstance(source_names, set)
+                else [],
             }
         )
     eligible_sectors = [
@@ -359,6 +443,11 @@ def load_market_cross_section_for_report_date(
     ranked_sectors = eligible_sectors or sector_rows
     return {
         "trade_date": latest_date.isoformat(),
+        "sector_moneyflow_trade_date": moneyflow_date.isoformat() if moneyflow_date else "",
+        "sector_moneyflow_stale": bool(moneyflow_date and moneyflow_date < latest_date),
+        "sector_moneyflow_missing_count": sum(
+            1 for item in sector_rows if item.get("fund_flow_trade_date") == ""
+        ),
         "strong_sectors": sorted(
             ranked_sectors,
             key=lambda item: (float(item["avg_change_pct"]), float(item["total_amount"])),
