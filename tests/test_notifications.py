@@ -835,6 +835,82 @@ def test_build_candidate_tiers_blocks_market_beta_core_when_market_is_weak() -> 
     )
 
 
+def test_build_candidate_tiers_blocks_all_core_when_market_stress_is_risk_off() -> None:
+    candidate = {
+        "symbol": "603061",
+        "name": "金海通",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "suggested_horizon_days": 10,
+        "horizon_reason": "风格周期：growth_cycle偏10日观察，科技成长先看承接延续",
+        "selection_mode": "formal_strategy",
+        "score": 88.0,
+        "selected_strategy_type": "long_term",
+        "reasons": ["低维主线：板块趋势和个股强度共振"],
+        "risk_flags": [],
+    }
+    discovery = {
+        "candidates": [candidate],
+        "long_action_candidates": [candidate],
+        "market_stress": {
+            "stress_status": "risk_off",
+            "risk_action_label": "停止扩散，只做观察和风控",
+            "stress_reasons": ["上涨占比仅18%，市场宽度明显不足"],
+        },
+    }
+
+    tiers = build_candidate_tiers(discovery)
+
+    assert tiers["core_action"] == []
+    assert [item["symbol"] for item in tiers["watch_wait"]] == ["603061"]
+    assert "大盘压力大" in tiers["watch_wait"][0]["tier_reason"]
+    assert "停止扩散" in tiers["watch_wait"][0]["tier_reason"]
+    assert tiers["summary"]["core_block_reason"] == (
+        "没有核心行动：大盘压力大，停止扩散，只做观察和风控。"
+    )
+
+
+def test_build_candidate_tiers_limits_core_to_one_when_market_stress_is_caution() -> None:
+    first = {
+        "symbol": "603061",
+        "name": "金海通",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "selection_mode": "formal_strategy",
+        "score": 88.0,
+        "selected_strategy_type": "long_term",
+        "reasons": ["低维主线：板块趋势和个股强度共振"],
+        "risk_flags": [],
+    }
+    second = {
+        "symbol": "600360",
+        "name": "华微电子",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "selection_mode": "formal_strategy",
+        "score": 84.0,
+        "selected_strategy_type": "swing",
+        "reasons": ["中期强者：相对强度或板块扩散足够强"],
+        "risk_flags": [],
+    }
+    discovery = {
+        "candidates": [first, second],
+        "long_action_candidates": [first, second],
+        "market_stress": {
+            "stress_status": "caution",
+            "risk_action_label": "降低频率，等盘中确认",
+            "stress_reasons": ["上涨占比34%，弱势面较宽"],
+        },
+    }
+
+    tiers = build_candidate_tiers(discovery, max_core_items=3)
+
+    assert [item["symbol"] for item in tiers["core_action"]] == ["603061"]
+    assert [item["symbol"] for item in tiers["watch_wait"]] == ["600360"]
+    assert "大盘谨慎" in tiers["watch_wait"][0]["tier_reason"]
+    assert "只保留最强一只" in tiers["watch_wait"][0]["tier_reason"]
+
+
 def test_build_candidate_tiers_keeps_startup_preheat_as_watch_wait() -> None:
     candidates = [
         {

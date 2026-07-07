@@ -533,6 +533,68 @@ def _load_candidate_gate_policies(trade_date: str) -> dict[str, Any]:
         return {}
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _candidate_market_stress_from_discovery(discovery: dict[str, Any]) -> dict[str, Any]:
+    existing = discovery.get("market_stress")
+    if isinstance(existing, dict):
+        return existing
+
+    regime_snapshot = discovery.get("market_regime_snapshot") or {}
+    participation_snapshot = discovery.get("market_participation_snapshot") or {}
+    regime = str(discovery.get("market_regime") or regime_snapshot.get("regime") or "")
+    gate_state = str(regime_snapshot.get("emotion_gate") or "")
+    emotion_gate = discovery.get("emotion_gate") or {}
+    if not gate_state and isinstance(emotion_gate, dict):
+        gate_state = str(emotion_gate.get("state") or "")
+    breadth_score = _safe_float(regime_snapshot.get("breadth_score"), 50.0)
+    participation_score = _safe_float(participation_snapshot.get("participation_score"), 50.0)
+    liquidity_score = _safe_float(participation_snapshot.get("liquidity_score"), 50.0)
+
+    score = 0.0
+    reasons: list[str] = []
+    if regime == "panic" or gate_state == "risk_off":
+        score += 45.0
+        reasons.append("情绪阀门risk_off，先按弱市处理")
+    if breadth_score <= 35.0:
+        score += 35.0
+        reasons.append(f"市场宽度{breadth_score:.1f}，多数股票承压")
+    elif breadth_score <= 45.0:
+        score += 20.0
+        reasons.append(f"市场宽度{breadth_score:.1f}，赚钱效应偏弱")
+    if participation_score < 45.0 or liquidity_score < 35.0:
+        score += 15.0
+        reasons.append("参与度或流动性不足，候选需要二次确认")
+
+    if score >= 70.0:
+        status = "risk_off"
+        label = "压力大"
+        action = "停止扩散，只做观察和风控"
+    elif score >= 40.0:
+        status = "caution"
+        label = "谨慎"
+        action = "降低频率，等盘中确认"
+    else:
+        status = "neutral"
+        label = "中性"
+        action = "按原计划精选"
+
+    return {
+        "stress_status": status,
+        "stress_label": label,
+        "stress_score": round(score, 2),
+        "stress_reasons": reasons or ["候选发现阶段没有明显市场压力"],
+        "risk_action_label": action,
+    }
+
+
 def _apply_candidate_tier_tags(
     db: Session,
     *,
@@ -672,6 +734,7 @@ def _discover_next_session_candidates_step(
         discovery["candidates"] = normal_candidates + star_candidates
         discovery["action_candidates"] = action_candidates
         discovery["long_action_candidates"] = long_action_candidates
+        discovery["market_stress"] = _candidate_market_stress_from_discovery(discovery)
         discovery.update(_load_candidate_gate_policies(trade_date))
         discovery["candidate_tiers"] = build_candidate_tiers(
             discovery,

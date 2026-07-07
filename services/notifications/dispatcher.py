@@ -440,6 +440,41 @@ def _market_beta_core_block_reason(discovery: dict[str, Any], item: dict[str, An
     return "市场弹性候选遇到弱市缩量，先降为观察；需要指数、市场宽度和成交额重新配合。"
 
 
+def _market_stress_snapshot(discovery: dict[str, Any]) -> dict[str, Any]:
+    snapshot = discovery.get("market_stress")
+    return snapshot if isinstance(snapshot, dict) else {}
+
+
+def _market_stress_core_limit(discovery: dict[str, Any], max_core_items: int) -> int:
+    status = str(_market_stress_snapshot(discovery).get("stress_status") or "")
+    if status == "risk_off":
+        return 0
+    if status == "caution":
+        return min(max_core_items, 1)
+    return max_core_items
+
+
+def _market_stress_core_block_reason(
+    discovery: dict[str, Any],
+    *,
+    selected_core_count: int,
+    max_core_items: int,
+) -> str | None:
+    snapshot = _market_stress_snapshot(discovery)
+    status = str(snapshot.get("stress_status") or "")
+    action = str(snapshot.get("risk_action_label") or "").strip()
+    reasons = [str(reason) for reason in snapshot.get("stress_reasons") or [] if reason]
+    reason_suffix = f"；{reasons[0]}" if reasons else ""
+
+    if status == "risk_off":
+        action_text = action or "停止扩散，只做观察和风控"
+        return f"大盘压力大：{action_text}{reason_suffix}。"
+    if status == "caution" and selected_core_count >= max_core_items:
+        action_text = action or "降低频率，等盘中确认"
+        return f"大盘谨慎：只保留最强一只，其余{action_text}{reason_suffix}。"
+    return None
+
+
 def _candidate_sector_style(item: dict[str, Any]) -> str:
     explicit_style = str(item.get("sector_style") or "").strip()
     if explicit_style:
@@ -686,6 +721,8 @@ def _core_block_reason(
     if core_action:
         return None
     if blocked_core_reasons:
+        if any("大盘压力大" in reason for reason in blocked_core_reasons):
+            return "没有核心行动：大盘压力大，停止扩散，只做观察和风控。"
         if any("市场弹性" in reason and "弱市缩量" in reason for reason in blocked_core_reasons):
             return "没有核心行动：市场弹性候选遇到弱市缩量，先降为观察。"
         return blocked_core_reasons[0]
@@ -731,10 +768,27 @@ def build_candidate_tiers(
         or select_action_candidates(discovery, source_candidates, max_items=max_core_items)
     )
     core_source_items = list(core_source)
+    market_core_limit = _market_stress_core_limit(discovery, max_core_items)
     blocked_core_items: list[dict[str, Any]] = []
     blocked_core_reasons: list[str] = []
     filtered_core_source: list[dict[str, Any]] = []
     for item in core_source_items:
+        block_reason = _market_stress_core_block_reason(
+            discovery,
+            selected_core_count=len(filtered_core_source),
+            max_core_items=market_core_limit,
+        )
+        if block_reason:
+            blocked_core_items.append(
+                _tiered_candidate(
+                    item,
+                    tier="watch_wait",
+                    label="观察等待",
+                    reason=_append_horizon_reason(item, block_reason),
+                )
+            )
+            blocked_core_reasons.append(block_reason)
+            continue
         block_reason = _market_beta_core_block_reason(discovery, item)
         if block_reason:
             blocked_core_items.append(
@@ -758,7 +812,7 @@ def build_candidate_tiers(
                 "板块和个股趋势同时在线，作为核心行动候选；盘中仍看承接。",
             ),
         )
-        for item in filtered_core_source[:max_core_items]
+        for item in filtered_core_source[:market_core_limit]
     ]
     core_symbols = _candidate_symbols(core_action)
     blocked_core_symbols = _candidate_symbols(blocked_core_items)
