@@ -1,5 +1,6 @@
 import type { CandidateReplayEffectReport, LowDimensionalReplayReport } from "./api";
 import {
+  dualLineLongReplaySummary,
   longCandidateReplayQuery,
   replayScopeRows,
   replayBreakdownRows,
@@ -307,6 +308,41 @@ const candidateReplay = {
     ],
   },
   scopes: {
+    action_long: {
+      start_date: "2024-01-01",
+      end_date: "2026-07-01",
+      candidate_count: 19,
+      warning_days: 0,
+      top_sectors: [],
+      style_counts: [{ style: "growth_cycle", count: 19 }],
+      selection_mode_counts: [{ selection_mode: "formal_strategy", count: 19 }],
+      startup_signal_counts: [],
+      horizons: {
+        20: {
+          raw: { sample_count: 18, avg_return: 0.06, win_rate: 0.61, total_return: 1.08 },
+          guarded: { sample_count: 18, avg_return: 0.057108, win_rate: 0.61, total_return: 1.027945 },
+        },
+      },
+      portfolio_horizons: {
+        20: {
+          max_positions: 3,
+          weighting: "equal_weight_by_signal_day",
+          raw: { sample_count: 12, avg_return: 0.045, win_rate: 0.58, total_return: 0.54 },
+          guarded: { sample_count: 12, avg_return: 0.04, win_rate: 0.58, total_return: 0.48 },
+        },
+      },
+      monthly_horizons: {},
+      monthly_portfolio_horizons: {},
+      style_horizons: {},
+      selection_mode_horizons: {},
+      startup_signal_horizons: {},
+      monthly_style_horizons: {},
+      monthly_selection_mode_horizons: {},
+      monthly_startup_signal_horizons: {},
+      style_horizon_preferences: {},
+      processed_days: 300,
+      excluded_symbols: [],
+    },
     startup_preheat: {
       start_date: "2024-01-01",
       end_date: "2026-07-01",
@@ -321,8 +357,19 @@ const candidateReplay = {
           raw: { sample_count: 8, avg_return: 0.04, win_rate: 0.63, total_return: 0.32 },
           guarded: { sample_count: 8, avg_return: 0.03, win_rate: 0.63, total_return: 0.24 },
         },
+        20: {
+          raw: { sample_count: 30, avg_return: 0.02, win_rate: 0.47, total_return: 0.6 },
+          guarded: { sample_count: 30, avg_return: 0.015, win_rate: 0.47, total_return: 0.45 },
+        },
       },
-      portfolio_horizons: {},
+      portfolio_horizons: {
+        20: {
+          max_positions: 3,
+          weighting: "equal_weight_by_signal_day",
+          raw: { sample_count: 20, avg_return: 0.022, win_rate: 0.5, total_return: 0.44 },
+          guarded: { sample_count: 20, avg_return: 0.018, win_rate: 0.5, total_return: 0.36 },
+        },
+      },
       monthly_horizons: {},
       monthly_portfolio_horizons: {},
       style_horizons: {},
@@ -446,6 +493,10 @@ const preferenceRows = replayStylePreferenceRows(lowDimensional);
 const startupRows = startupPreheatRows(candidateReplay);
 const monthlyStyleRows = replayMonthlyStyleRows(candidateReplay.scopes.all, 10);
 const strategyRows = strategyPkRows(candidateReplay);
+const dualLineSummary = dualLineLongReplaySummary(candidateReplay);
+if (!dualLineSummary) {
+  throw new Error("双线摘要应在长期行动池和启动前夜池都有样本时存在");
+}
 
 scopeRows[0].scope satisfies "all" | "action" | "action_long" | string;
 breakdownRows[0].label satisfies string;
@@ -457,6 +508,10 @@ monthlyStyleRows[0].month satisfies string;
 candidateReplay.diagnosis.primary_scope satisfies string;
 strategyRows[0].policyLabel satisfies string;
 strategyRows[0].primaryMetric?.total_return satisfies number | null | undefined;
+dualLineSummary.mainLine.label satisfies "长期行动池";
+dualLineSummary.supportLine.label satisfies "启动前夜池";
+dualLineSummary.guidance satisfies string;
+dualLineSummary.qualityLeader satisfies "main" | "support" | "none";
 longCandidateReplayQuery.start_date satisfies "2025-01-02";
 longCandidateReplayQuery.end_date satisfies "2026-06-05";
 longCandidateReplayQuery.limit satisfies 15;

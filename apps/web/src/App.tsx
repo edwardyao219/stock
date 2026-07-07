@@ -50,6 +50,7 @@ import {
   groupStocksByCandidateTier,
 } from "./candidateTiers";
 import {
+  dualLineLongReplaySummary,
   longCandidateReplayQuery,
   replayBreakdownRows,
   replayMonthlyStyleRows,
@@ -910,6 +911,12 @@ function lineStatusText(value: string | null | undefined) {
   return lineStatusLabels[value] ?? "未定状态";
 }
 
+function dualLineLeaderText(value: string) {
+  if (value === "main") return "核心线";
+  if (value === "support") return "启动线";
+  return "无明显领先";
+}
+
 export function App() {
   const [activePage, setActivePage] = useState<PageKey>("stocks");
   const [stocks, setStocks] = useState<WorkspaceStock[]>([]);
@@ -1289,6 +1296,7 @@ export function App() {
   const candidateReplayScopeRows = replayScopeRows(candidateReplayEffect, 20);
   const candidateStrategyPk = candidateReplayEffect?.diagnosis.strategy_pk ?? null;
   const candidateStrategyPkRows = strategyPkRows(candidateReplayEffect);
+  const candidateDualLineLongSummary = dualLineLongReplaySummary(candidateReplayEffect);
   const candidateReplayCacheText = replayCacheText(candidateReplayEffect);
   const candidateReplayWindowLabel = candidateReplayEffect
     ? (
@@ -2214,6 +2222,28 @@ export function App() {
                       {uiText(candidateReplayEffect.diagnosis.dual_line_policy.support_line.summary ?? "暂无预热信号")}
                     </small>
                   </div>
+                  {candidateDualLineLongSummary ? (
+                    <div className="replay-dual-line-evidence">
+                      <strong>{candidateDualLineLongSummary.horizon}日双线长期证据</strong>
+                      <div className="dual-line-evidence-grid">
+                        {[candidateDualLineLongSummary.mainLine, candidateDualLineLongSummary.supportLine].map((line) => (
+                          <div className={`dual-line-evidence-item ${line.tone}`} key={line.scope}>
+                            <span>{line.label} / {line.role}</span>
+                            <strong>{pct(line.displayMetric?.avg_return)}</strong>
+                            <small>
+                              总收益 {pct(line.displayMetric?.total_return)} / 样本{" "}
+                              {line.displayMetric?.sample_count ?? 0}
+                            </small>
+                          </div>
+                        ))}
+                      </div>
+                      <small>{candidateDualLineLongSummary.guidance}</small>
+                      <small>
+                        均值领先：{dualLineLeaderText(candidateDualLineLongSummary.qualityLeader)} / 覆盖领先：
+                        {dualLineLeaderText(candidateDualLineLongSummary.coverageLeader)}
+                      </small>
+                    </div>
+                  ) : null}
                   <div className="replay-sector-policy">
                     <strong>
                       {candidateReplayEffect.diagnosis.sector_leadership_policy.label} /{" "}

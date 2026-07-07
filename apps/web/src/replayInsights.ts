@@ -96,6 +96,28 @@ export interface StrategyPkDisplayRow {
   tone: ReplayTone;
 }
 
+export interface DualLineLongReplayLine<
+  TScope extends "action_long" | "startup_preheat" = "action_long" | "startup_preheat",
+  TLabel extends "长期行动池" | "启动前夜池" = "长期行动池" | "启动前夜池",
+> {
+  scope: TScope;
+  label: TLabel;
+  role: string;
+  metric: ReplayReturnSummary | null;
+  portfolioMetric: ReplayReturnSummary | null;
+  displayMetric: ReplayReturnSummary | null;
+  tone: ReplayTone;
+}
+
+export interface DualLineLongReplaySummary {
+  horizon: number;
+  mainLine: DualLineLongReplayLine<"action_long", "长期行动池">;
+  supportLine: DualLineLongReplayLine<"startup_preheat", "启动前夜池">;
+  qualityLeader: "main" | "support" | "none";
+  coverageLeader: "main" | "support" | "none";
+  guidance: string;
+}
+
 const scopeOrder = [
   "action_long",
   "action",
@@ -179,6 +201,74 @@ function strategyMetricFallback(
     avg_return: avgReturn,
     win_rate: winRate,
     total_return: totalReturn,
+  };
+}
+
+function scopeMetric(
+  report: CandidateReplayEffectReport,
+  scope: "action_long" | "startup_preheat",
+  horizon: number,
+) {
+  const summary = report.scopes[scope];
+  const metric = summary?.horizons[horizon]?.guarded ?? null;
+  const portfolioMetric = summary?.portfolio_horizons[horizon]?.guarded ?? null;
+  return {
+    metric,
+    portfolioMetric,
+    displayMetric: portfolioMetric ?? metric,
+  };
+}
+
+function leaderByMetric(
+  mainValue: number | null | undefined,
+  supportValue: number | null | undefined,
+) {
+  if (mainValue === null || mainValue === undefined || supportValue === null || supportValue === undefined) {
+    return "none";
+  }
+  if (mainValue === supportValue) return "none";
+  return mainValue > supportValue ? "main" : "support";
+}
+
+export function dualLineLongReplaySummary(
+  report: CandidateReplayEffectReport | null,
+  horizon = 20,
+): DualLineLongReplaySummary | null {
+  if (!report?.scopes.action_long || !report.scopes.startup_preheat) return null;
+  const mainMetrics = scopeMetric(report, "action_long", horizon);
+  const supportMetrics = scopeMetric(report, "startup_preheat", horizon);
+  const mainLine: DualLineLongReplayLine<"action_long", "长期行动池"> = {
+    scope: "action_long",
+    label: "长期行动池",
+    role: "核心少量",
+    ...mainMetrics,
+    tone: toneFor(mainMetrics.displayMetric?.avg_return),
+  };
+  const supportLine: DualLineLongReplayLine<"startup_preheat", "启动前夜池"> = {
+    scope: "startup_preheat",
+    label: "启动前夜池",
+    role: "观察预热",
+    ...supportMetrics,
+    tone: toneFor(supportMetrics.displayMetric?.avg_return),
+  };
+  const qualityLeader = leaderByMetric(
+    mainLine.displayMetric?.avg_return,
+    supportLine.displayMetric?.avg_return,
+  );
+  const coverageLeader = leaderByMetric(
+    mainLine.displayMetric?.sample_count,
+    supportLine.displayMetric?.sample_count,
+  );
+  return {
+    horizon,
+    mainLine,
+    supportLine,
+    qualityLeader,
+    coverageLeader,
+    guidance:
+      qualityLeader === "main"
+        ? "核心线看均值质量，启动线看机会覆盖；启动线只做观察和盘中确认。"
+        : "启动线更活跃时也先观察，只有个股趋势、量能和风控同时确认才考虑升级。",
   };
 }
 

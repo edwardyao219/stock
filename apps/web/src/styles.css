@@ -1661,6 +1661,65 @@ button {
   color: #1f6f43;
 }
 
+.replay-diagnosis .replay-dual-line-evidence {
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+}
+
+.replay-diagnosis .replay-dual-line-evidence strong {
+  color: #17202b;
+  font-size: 13px;
+}
+
+.replay-diagnosis .replay-dual-line-evidence small {
+  color: #64748b;
+}
+
+.dual-line-evidence-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.dual-line-evidence-item {
+  border-left: 3px solid #cbd5e1;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding-left: 8px;
+}
+
+.dual-line-evidence-item span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dual-line-evidence-item strong {
+  color: #64748b;
+  font-size: 15px;
+}
+
+.dual-line-evidence-item.up {
+  border-left-color: #c73535;
+}
+
+.dual-line-evidence-item.up strong {
+  color: #c73535;
+}
+
+.dual-line-evidence-item.down {
+  border-left-color: #1f8a55;
+}
+
+.dual-line-evidence-item.down strong {
+  color: #1f8a55;
+}
+
 .replay-diagnosis .replay-sector-policy {
   background: #fff7ed;
   border: 1px solid #fed7aa;
