@@ -721,6 +721,31 @@ export interface CandidateReplaySectorLeadershipPolicy {
   rules: string[];
 }
 
+export interface CandidateReplayMarketStressGatePolicy {
+  status: string;
+  label: string;
+  horizon: number;
+  lookback_months: number;
+  weak_months: number;
+  defended_months: number;
+  best_core_scope: string | null;
+  best_core_label: string | null;
+  max_core_positions: number;
+  avoided_total_loss: number | null;
+  summary: string;
+  rows: {
+    month: string;
+    all_sample_count: number;
+    all_total_return: number | null;
+    core_scope: string | null;
+    core_label: string | null;
+    core_sample_count: number;
+    core_total_return: number | null;
+    avoided_loss: number | null;
+  }[];
+  reasons: string[];
+}
+
 export interface CandidateReplayDiagnosis {
   horizon: number;
   primary_scope: string;
@@ -754,6 +779,7 @@ export interface CandidateReplayDiagnosis {
     summary: string;
     reasons: string[];
   };
+  market_stress_gate_policy: CandidateReplayMarketStressGatePolicy;
   dual_line_policy: {
     active_line: string;
     ding_policy: string;

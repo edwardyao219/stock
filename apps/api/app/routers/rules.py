@@ -1475,11 +1475,28 @@ def _strategy_pk_needs_enrichment(diagnosis: dict[str, Any]) -> bool:
     )
 
 
+def _market_stress_gate_policy_needs_enrichment(diagnosis: dict[str, Any]) -> bool:
+    policy = diagnosis.get("market_stress_gate_policy")
+    if not isinstance(policy, dict):
+        return True
+    required_keys = {
+        "status",
+        "label",
+        "max_core_positions",
+        "avoided_total_loss",
+        "summary",
+        "rows",
+        "reasons",
+    }
+    return not required_keys.issubset(policy)
+
+
 def _enrich_candidate_replay_effect_payload(payload: dict[str, Any]) -> dict[str, Any]:
     diagnosis = payload.get("diagnosis") if isinstance(payload.get("diagnosis"), dict) else {}
     needs_sector_policy = _sector_leadership_policy_needs_enrichment(diagnosis)
     needs_strategy_pk = _strategy_pk_needs_enrichment(diagnosis)
-    if not needs_sector_policy and not needs_strategy_pk:
+    needs_market_stress_gate = _market_stress_gate_policy_needs_enrichment(diagnosis)
+    if not needs_sector_policy and not needs_strategy_pk and not needs_market_stress_gate:
         return payload
     comparison = {
         "start_date": payload.get("start_date"),
@@ -1496,6 +1513,11 @@ def _enrich_candidate_replay_effect_payload(payload: dict[str, Any]) -> dict[str
         )
     if needs_strategy_pk:
         enriched_diagnosis["strategy_pk"] = diagnose_strategy_pk(comparison)
+    if needs_market_stress_gate:
+        enriched_diagnosis["market_stress_gate_policy"] = diagnose_market_stress_gate_policy(
+            comparison,
+            horizon=horizon,
+        )
     return {
         **payload,
         "diagnosis": enriched_diagnosis,
@@ -1764,6 +1786,179 @@ def diagnose_market_phase_policy(
     }
 
 
+def _best_core_month_metric(
+    comparison: dict[str, Any],
+    *,
+    month: str,
+    horizon: int,
+) -> tuple[str | None, dict[str, Any]]:
+    best_scope: str | None = None
+    best_metric: dict[str, Any] = _empty_return_metric()
+    for scope in ("action_long", "action"):
+        metric = _monthly_guarded_metric(
+            comparison,
+            scope=scope,
+            month=month,
+            horizon=horizon,
+        )
+        if int(metric.get("sample_count") or 0) <= 0:
+            continue
+        total_return = metric.get("total_return")
+        best_total = best_metric.get("total_return")
+        if best_scope is None or (
+            total_return is not None
+            and (best_total is None or float(total_return) > float(best_total))
+        ):
+            best_scope = scope
+            best_metric = metric
+    return best_scope, best_metric
+
+
+def _best_core_metric(
+    comparison: dict[str, Any],
+    *,
+    horizon: int,
+) -> tuple[str | None, dict[str, Any]]:
+    best_scope: str | None = None
+    best_metric: dict[str, Any] = _empty_return_metric()
+    for scope in ("action_long", "action"):
+        summary = (comparison.get("scopes") or {}).get(scope) or {}
+        metric = _guarded_metric(summary, horizon)
+        if int(metric.get("sample_count") or 0) <= 0:
+            continue
+        total_return = metric.get("total_return")
+        best_total = best_metric.get("total_return")
+        if best_scope is None or (
+            total_return is not None
+            and (best_total is None or float(total_return) > float(best_total))
+        ):
+            best_scope = scope
+            best_metric = metric
+    return best_scope, best_metric
+
+
+def diagnose_market_stress_gate_policy(
+    comparison: dict[str, Any],
+    *,
+    horizon: int,
+    lookback_months: int = 3,
+    min_all_month_samples: int = 20,
+) -> dict[str, Any]:
+    months = _month_candidates(comparison, horizon=horizon)
+    rows: list[dict[str, Any]] = []
+    for month in months[-lookback_months:]:
+        all_metric = _monthly_guarded_metric(
+            comparison,
+            scope="all",
+            month=month,
+            horizon=horizon,
+        )
+        all_sample_count = int(all_metric.get("sample_count") or 0)
+        if all_sample_count < min_all_month_samples:
+            continue
+        core_scope, core_metric = _best_core_month_metric(
+            comparison,
+            month=month,
+            horizon=horizon,
+        )
+        all_total = _metric_float(all_metric, "total_return")
+        core_total = _metric_float(core_metric, "total_return")
+        rows.append(
+            {
+                "month": month,
+                "all_sample_count": all_sample_count,
+                "all_total_return": all_total,
+                "core_scope": core_scope,
+                "core_label": _SCOPE_LABELS.get(core_scope or "", core_scope),
+                "core_sample_count": int(core_metric.get("sample_count") or 0),
+                "core_total_return": core_total,
+                "avoided_loss": (
+                    round(core_total - all_total, 6)
+                    if all_total is not None and all_total < 0 and core_total is not None
+                    else None
+                ),
+            }
+        )
+
+    if not rows:
+        return {
+            "status": "insufficient_data",
+            "label": "压力样本不足",
+            "horizon": horizon,
+            "lookback_months": 0,
+            "weak_months": 0,
+            "defended_months": 0,
+            "best_core_scope": None,
+            "max_core_positions": 1,
+            "avoided_total_loss": None,
+            "summary": "弱市月份样本不足，暂不评价市场压力门控效果。",
+            "rows": [],
+            "reasons": ["没有足够的弱市月度样本。"],
+        }
+
+    all_summary = (comparison.get("scopes") or {}).get("all") or {}
+    all_metric = _guarded_metric(all_summary, horizon)
+    best_core_scope, best_core_metric = _best_core_metric(comparison, horizon=horizon)
+    all_total = _metric_float(all_metric, "total_return")
+    best_core_total = _metric_float(best_core_metric, "total_return")
+    avoided_total_loss = (
+        round(best_core_total - all_total, 6)
+        if all_total is not None and all_total < 0 and best_core_total is not None
+        else None
+    )
+    weak_rows = [row for row in rows if (row.get("all_total_return") or 0.0) < 0.0]
+    defended_rows = [
+        row for row in weak_rows if (row.get("avoided_loss") or 0.0) > 0.0
+    ]
+
+    if weak_rows and len(defended_rows) == len(weak_rows) and (avoided_total_loss or 0.0) > 0:
+        status = "effective_defense"
+        label = "压力门控有效"
+        max_core_positions = 1
+        summary = "弱月收缩有效：核心行动池相对全候选池明显少亏或转正，压力大时继续少做。"
+    elif weak_rows and defended_rows:
+        status = "selective_defense"
+        label = "压力门控部分有效"
+        max_core_positions = 1
+        summary = "部分弱月收缩有效，但稳定性还不够，压力大时只保留极少数核心。"
+    elif weak_rows:
+        status = "cash_defense"
+        label = "现金防守优先"
+        max_core_positions = 0
+        summary = "弱月里核心池也没有明显改善，压力大时应优先空仓观察。"
+    else:
+        status = "normal_follow"
+        label = "正常跟随"
+        max_core_positions = 3
+        summary = "最近月度没有明显全候选池承压，不需要额外压力门控。"
+
+    reasons = [
+        (
+            f"{row['month']} 全候选{horizon}日总收益"
+            f"{_format_pct(row['all_total_return'])}，"
+            f"{row.get('core_label') or '核心池'}"
+            f"{_format_pct(row['core_total_return'])}，"
+            f"改善{_format_pct(row.get('avoided_loss'))}"
+        )
+        for row in rows
+    ]
+    return {
+        "status": status,
+        "label": label,
+        "horizon": horizon,
+        "lookback_months": len(rows),
+        "weak_months": len(weak_rows),
+        "defended_months": len(defended_rows),
+        "best_core_scope": best_core_scope,
+        "best_core_label": _SCOPE_LABELS.get(best_core_scope or "", best_core_scope),
+        "max_core_positions": max_core_positions,
+        "avoided_total_loss": avoided_total_loss,
+        "summary": summary,
+        "rows": rows,
+        "reasons": reasons,
+    }
+
+
 def _best_main_line_scope(comparison: dict[str, Any], *, horizon: int) -> dict[str, Any]:
     rows = [
         _scope_diagnosis_row(scope, (comparison.get("scopes") or {}).get(scope) or {}, horizon)
@@ -1966,6 +2161,10 @@ def diagnose_candidate_replay_effect(
             min_upgrade_avg_return=0.02,
         ),
         "market_phase_policy": market_phase_policy,
+        "market_stress_gate_policy": diagnose_market_stress_gate_policy(
+            comparison,
+            horizon=horizon,
+        ),
         "dual_line_policy": diagnose_dual_line_policy(
             comparison,
             horizon=horizon,

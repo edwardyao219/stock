@@ -2013,6 +2013,114 @@ def test_candidate_replay_market_phase_switch_allows_following_strong_phase() ->
     assert any("2024-09" in reason for reason in phase["reasons"])
 
 
+def test_candidate_replay_market_stress_gate_measures_defensive_value() -> None:
+    comparison = {
+        "scopes": {
+            "all": {
+                "candidate_count": 400,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 300,
+                            "avg_return": -0.01,
+                            "total_return": -3.0,
+                            "win_rate": 0.35,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2024-04": {
+                            "guarded": {
+                                "sample_count": 80,
+                                "avg_return": -0.03,
+                                "total_return": -2.4,
+                            }
+                        },
+                        "2024-05": {
+                            "guarded": {
+                                "sample_count": 75,
+                                "avg_return": -0.02,
+                                "total_return": -1.5,
+                            }
+                        },
+                    }
+                },
+            },
+            "action": {
+                "candidate_count": 20,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 20,
+                            "avg_return": -0.004,
+                            "total_return": -0.08,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2024-04": {
+                            "guarded": {
+                                "sample_count": 5,
+                                "avg_return": -0.01,
+                                "total_return": -0.05,
+                            }
+                        },
+                        "2024-05": {
+                            "guarded": {
+                                "sample_count": 5,
+                                "avg_return": -0.006,
+                                "total_return": -0.03,
+                            }
+                        },
+                    }
+                },
+            },
+            "action_long": {
+                "candidate_count": 8,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 8,
+                            "avg_return": 0.01,
+                            "total_return": 0.08,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2024-04": {
+                            "guarded": {
+                                "sample_count": 3,
+                                "avg_return": 0.01,
+                                "total_return": 0.03,
+                            }
+                        },
+                        "2024-05": {
+                            "guarded": {
+                                "sample_count": 3,
+                                "avg_return": 0.016667,
+                                "total_return": 0.05,
+                            }
+                        },
+                    }
+                },
+            },
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    gate = diagnosis["market_stress_gate_policy"]
+    assert gate["status"] == "effective_defense"
+    assert gate["label"] == "压力门控有效"
+    assert gate["best_core_scope"] == "action_long"
+    assert gate["max_core_positions"] == 1
+    assert gate["avoided_total_loss"] == 3.08
+    assert "弱月收缩有效" in gate["summary"]
+
+
 def test_candidate_replay_dual_line_prefers_main_trend_in_strong_phase() -> None:
     comparison = {
         "scopes": {

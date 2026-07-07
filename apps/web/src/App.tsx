@@ -2235,6 +2235,17 @@ export function App() {
                       <small key={reason}>{uiText(reason)}</small>
                     ))}
                   </div>
+                  <div className="replay-phase-policy">
+                    <strong>{candidateReplayEffect.diagnosis.market_stress_gate_policy.label}</strong>
+                    <small>
+                      核心上限 {candidateReplayEffect.diagnosis.market_stress_gate_policy.max_core_positions} 只 /{" "}
+                      少亏改善 {pct(candidateReplayEffect.diagnosis.market_stress_gate_policy.avoided_total_loss)}
+                    </small>
+                    <small>{uiText(candidateReplayEffect.diagnosis.market_stress_gate_policy.summary)}</small>
+                    {candidateReplayEffect.diagnosis.market_stress_gate_policy.reasons.slice(0, 2).map((reason) => (
+                      <small key={reason}>{uiText(reason)}</small>
+                    ))}
+                  </div>
                   <div className="replay-dual-line-policy">
                     <strong>{uiText(candidateReplayEffect.diagnosis.dual_line_policy.summary)}</strong>
                     <small>
