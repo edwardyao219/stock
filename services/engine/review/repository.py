@@ -323,7 +323,10 @@ def load_market_cross_section_for_report_date(
             "trade_date": "",
             "sector_moneyflow_trade_date": "",
             "sector_moneyflow_stale": False,
+            "sector_moneyflow_total_count": 0,
+            "sector_moneyflow_matched_count": 0,
             "sector_moneyflow_missing_count": 0,
+            "sector_moneyflow_coverage_ratio": None,
             "strong_sectors": [],
             "weak_sectors": [],
             "top_gainers": [],
@@ -441,12 +444,22 @@ def load_market_cross_section_for_report_date(
         item for item in sector_rows if int(item["stock_count"]) >= min_sector_count
     ]
     ranked_sectors = eligible_sectors or sector_rows
+    sector_moneyflow_total_count = len(sector_rows)
+    sector_moneyflow_missing_count = sum(
+        1 for item in sector_rows if item.get("fund_flow_trade_date") == ""
+    )
+    sector_moneyflow_matched_count = sector_moneyflow_total_count - sector_moneyflow_missing_count
     return {
         "trade_date": latest_date.isoformat(),
         "sector_moneyflow_trade_date": moneyflow_date.isoformat() if moneyflow_date else "",
         "sector_moneyflow_stale": bool(moneyflow_date and moneyflow_date < latest_date),
-        "sector_moneyflow_missing_count": sum(
-            1 for item in sector_rows if item.get("fund_flow_trade_date") == ""
+        "sector_moneyflow_total_count": sector_moneyflow_total_count,
+        "sector_moneyflow_matched_count": sector_moneyflow_matched_count,
+        "sector_moneyflow_missing_count": sector_moneyflow_missing_count,
+        "sector_moneyflow_coverage_ratio": (
+            round(sector_moneyflow_matched_count / sector_moneyflow_total_count, 6)
+            if sector_moneyflow_total_count
+            else None
         ),
         "strong_sectors": sorted(
             ranked_sectors,

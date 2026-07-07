@@ -416,7 +416,10 @@ def test_load_market_cross_section_attaches_sector_moneyflow() -> None:
     assert strong["fund_flow_stale"] is False
     assert cross_section["sector_moneyflow_trade_date"] == "2026-07-07"
     assert cross_section["sector_moneyflow_stale"] is False
+    assert cross_section["sector_moneyflow_total_count"] == 2
+    assert cross_section["sector_moneyflow_matched_count"] == 1
     assert cross_section["sector_moneyflow_missing_count"] == 1
+    assert cross_section["sector_moneyflow_coverage_ratio"] == 0.5
 
 
 def test_load_market_cross_section_marks_stale_sector_moneyflow() -> None:
@@ -477,6 +480,9 @@ def test_load_market_cross_section_marks_stale_sector_moneyflow() -> None:
     assert strong["fund_flow_stale"] is True
     assert cross_section["sector_moneyflow_trade_date"] == "2026-07-06"
     assert cross_section["sector_moneyflow_stale"] is True
+    assert cross_section["sector_moneyflow_total_count"] == 1
+    assert cross_section["sector_moneyflow_matched_count"] == 1
+    assert cross_section["sector_moneyflow_coverage_ratio"] == 1.0
 
 
 def test_load_market_cross_section_matches_sector_moneyflow_alias() -> None:

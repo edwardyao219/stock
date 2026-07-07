@@ -4,6 +4,7 @@ from services.engine.review.mechanical import generate_daily_mechanical_review
 from services.engine.review.monthly_summary import generate_monthly_trade_summary
 from services.jobs.celery_app import celery_app
 from services.jobs.pipeline import (
+    _sync_sector_moneyflow_step,
     prepare_next_trade_session,
     resolve_next_trade_date,
     run_after_close_session,
@@ -127,11 +128,14 @@ def run_rule_regression_task() -> dict[str, str]:
 @celery_app.task(name="services.jobs.tasks.generate_daily_review_task")
 def generate_daily_review_task() -> dict[str, str]:
     today = now_local().date().isoformat()
+    moneyflow_step = _sync_sector_moneyflow_step(today)
     review = generate_daily_mechanical_review(today)
     return {
         "trade_date": today,
-        "status": "ok",
+        "status": "warning" if moneyflow_step.status == "failed" else "ok",
         "message": review.title,
+        "moneyflow_status": moneyflow_step.status,
+        "moneyflow_message": moneyflow_step.summary or moneyflow_step.detail,
     }
 
 

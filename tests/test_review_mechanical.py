@@ -104,7 +104,10 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
             ],
             "sector_moneyflow_trade_date": "2026-06-22",
             "sector_moneyflow_stale": True,
+            "sector_moneyflow_total_count": 3,
+            "sector_moneyflow_matched_count": 2,
             "sector_moneyflow_missing_count": 1,
+            "sector_moneyflow_coverage_ratio": 0.666667,
         },
     )
     monkeypatch.setattr(
@@ -204,7 +207,11 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
     assert "## 大盘强弱分化" in review.content_md
     assert "消费电子" in review.content_md
     assert "资金净流入 1.2亿 / 净流入率 4.20%（资金日期 2026-06-22，非当日）" in review.content_md
-    assert "行业资金流日期 2026-06-22（非当日），缺失 1 个板块" in review.content_md
+    assert (
+        "行业资金流日期 2026-06-22（非当日），覆盖 2 / 3，覆盖率 66.67%，缺失 1 个板块"
+        in review.content_md
+    )
+    assert "行业资金流覆盖不足，只作为板块趋势的辅助确认，不单独判断主线。" in review.content_md
     assert "样本强股" in review.content_md
     assert "样本弱股" in review.content_md
     assert "强股通常来自当日更强的板块" in review.content_md

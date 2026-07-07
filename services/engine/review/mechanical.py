@@ -288,12 +288,34 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                     stale_text = (
                         "（非当日）" if market_cross_section.get("sector_moneyflow_stale") else ""
                     )
+                    matched_count = int(
+                        market_cross_section.get("sector_moneyflow_matched_count") or 0
+                    )
+                    total_count = int(
+                        market_cross_section.get("sector_moneyflow_total_count") or 0
+                    )
+                    coverage_ratio = market_cross_section.get(
+                        "sector_moneyflow_coverage_ratio"
+                    )
+                    coverage_text = (
+                        f"，覆盖 {matched_count} / {total_count}，"
+                        f"覆盖率 {_pct_or_dash(coverage_ratio)}"
+                        if total_count
+                        else ""
+                    )
                     missing_text = (
                         f"，缺失 {moneyflow_missing_count} 个板块"
                         if moneyflow_missing_count
                         else "，当前板块均有资金流"
                     )
-                    lines.append(f"- 行业资金流日期 {moneyflow_date}{stale_text}{missing_text}")
+                    lines.append(
+                        f"- 行业资金流日期 {moneyflow_date}{stale_text}"
+                        f"{coverage_text}{missing_text}"
+                    )
+                    if coverage_ratio is not None and float(coverage_ratio) < 0.8:
+                        lines.append(
+                            "- 行业资金流覆盖不足，只作为板块趋势的辅助确认，不单独判断主线。"
+                        )
                 elif moneyflow_missing_count:
                     lines.append(f"- 行业资金流未入库，缺失 {moneyflow_missing_count} 个板块")
                 if strong_sectors:

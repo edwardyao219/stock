@@ -452,21 +452,39 @@ def test_sync_sector_moneyflow_step_summarizes_recent_backfill(monkeypatch) -> N
 def test_generate_daily_review_task_uses_mechanical_review(monkeypatch) -> None:
     from datetime import datetime
 
+    calls = []
+
     class _Review:
         title = "2026-06-24 每日机械复盘"
 
     def fail_if_called(*args, **kwargs):
         raise AssertionError("run_after_close_session should not be called here")
 
-    monkeypatch.setattr(tasks, "generate_daily_mechanical_review", lambda report_date: _Review())
+    def fake_sync_moneyflow(trade_date):
+        calls.append(("sync_moneyflow", trade_date))
+        return pipeline.PipelineStepResult(
+            name="sync_sector_moneyflow",
+            status="ok",
+            detail="sector-flow",
+            summary="板块资金流已最新",
+        )
+
+    def fake_review(report_date):
+        calls.append(("review", report_date))
+        return _Review()
+
+    monkeypatch.setattr(tasks, "_sync_sector_moneyflow_step", fake_sync_moneyflow)
+    monkeypatch.setattr(tasks, "generate_daily_mechanical_review", fake_review)
     monkeypatch.setattr(tasks, "run_after_close_session", fail_if_called)
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 24, 18, 30))
 
     result = tasks.generate_daily_review_task()
 
+    assert calls == [("sync_moneyflow", "2026-06-24"), ("review", "2026-06-24")]
     assert result["trade_date"] == "2026-06-24"
     assert result["status"] == "ok"
     assert result["message"] == "2026-06-24 每日机械复盘"
+    assert result["moneyflow_status"] == "ok"
 
 
 def test_discover_next_session_candidates_step_dispatches_screening_summary(monkeypatch) -> None:
