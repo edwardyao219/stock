@@ -2259,12 +2259,16 @@ export function App() {
                             <div className="monthly-strategy-pk-head">
                               <span>{row.month}</span>
                               <strong>{row.postureLabel}</strong>
-                              <small>领先：{row.leaderLabel}</small>
+                              <small>
+                                领先：{row.leaderLabel} {pct(row.leaderTotalReturn)} / 最弱：{row.worstLineLabel}{" "}
+                                {pct(row.worstTotalReturn)}
+                              </small>
                             </div>
                             <div className="monthly-strategy-pk-lines">
                               {row.lines.map((line) => (
                                 <span className={line.tone} key={`${row.month}-${line.scope}`}>
-                                  {line.label} {pct(line.metric?.avg_return)} / {line.metric?.sample_count ?? 0}
+                                  {line.label} 均 {pct(line.metric?.avg_return)} / 总{" "}
+                                  {pct(line.metric?.total_return)} / 样本 {line.metric?.sample_count ?? 0}
                                 </span>
                               ))}
                             </div>

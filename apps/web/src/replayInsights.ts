@@ -166,6 +166,9 @@ export interface MonthlyStrategyPkRow {
   lines: MonthlyStrategyPkLine[];
   leaderScope: MonthlyStrategyPkScope | "none";
   leaderLabel: string;
+  leaderTotalReturn: number | null;
+  worstLineLabel: string;
+  worstTotalReturn: number | null;
   posture: MonthlyStrategyPkPosture;
   postureLabel: string;
   guidance: string;
@@ -386,13 +389,23 @@ export function monthlyStrategyPkRows(
         };
       });
       const validLines = lines.filter((line) => (line.metric?.sample_count ?? 0) > 0);
+      const returnLines = validLines.filter(
+        (line) => line.metric?.total_return !== null && line.metric?.total_return !== undefined,
+      );
       const leader = validLines.reduce<MonthlyStrategyPkLine | null>((best, line) => {
         if (!hasPositiveMetric(line.metric)) return best;
         if (!best) return line;
-        return (line.metric?.avg_return ?? Number.NEGATIVE_INFINITY)
-          > (best.metric?.avg_return ?? Number.NEGATIVE_INFINITY)
+        return (line.metric?.total_return ?? Number.NEGATIVE_INFINITY)
+          > (best.metric?.total_return ?? Number.NEGATIVE_INFINITY)
           ? line
           : best;
+      }, null);
+      const worstLine = returnLines.reduce<MonthlyStrategyPkLine | null>((worst, line) => {
+        if (!worst) return line;
+        return (line.metric?.total_return ?? Number.POSITIVE_INFINITY)
+          < (worst.metric?.total_return ?? Number.POSITIVE_INFINITY)
+          ? line
+          : worst;
       }, null);
       const leaderScope: MonthlyStrategyPkScope | "none" = leader?.scope ?? "none";
       const posture = monthlyStrategyPosture(lines);
@@ -401,6 +414,9 @@ export function monthlyStrategyPkRows(
         lines,
         leaderScope,
         leaderLabel: leader?.label ?? "无明显领先",
+        leaderTotalReturn: leader?.metric?.total_return ?? null,
+        worstLineLabel: worstLine?.label ?? "无样本",
+        worstTotalReturn: worstLine?.metric?.total_return ?? null,
         ...posture,
       };
     })
