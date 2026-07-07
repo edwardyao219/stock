@@ -58,6 +58,7 @@ import {
   replayScopeRows,
   replayStylePreferenceRows,
   strategyPkRows,
+  startupSignalReplayRows,
   startupPreheatRows,
   replayWeakMonthRows,
 } from "./replayInsights";
@@ -1313,6 +1314,7 @@ export function App() {
   const replayWeakMonths = replayWeakMonthRows(lowDimensionalReplay, 20, 5);
   const replayStylePreferences = replayStylePreferenceRows(lowDimensionalReplay).slice(0, 5);
   const startupPreheatEffectRows = startupPreheatRows(candidateReplayEffect);
+  const startupSignalEffectRows = startupSignalReplayRows(candidateReplayEffect);
   const potentialWatchStyleRows = replayMonthlyStyleRows(
     candidateReplayEffect?.scopes.potential_watch,
     10,
@@ -2373,6 +2375,51 @@ export function App() {
                     </div>
                   ))}
                 </div>
+                {startupSignalEffectRows.length ? (
+                  <div className="startup-signal-replay">
+                    <strong>启动信号回归</strong>
+                    <div className="startup-signal-replay-list">
+                      {startupSignalEffectRows.map((row) => (
+                        <div className={`startup-signal-replay-row ${row.tone}`} key={row.horizon}>
+                          <div className="startup-signal-replay-head">
+                            <span>{row.label}</span>
+                            <strong>{row.postureLabel}</strong>
+                            <small>{row.guidance}</small>
+                          </div>
+                          <div className="startup-signal-replay-metrics">
+                            <span className={row.tone}>
+                              高分均值 {pct(row.highSignalMetric?.avg_return)} / 总收益{" "}
+                              {pct(row.highSignalMetric?.total_return)} / 样本{" "}
+                              {row.highSignalMetric?.sample_count ?? 0}
+                            </span>
+                            <span>
+                              整体均值 {pct(row.baselineMetric?.avg_return)} / 总收益{" "}
+                              {pct(row.baselineMetric?.total_return)} / 样本{" "}
+                              {row.baselineMetric?.sample_count ?? 0}
+                            </span>
+                            <span
+                              className={
+                                row.liftAvgReturn === null
+                                  ? "neutral"
+                                  : row.liftAvgReturn > 0
+                                    ? "up"
+                                    : "down"
+                              }
+                            >
+                              均值差 {pct(row.liftAvgReturn)}
+                            </span>
+                            {row.lowSignalMetric ? (
+                              <span className="neutral">
+                                低分均值 {pct(row.lowSignalMetric.avg_return)} / 样本{" "}
+                                {row.lowSignalMetric.sample_count}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {startupPreheatGateRows.length ? (
                   <>
                     <span>启动前夜门控</span>

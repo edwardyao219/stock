@@ -8,6 +8,7 @@ import {
   replayWeakMonthRows,
   replayStylePreferenceRows,
   strategyPkRows,
+  startupSignalReplayRows,
   startupPreheatRows,
   replayMonthlyStyleRows,
 } from "./replayInsights";
@@ -406,10 +407,36 @@ const candidateReplay = {
       style_horizons: {},
       selection_mode_horizons: {},
       startup_signal_horizons: {
+        1: {
+          high: {
+            raw: { sample_count: 3, avg_return: 0.035, win_rate: 0.67, total_return: 0.105 },
+            guarded: { sample_count: 3, avg_return: 0.03, win_rate: 0.67, total_return: 0.09 },
+          },
+          low: {
+            raw: { sample_count: 2, avg_return: -0.01, win_rate: 0, total_return: -0.02 },
+            guarded: { sample_count: 2, avg_return: -0.015, win_rate: 0, total_return: -0.03 },
+          },
+        },
         5: {
           high: {
             raw: { sample_count: 3, avg_return: 0.08, win_rate: 1, total_return: 0.24 },
             guarded: { sample_count: 3, avg_return: 0.07, win_rate: 1, total_return: 0.21 },
+          },
+          low: {
+            raw: { sample_count: 2, avg_return: -0.02, win_rate: 0, total_return: -0.04 },
+            guarded: { sample_count: 2, avg_return: -0.025, win_rate: 0, total_return: -0.05 },
+          },
+        },
+        10: {
+          high: {
+            raw: { sample_count: 3, avg_return: 0.06, win_rate: 0.67, total_return: 0.18 },
+            guarded: { sample_count: 3, avg_return: 0.05, win_rate: 0.67, total_return: 0.15 },
+          },
+        },
+        20: {
+          high: {
+            raw: { sample_count: 3, avg_return: 0.025, win_rate: 0.67, total_return: 0.075 },
+            guarded: { sample_count: 3, avg_return: 0.02, win_rate: 0.67, total_return: 0.06 },
           },
         },
       },
@@ -558,6 +585,7 @@ const monthlyStyleRows = replayMonthlyStyleRows(candidateReplay.scopes.all, 10);
 const strategyRows = strategyPkRows(candidateReplay);
 const dualLineSummary = dualLineLongReplaySummary(candidateReplay);
 const monthlyPkRows = monthlyStrategyPkRows(candidateReplay, 20);
+const startupSignalRows = startupSignalReplayRows(candidateReplay);
 if (!dualLineSummary) {
   throw new Error("双线摘要应在长期行动池和启动前夜池都有样本时存在");
 }
@@ -581,6 +609,11 @@ monthlyPkRows[0].postureLabel satisfies string;
 monthlyPkRows[0].leaderLabel satisfies string;
 monthlyPkRows[0].lines[0].label satisfies string;
 monthlyPkRows[0].guidance satisfies string;
+startupSignalRows[0].horizon satisfies 1 | 5 | 10 | 20 | number;
+startupSignalRows[0].postureLabel satisfies string;
+startupSignalRows[0].highSignalMetric?.sample_count satisfies number | undefined;
+startupSignalRows[0].liftAvgReturn satisfies number | null;
+startupSignalRows[0].guidance satisfies string;
 longCandidateReplayQuery.start_date satisfies "2025-01-02";
 longCandidateReplayQuery.end_date satisfies "2026-06-05";
 longCandidateReplayQuery.limit satisfies 15;

@@ -1804,6 +1804,91 @@ button {
   color: #1f8a55;
 }
 
+.startup-signal-replay {
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 6px;
+  display: grid;
+  gap: 7px;
+  padding: 6px;
+}
+
+.startup-signal-replay > strong {
+  color: #17202b;
+  font-size: 13px;
+}
+
+.startup-signal-replay-list {
+  display: grid;
+  gap: 7px;
+}
+
+.startup-signal-replay-row {
+  border-bottom: 1px solid #e8eef5;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding-bottom: 7px;
+}
+
+.startup-signal-replay-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.startup-signal-replay-head,
+.startup-signal-replay-metrics {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.startup-signal-replay-head span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.startup-signal-replay-head strong {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.startup-signal-replay-row.up .startup-signal-replay-head strong {
+  color: #c73535;
+}
+
+.startup-signal-replay-row.down .startup-signal-replay-head strong {
+  color: #1f8a55;
+}
+
+.startup-signal-replay-head small {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.startup-signal-replay-metrics span {
+  background: #ffffff;
+  border: 1px solid #dbe4ee;
+  border-radius: 999px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.startup-signal-replay-metrics span.up {
+  color: #c73535;
+}
+
+.startup-signal-replay-metrics span.down {
+  color: #1f8a55;
+}
+
 .replay-diagnosis .replay-sector-policy {
   background: #fff7ed;
   border: 1px solid #fed7aa;

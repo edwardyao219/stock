@@ -57,6 +57,22 @@ export interface StartupPreheatRow {
   tone: ReplayTone;
 }
 
+export type StartupSignalReplayPosture = "observe" | "verify" | "stand_down";
+
+export interface StartupSignalReplayRow {
+  horizon: number;
+  label: string;
+  baselineMetric: ReplayReturnSummary | null;
+  highSignalMetric: ReplayReturnSummary | null;
+  lowSignalMetric: ReplayReturnSummary | null;
+  liftAvgReturn: number | null;
+  liftTotalReturn: number | null;
+  posture: StartupSignalReplayPosture;
+  postureLabel: string;
+  guidance: string;
+  tone: ReplayTone;
+}
+
 export interface ReplayStylePreferenceRow {
   style: string;
   label: string;
@@ -283,6 +299,19 @@ function hasPositiveMetric(metric: ReplayReturnSummary | null | undefined) {
     && (metric.total_return ?? 0) > 0;
 }
 
+function metricDiff(
+  left: ReplayReturnSummary | null | undefined,
+  right: ReplayReturnSummary | null | undefined,
+  key: "avg_return" | "total_return",
+) {
+  const leftValue = left?.[key];
+  const rightValue = right?.[key];
+  if (leftValue === null || leftValue === undefined || rightValue === null || rightValue === undefined) {
+    return null;
+  }
+  return leftValue - rightValue;
+}
+
 function monthlyStrategyPosture(lines: MonthlyStrategyPkLine[]) {
   const coreMetric = lines.find((line) => line.scope === "action_long")?.metric ?? null;
   const hasSupportPositive = lines.some(
@@ -492,6 +521,75 @@ export function startupPreheatRows(report: CandidateReplayEffectReport | null): 
       tone: toneFor(metric?.total_return),
     };
   });
+}
+
+function startupSignalPosture(
+  highSignalMetric: ReplayReturnSummary | null,
+  liftAvgReturn: number | null,
+) {
+  if (!highSignalMetric || (highSignalMetric.sample_count ?? 0) <= 0) {
+    return {
+      posture: "stand_down" as const,
+      postureLabel: "样本不足",
+      guidance: "高分启动组样本不足，先不作为筛选依据。",
+      tone: "neutral" as const,
+    };
+  }
+  if (hasPositiveMetric(highSignalMetric) && (liftAvgReturn === null || liftAvgReturn > 0)) {
+    return {
+      posture: "observe" as const,
+      postureLabel: "值得观察",
+      guidance: "高分启动组有正向证据，适合提前一天放入观察和盘中确认。",
+      tone: "up" as const,
+    };
+  }
+  if (hasPositiveMetric(highSignalMetric)) {
+    return {
+      posture: "verify" as const,
+      postureLabel: "谨慎观察",
+      guidance: "高分启动组为正但相对优势不明显，只做辅助确认。",
+      tone: "neutral" as const,
+    };
+  }
+  return {
+    posture: "stand_down" as const,
+    postureLabel: "暂缓",
+    guidance: "高分启动组没有正向证据，降低使用频率。",
+    tone: "down" as const,
+  };
+}
+
+export function startupSignalReplayRows(
+  report: CandidateReplayEffectReport | null,
+  horizons: number[] = [1, 5, 10, 20],
+): StartupSignalReplayRow[] {
+  const scope = report?.scopes.startup_preheat;
+  if (!scope) return [];
+  return horizons
+    .map((horizon) => {
+      const baselineMetric = scope.horizons[horizon]?.guarded ?? null;
+      const highSignalMetric = scope.startup_signal_horizons?.[horizon]?.high?.guarded ?? null;
+      const lowSignalMetric = scope.startup_signal_horizons?.[horizon]?.low?.guarded ?? null;
+      const liftAvgReturn = metricDiff(highSignalMetric, baselineMetric, "avg_return");
+      const liftTotalReturn = metricDiff(highSignalMetric, baselineMetric, "total_return");
+      const posture = startupSignalPosture(highSignalMetric, liftAvgReturn);
+      return {
+        horizon,
+        label: horizon === 1 ? "次日" : `${horizon}日`,
+        baselineMetric,
+        highSignalMetric,
+        lowSignalMetric,
+        liftAvgReturn,
+        liftTotalReturn,
+        ...posture,
+      };
+    })
+    .filter(
+      (row) =>
+        (row.baselineMetric?.sample_count ?? 0) > 0
+        || (row.highSignalMetric?.sample_count ?? 0) > 0
+        || (row.lowSignalMetric?.sample_count ?? 0) > 0,
+    );
 }
 
 export function replayBreakdownRows(
