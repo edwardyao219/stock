@@ -8,6 +8,7 @@ from services.engine.review.repository import (
     insert_review_report,
     load_candidate_pool_items_for_review,
     load_latest_review_report,
+    load_market_indexes_for_report_date,
     load_market_summary_for_report_date,
     load_trade_plans_for_date,
     upsert_parameter_recommendations,
@@ -238,6 +239,116 @@ def test_load_market_summary_suppresses_amount_change_when_previous_amount_is_sp
 
     assert summary["amount_change_pct"] is None
     assert summary["amount_change_note"] == "前一交易日成交额覆盖不足，暂不计算成交额变化。"
+
+
+def test_load_market_summary_excludes_prefixed_index_rows_from_stock_breadth() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+
+    with session() as db:
+        db.add(
+            Security(
+                symbol="000001",
+                name="样本股",
+                exchange="SZ",
+                is_active=True,
+                is_st=False,
+            )
+        )
+        db.add_all(
+            [
+                DailyBar(
+                    symbol="000001",
+                    trade_date=date(2026, 7, 7),
+                    open=Decimal("10"),
+                    high=Decimal("11"),
+                    low=Decimal("9"),
+                    close=Decimal("11"),
+                    pre_close=Decimal("10"),
+                    volume=Decimal("100"),
+                    amount=Decimal("1000"),
+                    turnover_rate=None,
+                    limit_up=Decimal("11"),
+                    limit_down=Decimal("9"),
+                    is_suspended=False,
+                ),
+                DailyBar(
+                    symbol="sh000001",
+                    trade_date=date(2026, 7, 7),
+                    open=Decimal("3400"),
+                    high=Decimal("3420"),
+                    low=Decimal("3360"),
+                    close=Decimal("3380"),
+                    pre_close=Decimal("3400"),
+                    volume=Decimal("100"),
+                    amount=Decimal("999999"),
+                    turnover_rate=None,
+                    limit_up=Decimal("3740"),
+                    limit_down=Decimal("3060"),
+                    is_suspended=False,
+                ),
+            ]
+        )
+        db.commit()
+
+        summary = load_market_summary_for_report_date(db, "2026-07-07")
+
+    assert summary["stock_count"] == 1
+    assert summary["up_count"] == 1
+    assert summary["down_count"] == 0
+    assert summary["total_amount"] == 1000
+
+
+def test_load_market_indexes_uses_prefixed_index_symbols_not_stock_code_collision() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+
+    with session() as db:
+        db.add_all(
+            [
+                DailyBar(
+                    symbol="000001",
+                    trade_date=date(2026, 7, 7),
+                    open=Decimal("12"),
+                    high=Decimal("12"),
+                    low=Decimal("11"),
+                    close=Decimal("11.5"),
+                    pre_close=Decimal("12"),
+                    volume=Decimal("100"),
+                    amount=Decimal("1000"),
+                    turnover_rate=None,
+                    limit_up=Decimal("13.2"),
+                    limit_down=Decimal("10.8"),
+                    is_suspended=False,
+                ),
+                DailyBar(
+                    symbol="sh000001",
+                    trade_date=date(2026, 7, 7),
+                    open=Decimal("3400"),
+                    high=Decimal("3420"),
+                    low=Decimal("3360"),
+                    close=Decimal("3380"),
+                    pre_close=Decimal("3400"),
+                    volume=Decimal("100"),
+                    amount=Decimal("1000"),
+                    turnover_rate=None,
+                    limit_up=Decimal("3740"),
+                    limit_down=Decimal("3060"),
+                    is_suspended=False,
+                ),
+            ]
+        )
+        db.commit()
+
+        indexes = load_market_indexes_for_report_date(db, "2026-07-07")
+
+    sh_index = indexes[0]
+    assert sh_index["symbol"] == "sh000001"
+    assert sh_index["name"] == "上证指数"
+    assert sh_index["close"] == 3380.0
+    assert sh_index["change_pct"] == -0.005882
 
 
 def test_insert_review_report_updates_same_day_type_without_duplicates() -> None:

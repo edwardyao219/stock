@@ -42,6 +42,20 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
         },
     )
     monkeypatch.setattr(
+        "services.engine.review.repository.load_market_indexes_for_report_date",
+        lambda db, report_date: [
+            {
+                "name": "上证指数",
+                "symbol": "sh000001",
+                "trade_date": "2026-06-24",
+                "close": 3380.0,
+                "change_pct": -0.005,
+                "amount": 123456789,
+                "stale": False,
+            }
+        ],
+    )
+    monkeypatch.setattr(
         "services.engine.review.repository.load_market_cross_section_for_report_date",
         lambda db, report_date: {
             "strong_sectors": [
@@ -172,6 +186,8 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
     review = review_mechanical.generate_daily_mechanical_review("2026-06-24")
 
     assert "## 市场概况" in review.content_md
+    assert "主要指数" in review.content_md
+    assert "上证指数 3380.00 / -0.50%" in review.content_md
     assert "## 数据健康" in review.content_md
     assert "已有日线但缺少当日特征" in review.content_md
     assert "## 大盘强弱分化" in review.content_md

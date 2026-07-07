@@ -8,11 +8,11 @@ from services.collector import tushare_proxy_client as client
 from services.collector.akshare_client import DailyBarRow
 from services.collector.repository import upsert_daily_bars
 from services.shared.models import (
+    Security,
     TushareDaily,
     TushareDailyBasic,
     TushareMoneyflow,
     TushareMoneyflowIndDc,
-    Security,
     TushareStkLimit,
 )
 from services.shared.upsert import upsert_rows
@@ -99,11 +99,61 @@ def sync_tushare_daily(
         db,
         TushareDaily,
         rows,
-        update_columns=["open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount"],
+        update_columns=[
+            "open",
+            "high",
+            "low",
+            "close",
+            "pre_close",
+            "change",
+            "pct_chg",
+            "vol",
+            "amount",
+        ],
         constraint="uq_tushare_daily_code_date",
     )
     upsert_daily_bars(db, _daily_bar_rows_from_tushare(_rows(response.fields, response.items)))
     return written
+
+
+def sync_tushare_index_daily(
+    db,
+    *,
+    ts_code: str,
+    start_date: str,
+    end_date: str,
+    symbol: str,
+) -> int:
+    response = client.query(
+        "index_daily",
+        params={
+            "ts_code": ts_code,
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+    )
+    bars: list[DailyBarRow] = []
+    for row in _rows(response.fields, response.items):
+        close = _decimal(row.get("close"))
+        trade_date = row.get("trade_date")
+        if close is None or not trade_date:
+            continue
+        amount = _decimal(row.get("amount"))
+        bars.append(
+            DailyBarRow(
+                symbol=symbol,
+                trade_date=_date(trade_date).isoformat(),
+                open=_decimal(row.get("open")) or close,
+                high=_decimal(row.get("high")) or close,
+                low=_decimal(row.get("low")) or close,
+                close=close,
+                pre_close=_decimal(row.get("pre_close")),
+                volume=_decimal(row.get("vol")),
+                amount=amount * Decimal("1000") if amount is not None else None,
+                turnover_rate=None,
+            )
+        )
+    return upsert_daily_bars(db, bars)
 
 
 def sync_tushare_daily_basic(db, *, trade_date: str) -> int:

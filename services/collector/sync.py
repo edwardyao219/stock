@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from dataclasses import replace
 from datetime import date
 from time import sleep
 
@@ -24,6 +25,7 @@ from services.collector.repository import (
 from services.collector.tushare_sync import (
     sync_tushare_daily,
     sync_tushare_daily_basic,
+    sync_tushare_index_daily,
     sync_tushare_moneyflow,
     sync_tushare_moneyflow_ind_dc,
     sync_tushare_stk_limit,
@@ -41,6 +43,20 @@ from services.shared.models import (
 )
 
 DEFAULT_INDEX_SYMBOLS = ["000001", "399001", "399006"]
+INDEX_SYMBOL_MAP = {
+    "000001": ("sh000001", "000001.SH"),
+    "399001": ("sz399001", "399001.SZ"),
+    "399006": ("sz399006", "399006.SZ"),
+}
+
+
+def _index_symbol_pair(symbol: str) -> tuple[str, str]:
+    if symbol in INDEX_SYMBOL_MAP:
+        return INDEX_SYMBOL_MAP[symbol]
+    if symbol.startswith(("sh", "sz")):
+        bare = symbol[2:]
+        return symbol, f"{bare}.{'SH' if symbol.startswith('sh') else 'SZ'}"
+    return symbol, symbol
 
 
 def sync_calendar_and_securities() -> list[CollectionResult]:
@@ -83,18 +99,64 @@ def sync_index_daily_bars(
     results: list[CollectionResult] = []
     with SessionLocal() as db:
         for symbol in symbols:
-            bars = fetch_index_daily_bars(symbol=symbol, start_date=start, end_date=end)
-            rows = upsert_daily_bars(db, bars)
-            results.append(
-                CollectionResult(
-                    source="akshare",
-                    dataset=f"index_daily:{symbol}",
-                    trade_date=end,
-                    rows=rows,
-                    status="ok",
+            storage_symbol, ts_code = _index_symbol_pair(symbol)
+            fetch_symbol = storage_symbol[2:] if storage_symbol.startswith(("sh", "sz")) else symbol
+            try:
+                bars = fetch_index_daily_bars(
+                    symbol=fetch_symbol,
+                    start_date=start,
+                    end_date=end,
                 )
-            )
-        db.commit()
+                rows = upsert_daily_bars(
+                    db,
+                    [replace(item, symbol=storage_symbol) for item in bars],
+                )
+                db.commit()
+                results.append(
+                    CollectionResult(
+                        source="akshare",
+                        dataset=f"index_daily:{storage_symbol}",
+                        trade_date=end,
+                        rows=rows,
+                        status="ok",
+                    )
+                )
+            except Exception as exc:
+                db.rollback()
+                try:
+                    rows = sync_tushare_index_daily(
+                        db,
+                        ts_code=ts_code,
+                        start_date=start,
+                        end_date=end,
+                        symbol=storage_symbol,
+                    )
+                    db.commit()
+                    results.append(
+                        CollectionResult(
+                            source="tushare_proxy",
+                            dataset=f"index_daily:{storage_symbol}",
+                            trade_date=end,
+                            rows=rows,
+                            status="ok",
+                            message=f"fallback from Akshare: {type(exc).__name__}: {exc}",
+                        )
+                    )
+                except Exception as fallback_exc:
+                    db.rollback()
+                    results.append(
+                        CollectionResult(
+                            source="tushare_proxy",
+                            dataset=f"index_daily:{storage_symbol}",
+                            trade_date=end,
+                            rows=0,
+                            status="failed",
+                            message=(
+                                f"Akshare {type(exc).__name__}: {exc}; "
+                                f"Tushare {type(fallback_exc).__name__}: {fallback_exc}"
+                            ),
+                        )
+                    )
     return results
 
 

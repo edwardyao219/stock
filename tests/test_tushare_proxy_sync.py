@@ -8,6 +8,7 @@ from services.collector import tushare_proxy_client as client
 from services.collector.tushare_sync import (
     sync_tushare_daily,
     sync_tushare_daily_basic,
+    sync_tushare_index_daily,
     sync_tushare_moneyflow,
     sync_tushare_moneyflow_ind_dc,
     sync_tushare_stk_limit,
@@ -143,6 +144,64 @@ def test_tushare_sync_writes_core_tables(monkeypatch) -> None:
         assert daily_bar.trade_date == date(2025, 7, 29)
         assert daily_bar.close == tushare_daily.close
         assert float(daily_bar.amount) == 1255113972.0
+
+
+def test_sync_tushare_index_daily_writes_prefixed_daily_bar(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    class FakeResponse:
+        fields = [
+            "ts_code",
+            "trade_date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "pre_close",
+            "change",
+            "pct_chg",
+            "vol",
+            "amount",
+        ]
+        items = [
+            [
+                "000001.SH",
+                "20260707",
+                3460.12,
+                3480.55,
+                3420.18,
+                3432.10,
+                3470.30,
+                -38.20,
+                -1.1008,
+                398765432,
+                543210987.65,
+            ]
+        ]
+        has_more = False
+        count = 1
+
+    monkeypatch.setattr(client, "query", lambda api_name, params=None: FakeResponse())
+
+    with Session(engine) as db:
+        rows = sync_tushare_index_daily(
+            db,
+            ts_code="000001.SH",
+            start_date="20260707",
+            end_date="20260707",
+            symbol="sh000001",
+        )
+        db.commit()
+
+        bar = db.query(DailyBar).one()
+
+    assert rows == 1
+    assert bar.symbol == "sh000001"
+    assert bar.trade_date == date(2026, 7, 7)
+    assert float(bar.close) == 3432.10
+    assert float(bar.pre_close) == 3470.30
+    assert float(bar.amount) == 543210987650.0
 
 
 def test_sync_recent_tushare_sector_moneyflow_backfills_missing_open_dates(monkeypatch) -> None:

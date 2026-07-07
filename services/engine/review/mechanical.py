@@ -87,6 +87,15 @@ def _mover_line(item: dict[str, object]) -> str:
     )
 
 
+def _index_line(item: dict[str, object]) -> str:
+    close = item.get("close")
+    change_pct = item.get("change_pct")
+    stale_suffix = "（非当日）" if item.get("stale") else ""
+    close_text = f"{float(close):.2f}" if close is not None else "-"
+    change_text = _pct(change_pct) if change_pct is not None else "-"
+    return f"{item.get('name') or item.get('symbol')} {close_text} / {change_text}{stale_suffix}"
+
+
 def _data_health_metrics(report: Any) -> dict[str, object]:
     if report is None:
         return {}
@@ -117,6 +126,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
             load_candidate_pool_items_for_review,
             load_daily_bars_for_symbols,
             load_market_cross_section_for_report_date,
+            load_market_indexes_for_report_date,
             load_market_summary_for_report_date,
             load_rule_performance_for_date,
             load_trade_plans_for_date,
@@ -127,6 +137,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
 
         with SessionLocal() as db:
             market_summary = load_market_summary_for_report_date(db, report_date)
+            market_indexes = load_market_indexes_for_report_date(db, report_date)
             market_cross_section = load_market_cross_section_for_report_date(db, report_date)
             trade_date = str(market_summary.get("trade_date") or report_date)
             try:
@@ -200,6 +211,11 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 lines.append(f"- 较前日成交额 {_pct(market_summary['amount_change_pct'])}")
             elif market_summary.get("amount_change_note"):
                 lines.append(f"- {market_summary['amount_change_note']}")
+            if market_indexes:
+                lines.append(
+                    "- 主要指数: "
+                    + "；".join(_index_line(item) for item in market_indexes)
+                )
 
             lines.extend(["", "## 数据健康", ""])
             if data_health is None:
@@ -375,6 +391,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                     "parameter_suggestions": parameter_suggestions_json,
                     "trade_plan_count": len(plans),
                     "data_health": _data_health_metrics(data_health),
+                    "market_indexes": market_indexes,
                     "market_cross_section": market_cross_section,
                 },
             )

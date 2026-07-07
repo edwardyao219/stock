@@ -19,7 +19,12 @@ from services.shared.models import (
 
 ACTIVE_RULE_IDS = tuple(rule.id for rule in MVP_RULES)
 PARAMETER_RECOMMENDATION_STATUSES = {"pending", "approved", "rejected", "applied"}
-NOISE_MARKET_SYMBOLS = {"000001", "399001", "399006"}
+INDEX_DAILY_BAR_SYMBOLS = {"399001", "399006", "sh000001", "sz399001", "sz399006"}
+MARKET_INDEX_SYMBOLS = (
+    ("sh000001", "上证指数"),
+    ("sz399001", "深证成指"),
+    ("sz399006", "创业板指"),
+)
 
 
 def _recommendation_rule_id(item: dict) -> str | None:
@@ -139,7 +144,11 @@ def load_market_summary_for_report_date(db: Session, report_date: str) -> dict[s
             "is_full_market": False,
         }
 
-    bars = list(db.execute(select(DailyBar).where(DailyBar.trade_date == latest_date)).scalars())
+    bars = [
+        item
+        for item in db.execute(select(DailyBar).where(DailyBar.trade_date == latest_date)).scalars()
+        if item.symbol not in INDEX_DAILY_BAR_SYMBOLS
+    ]
     changes = [
         float(item.close) / float(item.pre_close) - 1
         for item in bars
@@ -157,9 +166,13 @@ def load_market_summary_for_report_date(db: Session, report_date: str) -> dict[s
     previous_amount = 0.0
     previous_amount_missing_ratio = 1.0
     if previous_date is not None:
-        previous_bars = list(
-            db.execute(select(DailyBar).where(DailyBar.trade_date == previous_date)).scalars()
-        )
+        previous_bars = [
+            item
+            for item in db.execute(
+                select(DailyBar).where(DailyBar.trade_date == previous_date)
+            ).scalars()
+            if item.symbol not in INDEX_DAILY_BAR_SYMBOLS
+        ]
         previous_amount = sum(float(item.amount or 0) for item in previous_bars)
         previous_amount_missing_ratio = (
             sum(1 for item in previous_bars if item.amount is None) / len(previous_bars)
@@ -206,6 +219,65 @@ def load_market_summary_for_report_date(db: Session, report_date: str) -> dict[s
     }
 
 
+def load_market_indexes_for_report_date(db: Session, report_date: str) -> list[dict[str, object]]:
+    target_date = date.fromisoformat(report_date)
+    indexes: list[dict[str, object]] = []
+    for symbol, name in MARKET_INDEX_SYMBOLS:
+        latest_date = db.execute(
+            select(func.max(DailyBar.trade_date))
+            .where(DailyBar.symbol == symbol)
+            .where(DailyBar.trade_date <= target_date)
+        ).scalar_one_or_none()
+        if latest_date is None:
+            indexes.append(
+                {
+                    "symbol": symbol,
+                    "name": name,
+                    "trade_date": "",
+                    "close": None,
+                    "change_pct": None,
+                    "amount": None,
+                    "stale": True,
+                }
+            )
+            continue
+
+        bar = db.execute(
+            select(DailyBar)
+            .where(DailyBar.symbol == symbol)
+            .where(DailyBar.trade_date == latest_date)
+        ).scalar_one_or_none()
+        if bar is None:
+            continue
+        previous_close = float(bar.pre_close) if bar.pre_close is not None else None
+        if previous_close is None or previous_close <= 0:
+            previous_close = db.execute(
+                select(DailyBar.close)
+                .where(DailyBar.symbol == symbol)
+                .where(DailyBar.trade_date < latest_date)
+                .order_by(desc(DailyBar.trade_date))
+                .limit(1)
+            ).scalar_one_or_none()
+            previous_close = float(previous_close) if previous_close is not None else None
+        change_pct = (
+            round(float(bar.close) / previous_close - 1, 6)
+            if previous_close is not None and previous_close > 0
+            else None
+        )
+        indexes.append(
+            {
+                "symbol": symbol,
+                "name": name,
+                "trade_date": latest_date.isoformat(),
+                "close": float(bar.close),
+                "change_pct": change_pct,
+                "amount": float(bar.amount) if bar.amount is not None else None,
+                "stale": latest_date < target_date,
+            }
+        )
+    return indexes
+
+
 def load_market_cross_section_for_report_date(
     db: Session,
     report_date: str,
@@ -234,7 +306,7 @@ def load_market_cross_section_for_report_date(
     movers: list[dict[str, object]] = []
     sectors: dict[str, dict[str, object]] = {}
     for bar, security in rows:
-        if bar.symbol in NOISE_MARKET_SYMBOLS:
+        if bar.symbol in INDEX_DAILY_BAR_SYMBOLS:
             continue
         pre_close = float(bar.pre_close or 0)
         if pre_close <= 0:
