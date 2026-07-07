@@ -17,6 +17,7 @@ from services.engine.risk.trend_guard import (
     guard_parameters_for_features as _guard_parameters_for_features,
 )
 from services.notifications.dispatcher import (
+    build_candidate_tiers,
     select_action_candidates,
     select_long_action_candidates,
 )
@@ -220,6 +221,74 @@ def _optional_float(payload: dict[str, Any], *keys: str) -> float | None:
         if value is not None:
             return float(value)
     return None
+
+
+def _safe_metric_float(value: Any, default: float) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _historical_market_stress_from_discovery(discovery: dict[str, Any]) -> dict[str, Any]:
+    existing = discovery.get("market_stress")
+    if isinstance(existing, dict):
+        return existing
+
+    regime_snapshot = discovery.get("market_regime_snapshot") or {}
+    participation_snapshot = discovery.get("market_participation_snapshot") or {}
+    emotion_gate = discovery.get("emotion_gate") or {}
+    regime = str(discovery.get("market_regime") or regime_snapshot.get("regime") or "")
+    gate_state = str(regime_snapshot.get("emotion_gate") or "")
+    if not gate_state and isinstance(emotion_gate, dict):
+        gate_state = str(emotion_gate.get("state") or "")
+    breadth_score = _safe_metric_float(regime_snapshot.get("breadth_score"), 50.0)
+    participation_score = _safe_metric_float(
+        participation_snapshot.get("participation_score"),
+        50.0,
+    )
+    liquidity_score = _safe_metric_float(
+        participation_snapshot.get("liquidity_score"),
+        50.0,
+    )
+
+    score = 0.0
+    reasons: list[str] = []
+    if regime == "panic" or gate_state == "risk_off":
+        score += 45.0
+        reasons.append("历史情绪阀门risk_off，按弱市处理")
+    if breadth_score <= 35.0:
+        score += 35.0
+        reasons.append(f"历史市场宽度{breadth_score:.1f}，多数股票承压")
+    elif breadth_score <= 45.0:
+        score += 20.0
+        reasons.append(f"历史市场宽度{breadth_score:.1f}，赚钱效应偏弱")
+    if participation_score < 45.0 or liquidity_score < 35.0:
+        score += 15.0
+        reasons.append("历史参与度或流动性不足，候选需要二次确认")
+
+    if score >= 70.0:
+        status = "risk_off"
+        label = "压力大"
+        action = "停止扩散，只做观察和风控"
+    elif score >= 40.0:
+        status = "caution"
+        label = "谨慎"
+        action = "降低频率，等盘中确认"
+    else:
+        status = "neutral"
+        label = "中性"
+        action = "按原计划精选"
+
+    return {
+        "stress_status": status,
+        "stress_label": label,
+        "stress_score": round(score, 2),
+        "stress_reasons": reasons or ["历史候选发现阶段没有明显市场压力"],
+        "risk_action_label": action,
+    }
 
 
 def _sector_style(security_or_style: Any, sector: str | None = None) -> str | None:
@@ -2431,6 +2500,16 @@ def run_candidate_walk_forward_replay(
                         for item in candidate_items
                         if _is_startup_confirmed_candidate_item(item)
                     ]
+                elif candidate_scope == "sector_watch":
+                    tier_discovery = {
+                        **discovery,
+                        "market_stress": _historical_market_stress_from_discovery(discovery),
+                    }
+                    candidate_items = build_candidate_tiers(
+                        tier_discovery,
+                        candidate_items,
+                        max_core_items=min(limit, 3),
+                    ).get("sector_watch", [])
                 elif candidate_scope != "all":
                     raise ValueError(f"Unsupported candidate_scope: {candidate_scope}")
                 for item in candidate_items:

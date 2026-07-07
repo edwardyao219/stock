@@ -544,6 +544,31 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
                     },
                     "monthly_horizons": {},
                 },
+                "sector_watch": {
+                    "candidate_count": 12,
+                    "horizons": {
+                        20: {
+                            "guarded": {
+                                "sample_count": 12,
+                                "avg_return": 0.03,
+                                "win_rate": 0.58,
+                                "total_return": 0.36,
+                            }
+                        }
+                    },
+                    "monthly_horizons": {
+                        20: {
+                            "2026-05": {
+                                "guarded": {
+                                    "sample_count": 12,
+                                    "avg_return": 0.03,
+                                    "win_rate": 0.58,
+                                    "total_return": 0.36,
+                                }
+                            }
+                        }
+                    },
+                },
             },
             "discovery_cache_dir": ".tmp/candidate-replay-discovery-cache",
         }
@@ -574,6 +599,7 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
             "potential_watch",
             "startup_preheat",
             "startup_confirmed",
+            "sector_watch",
         ),
         "limit": 15,
         "horizons": (1, 5, 10, 20),
@@ -609,6 +635,10 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     assert "compounded_return" not in strategy_pk["rows"][0]["metrics_by_horizon"][20]
     core_row = next(row for row in strategy_pk["rows"] if row["scope"] == "action_long")
     assert core_row["policy"] == "core_candidate"
+    sector_watch_row = next(row for row in strategy_pk["rows"] if row["scope"] == "sector_watch")
+    assert sector_watch_row["label"] == "防守板块观察"
+    assert sector_watch_row["policy"] == "defensive_observe"
+    assert sector_watch_row["policy_label"] == "防守观察"
 
 
 def test_candidate_replay_effect_reuses_cached_payload(monkeypatch, tmp_path) -> None:

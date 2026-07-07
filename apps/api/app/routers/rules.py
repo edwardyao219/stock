@@ -26,6 +26,7 @@ _SCOPE_LABELS = {
     "all": "全候选池",
     "action": "钉钉行动池",
     "action_long": "长期行动池",
+    "sector_watch": "防守板块观察",
     "potential_watch": "潜力观察池",
     "startup_preheat": "启动前夜池",
     "startup_confirmed": "启动确认池",
@@ -33,9 +34,10 @@ _SCOPE_LABELS = {
 _PRIMARY_POLICY_SCOPES = {"action_long", "action", "all"}
 _CORE_POLICY_SCOPES = {"action_long", "action"}
 _TACTICAL_POLICY_SCOPES = {"potential_watch", "startup_preheat", "startup_confirmed"}
+_DEFENSIVE_POLICY_SCOPES = {"sector_watch"}
 DEFAULT_REPLAY_START_DATE = "2024-01-01"
 DEFAULT_INTERACTIVE_REPLAY_MONTHS = 3
-CANDIDATE_REPLAY_EFFECT_CACHE_VERSION = "candidate-replay-effect-v2"
+CANDIDATE_REPLAY_EFFECT_CACHE_VERSION = "candidate-replay-effect-v4"
 CANDIDATE_REPLAY_EFFECT_CACHE_DIR = Path(".tmp/candidate-replay-effect-cache")
 CANDIDATE_REPLAY_EFFECT_HORIZONS = (1, 5, 10, 20)
 CANDIDATE_REPLAY_EFFECT_SCOPES = (
@@ -45,6 +47,7 @@ CANDIDATE_REPLAY_EFFECT_SCOPES = (
     "potential_watch",
     "startup_preheat",
     "startup_confirmed",
+    "sector_watch",
 )
 _CANDIDATE_REPLAY_NUMERIC_KEY_MAPS = {
     "horizons",
@@ -829,6 +832,8 @@ def _strategy_pk_policy(
         return "stand_down", "休息"
     if scope in _CORE_POLICY_SCOPES:
         return "core_candidate", "核心候选"
+    if scope in _DEFENSIVE_POLICY_SCOPES:
+        return "defensive_observe", "防守观察"
     if scope in _TACTICAL_POLICY_SCOPES:
         return "tactical_observe", "战术观察"
     return "observe_only", "只观察"

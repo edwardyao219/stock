@@ -640,6 +640,92 @@ def test_candidate_walk_forward_replay_can_use_long_horizon_action_candidates(
     assert result.days[0].candidates[0].forward_returns[1] == 0.2
 
 
+def test_candidate_walk_forward_replay_can_use_sector_watch_candidates(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600001", "核心票", "半导体"),
+                _security("600002", "防守观察", "通信设备"),
+                _bar("600001", date(2026, 1, 2), "10"),
+                _bar("600001", date(2026, 1, 5), "11", "10", open_price="10"),
+                _bar("600002", date(2026, 1, 2), "10"),
+                _bar("600002", date(2026, 1, 5), "12", "10", open_price="10"),
+                _feature("600001", date(2026, 1, 2)),
+                _feature("600002", date(2026, 1, 2)),
+            ]
+        )
+        db.commit()
+
+    def fake_discover(*_args, **_kwargs):
+        return {
+            "feature_date": "2026-01-02",
+            "universe_size": 2,
+            "market_regime": "panic",
+            "market_regime_snapshot": {
+                "breadth_score": 30.0,
+                "emotion_gate": "risk_off",
+            },
+            "market_participation_snapshot": {
+                "participation_score": 40.0,
+                "liquidity_score": 45.0,
+            },
+            "long_action_candidates": [
+                {
+                    "symbol": "600001",
+                    "name": "核心票",
+                    "sector": "半导体",
+                    "sector_style": "growth_cycle",
+                    "selection_mode": "formal_strategy",
+                    "score": 88,
+                    "reasons": ["低维主线：板块趋势和个股强度共振"],
+                    "risk_flags": [],
+                }
+            ],
+            "candidates": [
+                {
+                    "symbol": "600001",
+                    "name": "核心票",
+                    "sector": "半导体",
+                    "sector_style": "growth_cycle",
+                    "selection_mode": "formal_strategy",
+                    "score": 88,
+                    "reasons": ["低维主线：板块趋势和个股强度共振"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "600002",
+                    "name": "防守观察",
+                    "sector": "通信设备",
+                    "sector_style": "growth_cycle",
+                    "selection_mode": "potential_watch",
+                    "score": 82,
+                    "reasons": ["潜力观察：个股启动但板块未确认", "成交量开始确认"],
+                    "risk_flags": [],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(walk_forward, "discover_next_session_candidates", fake_discover)
+
+    result = walk_forward.run_candidate_walk_forward_replay(
+        start_date="2026-01-02",
+        end_date="2026-01-05",
+        limit=3,
+        horizons=(1,),
+        candidate_scope="sector_watch",
+        discovery_cache_dir=None,
+    )
+
+    assert [item.symbol for item in result.days[0].candidates] == ["600002"]
+    assert result.days[0].candidates[0].forward_returns[1] == 0.2
+
+
 def test_candidate_walk_forward_replay_reuses_discovery_cache_across_scopes(
     monkeypatch,
     tmp_path,
