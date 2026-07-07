@@ -659,6 +659,86 @@ def _tiered_candidate(
     }
 
 
+def _defensive_sector_watch_enabled(discovery: dict[str, Any]) -> bool:
+    return str(_market_stress_snapshot(discovery).get("stress_status") or "") == "risk_off"
+
+
+def _sector_watch_allowed_styles(discovery: dict[str, Any]) -> set[str]:
+    styles: set[str] = set()
+    for policy_key in ("style_gate_policy", "startup_preheat_policy"):
+        policy = discovery.get(policy_key)
+        if not isinstance(policy, dict):
+            continue
+        for row in policy.get("rows") or []:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("status") or "") != "upgrade_allowed":
+                continue
+            style = str(row.get("style") or "").strip()
+            if style:
+                styles.add(style)
+    return styles or set(LONG_ACTION_TREND_STYLES)
+
+
+def _sector_watch_style_label(item: dict[str, Any]) -> str:
+    label = str(item.get("style_gate_style_label") or "").strip()
+    if label:
+        return label
+    sector = str(item.get("sector") or "").strip()
+    if sector:
+        return sector
+    return str(item.get("sector_style") or "板块").strip() or "板块"
+
+
+def _sector_watch_reason(item: dict[str, Any]) -> str:
+    style_label = _sector_watch_style_label(item)
+    return _append_style_gate_reason(
+        item,
+        _append_horizon_reason(
+            item,
+            f"防守阶段板块观察：{style_label}方向保留代表票，交给人盘中判断，非买点。",
+        ),
+    )
+
+
+def _select_sector_watch_candidates(
+    discovery: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    excluded_symbols: set[str],
+    max_per_style: int = 2,
+    max_items: int = 8,
+) -> list[dict[str, Any]]:
+    if not _defensive_sector_watch_enabled(discovery):
+        return []
+    allowed_styles = _sector_watch_allowed_styles(discovery)
+    selected: list[dict[str, Any]] = []
+    selected_by_style: dict[str, int] = {}
+    for item in _ordered_candidate_items(candidates, max_items=len(candidates)):
+        symbol = str(item.get("symbol") or "")
+        if not symbol or symbol in excluded_symbols or is_star_market_symbol(symbol):
+            continue
+        if _is_heavy_risk_candidate(item):
+            continue
+        style = _candidate_sector_style(item)
+        if style not in allowed_styles:
+            continue
+        if selected_by_style.get(style, 0) >= max_per_style:
+            continue
+        selected.append(
+            _tiered_candidate(
+                item,
+                tier="sector_watch",
+                label="板块观察",
+                reason=_sector_watch_reason(item),
+            )
+        )
+        selected_by_style[style] = selected_by_style.get(style, 0) + 1
+        if len(selected) >= max_items:
+            break
+    return selected
+
+
 def _append_horizon_reason(item: dict[str, Any], reason: str) -> str:
     horizon_reason = str(item.get("horizon_reason") or "").strip()
     if not horizon_reason:
@@ -816,11 +896,22 @@ def build_candidate_tiers(
     ]
     core_symbols = _candidate_symbols(core_action)
     blocked_core_symbols = _candidate_symbols(blocked_core_items)
+    sector_watch = _select_sector_watch_candidates(
+        discovery,
+        source_candidates,
+        excluded_symbols=core_symbols | blocked_core_symbols,
+    )
+    sector_watch_symbols = _candidate_symbols(sector_watch)
     watch_wait: list[dict[str, Any]] = list(blocked_core_items)
     risk_reject: list[dict[str, Any]] = []
     for item in source_candidates:
         symbol = str(item.get("symbol") or "")
-        if not symbol or symbol in core_symbols or symbol in blocked_core_symbols:
+        if (
+            not symbol
+            or symbol in core_symbols
+            or symbol in blocked_core_symbols
+            or symbol in sector_watch_symbols
+        ):
             continue
         if _is_heavy_risk_candidate(item):
             risks = "；".join(str(flag) for flag in (item.get("risk_flags") or [])[:2])
@@ -843,10 +934,12 @@ def build_candidate_tiers(
         )
     return {
         "core_action": core_action,
+        "sector_watch": sector_watch,
         "watch_wait": watch_wait,
         "risk_reject": risk_reject,
         "summary": {
             "core_action_count": len(core_action),
+            "sector_watch_count": len(sector_watch),
             "watch_wait_count": len(watch_wait),
             "risk_reject_count": len(risk_reject),
             "core_block_reason": _core_block_reason(
@@ -1039,7 +1132,8 @@ def format_candidate_screening_text(
         else None
     )
     uses_candidate_tiers = isinstance(candidate_tiers, dict) and any(
-        key in candidate_tiers for key in ("core_action", "watch_wait", "risk_reject")
+        key in candidate_tiers
+        for key in ("core_action", "sector_watch", "watch_wait", "risk_reject")
     )
     uses_core_action_candidates = (
         isinstance(core_action_candidates, list) and bool(core_action_candidates)
@@ -1051,9 +1145,12 @@ def format_candidate_screening_text(
     if uses_candidate_tiers:
         tiers = candidate_tiers if isinstance(candidate_tiers, dict) else {}
         core_candidates = list(tiers.get("core_action") or [])
+        sector_watch_candidates = list(tiers.get("sector_watch") or [])
         watch_candidates = list(tiers.get("watch_wait") or [])
         risk_candidates = list(tiers.get("risk_reject") or [])
-        displayed_candidates = core_candidates + watch_candidates + risk_candidates
+        displayed_candidates = (
+            core_candidates + sector_watch_candidates + watch_candidates + risk_candidates
+        )
         formal_count = sum(
             1
             for item in displayed_candidates
@@ -1080,6 +1177,7 @@ def format_candidate_screening_text(
             lines.append(f"提示：{warning}")
         lines.append(
             f"钉钉分层推送：核心行动 {len(core_candidates)} 只，"
+            f"防守板块观察 {len(sector_watch_candidates)} 只，"
             f"学习观察 {len(watch_candidates)} 只，"
             f"暂不升级/风险 {len(risk_candidates)} 只。"
             "核心行动才是交易重点，学习观察不代表买点。"
@@ -1095,6 +1193,12 @@ def format_candidate_screening_text(
             candidates=core_candidates,
             max_items=ACTION_CANDIDATE_LIMIT,
             title=f"核心行动（交易重点，最多{ACTION_CANDIDATE_LIMIT}只）",
+        )
+        _format_candidate_group(
+            lines,
+            candidates=sector_watch_candidates,
+            max_items=max_items,
+            title="防守板块观察（交给人判断，非买点）",
         )
         _format_candidate_group(
             lines,

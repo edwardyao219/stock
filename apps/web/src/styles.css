@@ -1108,6 +1108,11 @@ button {
   color: #9a2f2f;
 }
 
+.source-pill.tier-sector-watch {
+  background: #e8f2ff;
+  color: #1d5fb8;
+}
+
 .source-pill.tier-watch-wait {
   background: #fff5d6;
   color: #76530f;

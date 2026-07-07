@@ -974,6 +974,12 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
                     tags_json={"tags": ["after_close_candidate", "rank:3"]},
                     status="active",
                 ),
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="600111",
+                    tags_json={"tags": ["after_close_candidate", "rank:4"]},
+                    status="active",
+                ),
             ]
         )
         db.commit()
@@ -986,6 +992,19 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
                     {
                         "symbol": "603005",
                         "tier_reason": "板块和个股趋势同时在线，盘中仍看承接。",
+                    }
+                ],
+                "sector_watch": [
+                    {
+                        "symbol": "600111",
+                        "selection_mode": "potential_watch",
+                        "score": 81.0,
+                        "tier_reason": (
+                            "防守阶段板块观察：周期资源方向保留代表票，"
+                            "交给人盘中判断，非买点。"
+                        ),
+                        "reasons": ["潜力观察：个股启动但板块未确认"],
+                        "risk_flags": [],
                     }
                 ],
                 "watch_wait": [
@@ -1065,6 +1084,11 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
     assert any(
         tag.startswith("style_gate_reason:科技成长启动前夜")
         for tag in rows["002558"].tags_json["tags"]
+    )
+    assert "tier:sector_watch" in rows["600111"].tags_json["tags"]
+    assert any(
+        tag.startswith("tier_reason:防守阶段板块观察")
+        for tag in rows["600111"].tags_json["tags"]
     )
 
 

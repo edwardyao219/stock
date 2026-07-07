@@ -577,6 +577,7 @@ def _tag_texts(tags: list[str], prefix: str) -> list[str]:
 def _candidate_tier_label(value: str | None) -> str | None:
     labels = {
         "core_action": "核心行动",
+        "sector_watch": "板块观察",
         "watch_wait": "观察等待",
         "risk_reject": "淘汰/风险",
     }
@@ -589,6 +590,8 @@ def _candidate_tier_reason(tags: list[str], tier: str | None) -> str | None:
         return tagged_reason
     if tier == "core_action":
         return "板块和个股趋势同时在线，作为核心行动候选；盘中仍看承接。"
+    if tier == "sector_watch":
+        return "防守阶段板块观察：每个方向保留代表票，交给人盘中判断，非买点。"
     if tier == "watch_wait":
         return "趋势仍可跟踪，但还需要买点、板块延续或盘中承接确认。"
     if tier == "risk_reject":

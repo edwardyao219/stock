@@ -1,6 +1,6 @@
 import type { WorkspaceStock } from "./api";
 
-export type CandidateTier = "core_action" | "watch_wait" | "risk_reject";
+export type CandidateTier = "core_action" | "sector_watch" | "watch_wait" | "risk_reject";
 
 export interface CandidateTierMeta {
   tier: CandidateTier;
@@ -10,6 +10,7 @@ export interface CandidateTierMeta {
 
 export interface CandidateTierGroups {
   coreAction: WorkspaceStock[];
+  sectorWatch: WorkspaceStock[];
   startupPreheat: WorkspaceStock[];
   expansionConfirm: WorkspaceStock[];
   watchWait: WorkspaceStock[];
@@ -18,6 +19,7 @@ export interface CandidateTierGroups {
 
 const tierLabels: Record<CandidateTier, string> = {
   core_action: "核心行动",
+  sector_watch: "板块观察",
   watch_wait: "观察等待",
   risk_reject: "淘汰/风险",
 };
@@ -54,6 +56,8 @@ export function candidateTierMeta(stock: WorkspaceStock): CandidateTierMeta {
     tagValue(stock, "tier_reason:") ??
     (tier === "core_action"
       ? "板块和个股趋势同时在线，作为核心行动候选；盘中仍看承接。"
+      : tier === "sector_watch"
+        ? "防守阶段板块观察：每个方向保留代表票，交给人盘中判断，非买点。"
       : tier === "watch_wait"
         ? "趋势仍可跟踪，但还需要买点、板块延续或盘中承接确认。"
         : "风险信号偏重，暂不纳入行动池。");
@@ -70,6 +74,8 @@ export function groupStocksByCandidateTier(stocks: WorkspaceStock[]): CandidateT
       const { tier } = candidateTierMeta(stock);
       if (tier === "core_action") {
         groups.coreAction.push(stock);
+      } else if (tier === "sector_watch") {
+        groups.sectorWatch.push(stock);
       } else if (tier === "risk_reject") {
         groups.riskReject.push(stock);
       } else if (stock.manual_tags.includes("candidate_pool:startup_preheat")) {
@@ -81,7 +87,14 @@ export function groupStocksByCandidateTier(stocks: WorkspaceStock[]): CandidateT
       }
       return groups;
     },
-    { coreAction: [], startupPreheat: [], expansionConfirm: [], watchWait: [], riskReject: [] },
+    {
+      coreAction: [],
+      sectorWatch: [],
+      startupPreheat: [],
+      expansionConfirm: [],
+      watchWait: [],
+      riskReject: [],
+    },
   );
 }
 

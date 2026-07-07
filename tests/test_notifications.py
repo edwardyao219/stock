@@ -870,6 +870,124 @@ def test_build_candidate_tiers_blocks_all_core_when_market_stress_is_risk_off() 
     )
 
 
+def test_build_candidate_tiers_adds_sector_watch_basket_when_market_stress_is_risk_off() -> None:
+    core = {
+        "symbol": "603061",
+        "name": "金海通",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "selection_mode": "formal_strategy",
+        "score": 88.0,
+        "selected_strategy_type": "long_term",
+        "reasons": ["低维主线：板块趋势和个股强度共振"],
+        "risk_flags": [],
+    }
+    growth_first = {
+        "symbol": "002558",
+        "name": "巨人网络",
+        "sector": "互联网",
+        "sector_style": "growth_cycle",
+        "selection_mode": "potential_watch",
+        "score": 86.0,
+        "selected_strategy_type": "watch_breakout",
+        "reasons": ["潜力观察：个股启动但板块未确认", "成交量开始确认"],
+        "risk_flags": [],
+    }
+    growth_second = {
+        "symbol": "300308",
+        "name": "中际旭创",
+        "sector": "通信设备",
+        "sector_style": "growth_cycle",
+        "selection_mode": "potential_watch",
+        "score": 82.0,
+        "selected_strategy_type": "watch_breakout",
+        "reasons": ["潜力观察：个股启动但板块未确认", "板块20日主线扩散较好"],
+        "risk_flags": [],
+    }
+    growth_third = {
+        "symbol": "600584",
+        "name": "长电科技",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "selection_mode": "potential_watch",
+        "score": 79.0,
+        "selected_strategy_type": "watch_breakout",
+        "reasons": ["潜力观察：个股启动但板块未确认"],
+        "risk_flags": [],
+    }
+    cyclical = {
+        "symbol": "600111",
+        "name": "北方稀土",
+        "sector": "小金属",
+        "sector_style": "cyclical",
+        "selection_mode": "potential_watch",
+        "score": 81.0,
+        "selected_strategy_type": "watch_breakout",
+        "reasons": ["潜力观察：个股启动但板块未确认", "趋势+相对强度因子仍有支撑"],
+        "risk_flags": [],
+    }
+    consumer = {
+        "symbol": "600519",
+        "name": "贵州茅台",
+        "sector": "白酒",
+        "sector_style": "consumer_quality",
+        "selection_mode": "potential_watch",
+        "score": 92.0,
+        "selected_strategy_type": "watch_breakout",
+        "reasons": ["潜力观察：个股启动但板块未确认"],
+        "risk_flags": [],
+    }
+    discovery = {
+        "candidates": [core, growth_first, growth_second, growth_third, cyclical, consumer],
+        "long_action_candidates": [core],
+        "market_stress": {
+            "stress_status": "risk_off",
+            "risk_action_label": "停止扩散，只做观察和风控",
+            "stress_reasons": ["上涨占比仅18%，市场宽度明显不足"],
+        },
+        "style_gate_policy": {
+            "rows": [
+                {
+                    "style": "growth_cycle",
+                    "label": "科技成长",
+                    "status": "upgrade_allowed",
+                    "status_label": "允许潜力升级",
+                    "summary": "科技成长近期回放占优，可放网页端重点观察。",
+                },
+                {
+                    "style": "cyclical",
+                    "label": "周期资源",
+                    "status": "upgrade_allowed",
+                    "status_label": "允许潜力升级",
+                    "summary": "周期资源近期回放修复，可放网页端重点观察。",
+                },
+                {
+                    "style": "consumer_quality",
+                    "label": "消费质量",
+                    "status": "observe_only",
+                    "status_label": "只观察",
+                    "summary": "消费质量先只观察。",
+                },
+            ]
+        },
+    }
+
+    tiers = build_candidate_tiers(discovery, max_core_items=3)
+
+    assert tiers["core_action"] == []
+    assert [item["symbol"] for item in tiers["sector_watch"]] == [
+        "002558",
+        "300308",
+        "600111",
+    ]
+    assert "600584" not in [item["symbol"] for item in tiers["sector_watch"]]
+    assert "600519" not in [item["symbol"] for item in tiers["sector_watch"]]
+    assert all(item["candidate_tier"] == "sector_watch" for item in tiers["sector_watch"])
+    assert "防守阶段板块观察" in tiers["sector_watch"][0]["tier_reason"]
+    assert "交给人盘中判断" in tiers["sector_watch"][0]["tier_reason"]
+    assert tiers["summary"]["sector_watch_count"] == 3
+
+
 def test_build_candidate_tiers_limits_core_to_one_when_market_stress_is_caution() -> None:
     first = {
         "symbol": "603061",
@@ -1193,11 +1311,49 @@ def test_format_candidate_screening_text_pushes_learning_tiers_without_core() ->
     assert "核心行动（交易重点，最多3只）" in text
     assert "暂无候选" in text
     assert "没有核心行动：当前候选都是潜力观察。" in text
-    assert "学习观察（非买点，盘中验证）" in text
     assert "002558 启动前夜" in text
     assert "暂不升级/风险理由" in text
     assert "600900 风险样本" in text
     assert "只在 Web" not in text
+
+
+def test_format_candidate_screening_text_shows_defensive_sector_watch_section() -> None:
+    sector_watch = {
+        "symbol": "002558",
+        "name": "巨人网络",
+        "sector": "互联网",
+        "selection_mode": "potential_watch",
+        "score": 86.0,
+        "selected_strategy_type": "watch_breakout",
+        "reasons": ["潜力观察：个股启动但板块未确认"],
+        "risk_flags": [],
+        "candidate_tier": "sector_watch",
+        "candidate_tier_label": "板块观察",
+        "tier_reason": "防守阶段板块观察：科技成长方向保留代表票，交给人盘中判断，非买点。",
+    }
+
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "candidate_tiers": {
+                "core_action": [],
+                "sector_watch": [sector_watch],
+                "watch_wait": [],
+                "risk_reject": [],
+                "summary": {
+                    "core_block_reason": "没有核心行动：大盘压力大，停止扩散，只做观察和风控。"
+                },
+            },
+            "candidates": [],
+        }
+    )
+
+    assert "防守板块观察 1 只" in text
+    assert "防守板块观察（交给人判断，非买点）" in text
+    assert "科技成长方向保留代表票" in text
+    assert "学习观察（非买点，盘中验证）" in text
 
 
 def test_filter_hot_sector_candidates_keeps_potential_watch_outside_hot_sector() -> None:

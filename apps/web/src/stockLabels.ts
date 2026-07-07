@@ -40,6 +40,7 @@ const modeLabels: Record<string, string> = {
 
 const tierLabels: Record<string, string> = {
   core_action: "核心行动",
+  sector_watch: "板块观察",
   watch_wait: "观察等待",
   risk_reject: "淘汰/风险",
 };

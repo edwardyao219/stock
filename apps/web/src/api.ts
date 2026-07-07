@@ -263,7 +263,7 @@ export interface WorkspaceStock {
   manual_tags: string[];
   candidate_rank: number | null;
   candidate_score: number | null;
-  candidate_tier: "core_action" | "watch_wait" | "risk_reject" | null;
+  candidate_tier: "core_action" | "sector_watch" | "watch_wait" | "risk_reject" | null;
   candidate_tier_label: string | null;
   candidate_tier_reason: string | null;
   startup_signal_score: number | null;

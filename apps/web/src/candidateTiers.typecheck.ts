@@ -19,11 +19,30 @@ const sampleStocks = [
     candidate_tier_label: "核心行动",
     candidate_tier_reason: "板块和个股趋势同时在线",
   },
+  {
+    symbol: "600111",
+    name: "北方稀土",
+    industry: "小金属",
+    source: "manual",
+    manual_note: "候选理由",
+    manual_tags: ["after_close_candidate", "tier:sector_watch"],
+    candidate_rank: 2,
+    candidate_score: 81.0,
+    candidate_tier: "sector_watch",
+    candidate_tier_label: "板块观察",
+    candidate_tier_reason: "防守阶段板块观察：周期资源方向保留代表票",
+  },
 ] as unknown as WorkspaceStock[];
 
 const grouped = groupStocksByCandidateTier(sampleStocks);
 
-grouped.coreAction[0].candidate_tier satisfies "core_action" | "watch_wait" | "risk_reject" | null;
+grouped.coreAction[0].candidate_tier satisfies
+  | "core_action"
+  | "sector_watch"
+  | "watch_wait"
+  | "risk_reject"
+  | null;
+grouped.sectorWatch.length satisfies number;
 grouped.startupPreheat.length satisfies number;
 grouped.expansionConfirm.length satisfies number;
 grouped.watchWait.length satisfies number;

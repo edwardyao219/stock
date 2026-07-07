@@ -1367,6 +1367,12 @@ export function App() {
       stocks: candidateTierGroups.coreAction,
     },
     {
+      key: "sector-watch",
+      title: "防守板块观察",
+      hint: "每个方向保留代表票，交给人判断，非买点",
+      stocks: candidateTierGroups.sectorWatch,
+    },
+    {
       key: "startup-preheat",
       title: "启动前夜",
       hint: "T-1量价修复，先盯次日承接，不进核心",

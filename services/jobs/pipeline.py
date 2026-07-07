@@ -607,7 +607,7 @@ def _apply_candidate_tier_tags(
         candidate_tiers.get("summary") if isinstance(candidate_tiers, dict) else {}
     ) or {}
     core_block_reason = str(tier_summary.get("core_block_reason") or "").replace("\n", " ").strip()
-    for tier in ("core_action", "watch_wait", "risk_reject"):
+    for tier in ("core_action", "sector_watch", "watch_wait", "risk_reject"):
         for item in candidate_tiers.get(tier) or []:
             symbol = str(item.get("symbol") or "")
             if not symbol:
