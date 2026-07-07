@@ -189,6 +189,8 @@ const candidateReplay = {
           month_count: 5,
           positive_months: 4,
           negative_months: 1,
+          monthly_max_drawdown: -0.12,
+          avg_monthly_sample_count: 6.4,
           worst_month_total_return: -0.12,
           best_month_total_return: 0.52,
           rank_reason: "样本跨月更稳，适合作为核心线。",
@@ -622,6 +624,8 @@ monthlyStyleRows[0].month satisfies string;
 candidateReplay.diagnosis.primary_scope satisfies string;
 strategyRows[0].policyLabel satisfies string;
 strategyRows[0].primaryMetric?.total_return satisfies number | null | undefined;
+strategyRows[0].monthlyMaxDrawdown satisfies number | null;
+strategyRows[0].avgMonthlySampleCount satisfies number | null;
 dualLineSummary.mainLine.label satisfies "长期行动池";
 dualLineSummary.supportLine.label satisfies "启动前夜池";
 dualLineSummary.guidance satisfies string;

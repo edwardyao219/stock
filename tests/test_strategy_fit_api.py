@@ -1156,11 +1156,15 @@ def test_strategy_pk_keeps_tactical_lines_out_of_core_even_when_strong() -> None
     assert pk["rows"][0]["latest_month"] == "2026-06"
     assert pk["rows"][0]["latest_month_total_return"] == 1.6
     assert pk["rows"][0]["worst_month_total_return"] == -0.16
+    assert pk["rows"][0]["monthly_max_drawdown"] == -0.16
+    assert pk["rows"][0]["avg_monthly_sample_count"] == 9.0
     assert pk["rows"][0]["positive_months"] == 1
     assert pk["rows"][0]["metrics_by_horizon"][10]["avg_return"] == 0.10
     assert "compounded_return" not in pk["rows"][0]["metrics_by_horizon"][20]
     core_row = next(row for row in pk["rows"] if row["scope"] == "action_long")
     assert core_row["policy"] == "core_candidate"
+    assert core_row["monthly_max_drawdown"] == 0.0
+    assert core_row["avg_monthly_sample_count"] == 3.5
     preheat_row = next(row for row in pk["rows"] if row["scope"] == "startup_preheat")
     assert preheat_row["policy"] == "tactical_observe"
 

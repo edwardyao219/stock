@@ -867,8 +867,21 @@ def diagnose_strategy_pk(
             for row in monthly_rows
             if row.get("total_return") is not None
         ]
+        month_sample_counts = [
+            int(row.get("sample_count") or 0)
+            for row in monthly_rows
+            if row.get("sample_count") is not None
+        ]
         positive_months = sum(1 for value in month_total_returns if value > 0.0)
         negative_months = sum(1 for value in month_total_returns if value < 0.0)
+        monthly_max_drawdown = (
+            round(min(0.0, min(month_total_returns)), 6) if month_total_returns else None
+        )
+        avg_monthly_sample_count = (
+            round(sum(month_sample_counts) / len(month_sample_counts), 2)
+            if month_sample_counts
+            else None
+        )
         primary_metric = metrics_by_horizon.get(primary_horizon, {})
         policy, policy_label = _strategy_pk_policy(
             scope=str(scope),
@@ -904,6 +917,8 @@ def diagnose_strategy_pk(
                 "month_count": len(monthly_rows),
                 "positive_months": positive_months,
                 "negative_months": negative_months,
+                "monthly_max_drawdown": monthly_max_drawdown,
+                "avg_monthly_sample_count": avg_monthly_sample_count,
                 "worst_month_total_return": (
                     round(min(month_total_returns), 6) if month_total_returns else None
                 ),

@@ -2343,6 +2343,9 @@ export function App() {
                               最近 {row.latestMonth ?? "暂无"} {pct(row.latestMonthMetric?.total_return)} / 最差{" "}
                               {pct(row.worstMonthTotalReturn)} / 最好 {pct(row.bestMonthTotalReturn)}
                             </small>
+                            <small>
+                              月回撤 {pct(row.monthlyMaxDrawdown)} / 月均样本 {row.avgMonthlySampleCount ?? "-"}
+                            </small>
                           </div>
                           <div className="strategy-pk-metrics">
                             {row.horizonMetrics.map((metric) => (
