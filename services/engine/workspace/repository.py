@@ -9,7 +9,11 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from services.engine.intraday.candidates import discover_intraday_candidates
-from services.engine.research_pool.repository import filter_latest_candidate_batch_items
+from services.engine.research_pool.repository import (
+    candidate_tags,
+    filter_latest_candidate_batch_items,
+    manual_focus_tags,
+)
 from services.engine.rules.seed_rules import MVP_RULES
 from services.shared.models import (
     DailyBar,
@@ -669,6 +673,23 @@ def _load_manual_pool_items_for_pools(
     return merged
 
 
+def _has_current_auto_candidate_batch(manual_map: dict[str, ResearchPoolItem]) -> bool:
+    for item in manual_map.values():
+        tags = [str(tag) for tag in (item.tags_json or {}).get("tags", [])]
+        if candidate_tags(tags) and not manual_focus_tags(tags):
+            return True
+    return False
+
+
+def _workspace_symbol_candidates(
+    plan_map: dict[str, list[TradePlan]],
+    manual_map: dict[str, ResearchPoolItem],
+) -> set[str]:
+    if _has_current_auto_candidate_batch(manual_map):
+        return set(manual_map)
+    return set(plan_map) | set(manual_map)
+
+
 def load_workspace_symbols(
     db: Session,
     pool_name: str = "manual",
@@ -677,7 +698,7 @@ def load_workspace_symbols(
     plan_map = _load_latest_trade_plans(db)
     manual_map = _load_manual_pool_items(db, pool_name=pool_name)
     return _filter_workspace_symbols(
-        sorted(set(plan_map) | set(manual_map)),
+        sorted(_workspace_symbol_candidates(plan_map, manual_map)),
         manual_map=manual_map,
         include_growth_board=include_growth_board,
     )
@@ -849,7 +870,7 @@ def load_stock_workspace_items(
     plan_map = _load_latest_trade_plans(db)
     manual_map = _load_manual_pool_items(db, pool_name=pool_name)
     symbols = _filter_workspace_symbols(
-        sorted(set(plan_map) | set(manual_map)),
+        sorted(_workspace_symbol_candidates(plan_map, manual_map)),
         manual_map=manual_map,
         include_growth_board=include_growth_board,
     )[:limit]

@@ -1231,3 +1231,52 @@ def test_list_workspace_stocks_hides_auto_candidates_from_older_feature_date() -
 
     assert [item.symbol for item in payload] == ["600171"]
     assert payload[0].candidate_score == 75.32
+
+
+def test_list_workspace_stocks_hides_auto_only_plans_when_candidate_batch_exists() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(symbol="603005", name="晶方科技", exchange="SH", industry="半导体"),
+                Security(symbol="000963", name="华东医药", exchange="SZ", industry="化学制药"),
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="603005",
+                    note="候选理由：板块和个股趋势同时在线",
+                    tags_json={
+                        "tags": [
+                            "after_close_candidate",
+                            "next_session",
+                            "2026-07-06",
+                            "batch:2026-07-06T10:27:28",
+                            "rank:1",
+                            "score:88.4",
+                            "tier:core_action",
+                        ]
+                    },
+                    status="active",
+                ),
+                TradePlan(
+                    plan_date=date(2026, 7, 6),
+                    trade_date=date(2026, 7, 7),
+                    symbol="000963",
+                    rule_id="R002",
+                    strategy_type="swing",
+                    sector_code="化学制药",
+                    entry_condition_json={"snapshot": {"industry": "化学制药"}},
+                    position_size=Decimal("0.10"),
+                    confidence_score=Decimal("75"),
+                    status="planned",
+                ),
+            ]
+        )
+        db.commit()
+
+        payload = list_workspace_stocks(db=db, pool_name="experiment")
+
+    assert [item.symbol for item in payload] == ["603005"]
+    assert payload[0].source == "manual"
