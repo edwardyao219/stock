@@ -753,6 +753,96 @@ def test_discover_next_session_candidates_step_plans_long_action_candidates_firs
     assert captured["plan_args"]["symbols"] == ["600002"]
 
 
+def test_discover_next_session_candidates_step_does_not_plan_blocked_core(
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    def fake_discovery(db, **kwargs):
+        return {
+            "feature_date": "2026-07-06",
+            "universe_size": 100,
+            "universe_warning": "",
+            "sector_focus": [
+                {
+                    "sector": "保险",
+                    "focus_score": 72,
+                    "continuity_score": 70,
+                    "avg_return_20d_pct": 9,
+                    "positive_ratio": 0.62,
+                }
+            ],
+            "market_regime": "weak_trend",
+            "market_regime_snapshot": {
+                "breadth_score": 34.0,
+                "emotion_gate": "risk_off",
+            },
+            "market_participation_snapshot": {
+                "participation_score": 41.0,
+                "liquidity_score": 31.0,
+            },
+            "candidates": [
+                {
+                    "symbol": "601336",
+                    "name": "新华保险",
+                    "sector": "保险",
+                    "sector_style": "market_beta",
+                    "suggested_horizon_days": 5,
+                    "horizon_reason": "风格周期：market_beta偏5日观察，需结合指数和成交额",
+                    "selection_mode": "formal_strategy",
+                    "score": 86.8,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "swing",
+                    "reasons": ["趋势强度领先", "相对强度领先市场"],
+                    "risk_flags": [],
+                    "day_change_pct": -0.0231,
+                    "total_score": 86.8,
+                    "selected_rule_score": 86.8,
+                }
+            ],
+            "written": 1,
+            "retired": 0,
+        }
+
+    def fake_generate_and_store_trade_plans(**kwargs):
+        captured["plan_args"] = kwargs
+        return {"written": len(kwargs["symbols"])}
+
+    def fake_dispatch(discovery):
+        captured["discovery"] = discovery
+        return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        fake_dispatch,
+    )
+
+    result = pipeline._discover_next_session_candidates_step(
+        "2026-07-06",
+        "2026-07-07",
+        limit=10,
+        use_learning_adjustments=False,
+    )
+
+    assert captured["discovery"]["candidate_tiers"]["core_action"] == []
+    assert [item["symbol"] for item in captured["discovery"]["candidate_tiers"]["watch_wait"]] == [
+        "601336"
+    ]
+    assert "plan_args" not in captured
+    assert "生成 0 条交易计划" in result.summary
+    assert any("市场弹性候选遇到弱市缩量" in item for item in result.details)
+
+
 def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

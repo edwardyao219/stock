@@ -370,6 +370,15 @@ def _candidate_float(item: dict[str, Any], key: str) -> float | None:
     return float(value) if value is not None else None
 
 
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _passes_long_action_extension_quality(item: dict[str, Any]) -> bool:
     if not _has_long_horizon_extension_reason(item):
         return False
@@ -403,6 +412,32 @@ def _passes_long_action_market_gate(discovery: dict[str, Any]) -> bool:
         participation_score >= LONG_ACTION_PARTICIPATION_MIN
         and liquidity_score >= LONG_ACTION_LIQUIDITY_MIN
     )
+
+
+def _market_beta_core_block_reason(discovery: dict[str, Any], item: dict[str, Any]) -> str | None:
+    if _candidate_sector_style(item) != "market_beta":
+        return None
+    regime_snapshot = discovery.get("market_regime_snapshot") or {}
+    participation_snapshot = discovery.get("market_participation_snapshot") or {}
+    emotion_gate = discovery.get("emotion_gate") or {}
+    regime = str(discovery.get("market_regime") or regime_snapshot.get("regime") or "")
+    gate_state = str(regime_snapshot.get("emotion_gate") or emotion_gate.get("state") or "")
+    breadth_score = _safe_float(regime_snapshot.get("breadth_score"), 50.0)
+    participation_score = _safe_float(participation_snapshot.get("participation_score"), 50.0)
+    liquidity_score = _safe_float(participation_snapshot.get("liquidity_score"), 50.0)
+    weak_market = (
+        regime == "panic"
+        or gate_state == "risk_off"
+        or breadth_score <= 42.0
+        or (regime == "weak_trend" and breadth_score <= 45.0)
+    )
+    thin_participation = (
+        participation_score < LONG_ACTION_PARTICIPATION_MIN
+        or liquidity_score < LONG_ACTION_LIQUIDITY_MIN
+    )
+    if not weak_market and not thin_participation:
+        return None
+    return "市场弹性候选遇到弱市缩量，先降为观察；需要指数、市场宽度和成交额重新配合。"
 
 
 def _candidate_sector_style(item: dict[str, Any]) -> str:
@@ -646,9 +681,14 @@ def _watch_wait_reason(item: dict[str, Any]) -> str:
 def _core_block_reason(
     candidates: list[dict[str, Any]],
     core_action: list[dict[str, Any]],
+    blocked_core_reasons: list[str] | None = None,
 ) -> str | None:
     if core_action:
         return None
+    if blocked_core_reasons:
+        if any("市场弹性" in reason and "弱市缩量" in reason for reason in blocked_core_reasons):
+            return "没有核心行动：市场弹性候选遇到弱市缩量，先降为观察。"
+        return blocked_core_reasons[0]
     if not candidates:
         return "没有核心行动：当前没有候选进入分层池。"
     potential_count = sum(1 for item in candidates if _is_potential_watch(item))
@@ -690,6 +730,24 @@ def build_candidate_tiers(
         else select_long_action_candidates(discovery, source_candidates, max_items=max_core_items)
         or select_action_candidates(discovery, source_candidates, max_items=max_core_items)
     )
+    core_source_items = list(core_source)
+    blocked_core_items: list[dict[str, Any]] = []
+    blocked_core_reasons: list[str] = []
+    filtered_core_source: list[dict[str, Any]] = []
+    for item in core_source_items:
+        block_reason = _market_beta_core_block_reason(discovery, item)
+        if block_reason:
+            blocked_core_items.append(
+                _tiered_candidate(
+                    item,
+                    tier="watch_wait",
+                    label="观察等待",
+                    reason=_append_horizon_reason(item, block_reason),
+                )
+            )
+            blocked_core_reasons.append(block_reason)
+            continue
+        filtered_core_source.append(item)
     core_action = [
         _tiered_candidate(
             item,
@@ -700,14 +758,15 @@ def build_candidate_tiers(
                 "板块和个股趋势同时在线，作为核心行动候选；盘中仍看承接。",
             ),
         )
-        for item in list(core_source)[:max_core_items]
+        for item in filtered_core_source[:max_core_items]
     ]
     core_symbols = _candidate_symbols(core_action)
-    watch_wait: list[dict[str, Any]] = []
+    blocked_core_symbols = _candidate_symbols(blocked_core_items)
+    watch_wait: list[dict[str, Any]] = list(blocked_core_items)
     risk_reject: list[dict[str, Any]] = []
     for item in source_candidates:
         symbol = str(item.get("symbol") or "")
-        if not symbol or symbol in core_symbols:
+        if not symbol or symbol in core_symbols or symbol in blocked_core_symbols:
             continue
         if _is_heavy_risk_candidate(item):
             risks = "；".join(str(flag) for flag in (item.get("risk_flags") or [])[:2])
@@ -736,7 +795,11 @@ def build_candidate_tiers(
             "core_action_count": len(core_action),
             "watch_wait_count": len(watch_wait),
             "risk_reject_count": len(risk_reject),
-            "core_block_reason": _core_block_reason(source_candidates, core_action),
+            "core_block_reason": _core_block_reason(
+                source_candidates,
+                core_action,
+                blocked_core_reasons=blocked_core_reasons,
+            ),
         },
     }
 

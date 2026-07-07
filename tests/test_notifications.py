@@ -796,6 +796,45 @@ def test_build_candidate_tiers_explains_when_core_action_is_empty() -> None:
     )
 
 
+def test_build_candidate_tiers_blocks_market_beta_core_when_market_is_weak() -> None:
+    candidate = {
+        "symbol": "601336",
+        "name": "新华保险",
+        "sector": "保险",
+        "sector_style": "market_beta",
+        "suggested_horizon_days": 5,
+        "horizon_reason": "风格周期：market_beta偏5日观察，需结合指数和成交额",
+        "selection_mode": "formal_strategy",
+        "score": 86.8,
+        "selected_strategy_type": "swing",
+        "reasons": ["趋势强度领先", "相对强度领先市场"],
+        "risk_flags": [],
+    }
+    discovery = {
+        "candidates": [candidate],
+        "long_action_candidates": [candidate],
+        "market_regime": "weak_trend",
+        "market_regime_snapshot": {
+            "breadth_score": 34.0,
+            "emotion_gate": "risk_off",
+        },
+        "market_participation_snapshot": {
+            "participation_score": 41.0,
+            "liquidity_score": 31.0,
+        },
+    }
+
+    tiers = build_candidate_tiers(discovery)
+
+    assert tiers["core_action"] == []
+    assert [item["symbol"] for item in tiers["watch_wait"]] == ["601336"]
+    assert "市场弹性" in tiers["watch_wait"][0]["tier_reason"]
+    assert "弱市缩量" in tiers["watch_wait"][0]["tier_reason"]
+    assert tiers["summary"]["core_block_reason"] == (
+        "没有核心行动：市场弹性候选遇到弱市缩量，先降为观察。"
+    )
+
+
 def test_build_candidate_tiers_keeps_startup_preheat_as_watch_wait() -> None:
     candidates = [
         {

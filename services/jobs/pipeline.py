@@ -697,11 +697,10 @@ def _discover_next_session_candidates_step(
     candidates = discovery["candidates"]
     action_candidates = discovery.get("action_candidates") or []
     candidate_tiers = discovery.get("candidate_tiers") or {}
-    plan_candidates = (
-        candidate_tiers.get("core_action")
-        or discovery.get("long_action_candidates")
-        or action_candidates
-    )
+    if isinstance(candidate_tiers, dict) and "core_action" in candidate_tiers:
+        plan_candidates = candidate_tiers.get("core_action") or []
+    else:
+        plan_candidates = discovery.get("long_action_candidates") or action_candidates
     formal_symbols = [
         item["symbol"]
         for item in plan_candidates
