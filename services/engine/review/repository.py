@@ -19,6 +19,7 @@ from services.shared.models import (
 
 ACTIVE_RULE_IDS = tuple(rule.id for rule in MVP_RULES)
 PARAMETER_RECOMMENDATION_STATUSES = {"pending", "approved", "rejected", "applied"}
+NOISE_MARKET_SYMBOLS = {"000001", "399001", "399006"}
 
 
 def _recommendation_rule_id(item: dict) -> str | None:
@@ -132,6 +133,7 @@ def load_market_summary_for_report_date(db: Session, report_date: str) -> dict[s
             "avg_change_pct": None,
             "total_amount": None,
             "amount_change_pct": None,
+            "amount_change_note": "",
             "active_security_count": 0,
             "coverage_ratio": None,
             "is_full_market": False,
@@ -147,16 +149,23 @@ def load_market_summary_for_report_date(db: Session, report_date: str) -> dict[s
     down_count = sum(1 for value in changes if value < 0)
     flat_count = len(changes) - up_count - down_count
     total_amount = sum(float(item.amount or 0) for item in bars)
+    amount_missing_ratio = sum(1 for item in bars if item.amount is None) / len(bars) if bars else 1
 
     previous_date = db.execute(
         select(func.max(DailyBar.trade_date)).where(DailyBar.trade_date < latest_date)
     ).scalar_one_or_none()
     previous_amount = 0.0
+    previous_amount_missing_ratio = 1.0
     if previous_date is not None:
         previous_bars = list(
             db.execute(select(DailyBar).where(DailyBar.trade_date == previous_date)).scalars()
         )
         previous_amount = sum(float(item.amount or 0) for item in previous_bars)
+        previous_amount_missing_ratio = (
+            sum(1 for item in previous_bars if item.amount is None) / len(previous_bars)
+            if previous_bars
+            else 1.0
+        )
 
     active_security_count = int(
         db.execute(
@@ -170,9 +179,14 @@ def load_market_summary_for_report_date(db: Session, report_date: str) -> dict[s
     coverage_ratio = (
         round(stock_count / active_security_count, 6) if active_security_count else None
     )
-    amount_change_pct = (
-        round(total_amount / previous_amount - 1, 6) if previous_amount > 0 else None
-    )
+    amount_change_note = ""
+    amount_change_pct = None
+    if amount_missing_ratio >= 0.2:
+        amount_change_note = "当日成交额覆盖不足，暂不计算成交额变化。"
+    elif previous_amount_missing_ratio >= 0.2:
+        amount_change_note = "前一交易日成交额覆盖不足，暂不计算成交额变化。"
+    elif previous_amount > 0:
+        amount_change_pct = round(total_amount / previous_amount - 1, 6)
     return {
         "requested_date": target_date.isoformat(),
         "trade_date": latest_date.isoformat(),
@@ -185,9 +199,112 @@ def load_market_summary_for_report_date(db: Session, report_date: str) -> dict[s
         "avg_change_pct": round(sum(changes) / stock_count, 6) if stock_count else None,
         "total_amount": total_amount,
         "amount_change_pct": amount_change_pct,
+        "amount_change_note": amount_change_note,
         "active_security_count": active_security_count,
         "coverage_ratio": coverage_ratio,
         "is_full_market": bool(coverage_ratio is not None and coverage_ratio >= 0.80),
+    }
+
+
+def load_market_cross_section_for_report_date(
+    db: Session,
+    report_date: str,
+    *,
+    limit: int = 5,
+    min_sector_count: int = 3,
+) -> dict[str, object]:
+    target_date = date.fromisoformat(report_date)
+    latest_date = db.execute(
+        select(func.max(DailyBar.trade_date)).where(DailyBar.trade_date <= target_date)
+    ).scalar_one_or_none()
+    if latest_date is None:
+        return {
+            "trade_date": "",
+            "strong_sectors": [],
+            "weak_sectors": [],
+            "top_gainers": [],
+            "top_losers": [],
+        }
+
+    rows = db.execute(
+        select(DailyBar, Security)
+        .join(Security, Security.symbol == DailyBar.symbol, isouter=True)
+        .where(DailyBar.trade_date == latest_date)
+    ).all()
+    movers: list[dict[str, object]] = []
+    sectors: dict[str, dict[str, object]] = {}
+    for bar, security in rows:
+        if bar.symbol in NOISE_MARKET_SYMBOLS:
+            continue
+        pre_close = float(bar.pre_close or 0)
+        if pre_close <= 0:
+            continue
+        change_pct = float(bar.close) / pre_close - 1
+        sector = (security.industry if security else None) or "未分行业"
+        amount = float(bar.amount or 0)
+        name = security.name if security else ""
+        movers.append(
+            {
+                "symbol": bar.symbol,
+                "name": name,
+                "sector": sector,
+                "change_pct": round(change_pct, 6),
+                "amount": amount,
+            }
+        )
+        bucket = sectors.setdefault(
+            sector,
+            {
+                "sector": sector,
+                "stock_count": 0,
+                "up_count": 0,
+                "change_sum": 0.0,
+                "total_amount": 0.0,
+            },
+        )
+        bucket["stock_count"] = int(bucket["stock_count"]) + 1
+        bucket["up_count"] = int(bucket["up_count"]) + (1 if change_pct > 0 else 0)
+        bucket["change_sum"] = float(bucket["change_sum"]) + change_pct
+        bucket["total_amount"] = float(bucket["total_amount"]) + amount
+
+    sector_rows = []
+    for item in sectors.values():
+        stock_count = int(item["stock_count"])
+        if stock_count <= 0:
+            continue
+        sector_rows.append(
+            {
+                "sector": item["sector"],
+                "stock_count": stock_count,
+                "up_ratio": round(int(item["up_count"]) / stock_count, 6),
+                "avg_change_pct": round(float(item["change_sum"]) / stock_count, 6),
+                "total_amount": float(item["total_amount"]),
+            }
+        )
+    eligible_sectors = [
+        item for item in sector_rows if int(item["stock_count"]) >= min_sector_count
+    ]
+    ranked_sectors = eligible_sectors or sector_rows
+    return {
+        "trade_date": latest_date.isoformat(),
+        "strong_sectors": sorted(
+            ranked_sectors,
+            key=lambda item: (float(item["avg_change_pct"]), float(item["total_amount"])),
+            reverse=True,
+        )[:limit],
+        "weak_sectors": sorted(
+            ranked_sectors,
+            key=lambda item: (float(item["avg_change_pct"]), -float(item["total_amount"])),
+        )[:limit],
+        "top_gainers": sorted(
+            movers,
+            key=lambda item: (float(item["change_pct"]), float(item["amount"])),
+            reverse=True,
+        )[:limit],
+        "top_losers": sorted(
+            movers,
+            key=lambda item: (float(item["change_pct"]), -float(item["amount"])),
+        )[:limit],
     }
 
 

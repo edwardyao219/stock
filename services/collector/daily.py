@@ -1,5 +1,7 @@
 from services.collector.contracts import CollectionResult
 
+TUSHARE_AFTER_CLOSE_DATASETS = ("daily", "daily_basic", "stk_limit", "moneyflow")
+
 
 def _failed_result(dataset: str, trade_date: str, exc: Exception) -> CollectionResult:
     return CollectionResult(
@@ -32,8 +34,14 @@ def sync_daily_market_data(
             )
         ]
 
+    compact_trade_date = trade_date.replace("-", "")
+
     try:
-        from services.collector.sync import sync_calendar_and_securities, sync_index_daily_bars
+        from services.collector.sync import (
+            sync_calendar_and_securities,
+            sync_index_daily_bars,
+            sync_tushare_market_data_resumable,
+        )
     except ModuleNotFoundError as exc:
         return [
             CollectionResult(
@@ -53,21 +61,19 @@ def sync_daily_market_data(
         results.append(_failed_result("trading_calendar_and_securities", trade_date, exc))
 
     try:
-        results.extend(sync_index_daily_bars(end_date=trade_date.replace("-", "")))
+        results.extend(sync_index_daily_bars(end_date=compact_trade_date))
     except Exception as exc:
         results.append(_failed_result("index_daily", trade_date, exc))
 
-    results.append(
-        CollectionResult(
-            source="akshare",
-            dataset="stock_daily",
-            trade_date=trade_date,
-            rows=0,
-            status="pending",
-            message=(
-                "Use sync_stock_daily_bars with selected symbols "
-                "to avoid full-market slow sync."
-            ),
+    try:
+        results.extend(
+            sync_tushare_market_data_resumable(
+                compact_trade_date,
+                datasets=TUSHARE_AFTER_CLOSE_DATASETS,
+                force=False,
+            )
         )
-    )
+    except Exception as exc:
+        results.append(_failed_result("tushare_after_close_market_data", trade_date, exc))
+
     return results

@@ -141,3 +141,36 @@ def test_prepare_market_feature_universe_prefers_tushare_daily_for_full_market_s
     assert calls == [("tushare", "20260630", None)]
     assert result.synced_daily_rows == 3
     assert result.coverage_ratio == 1
+
+
+def test_full_market_daily_sync_does_not_fallback_to_slow_akshare_when_tushare_auth_fails(
+    monkeypatch,
+) -> None:
+    from datetime import date
+
+    symbols = [f"{index:06d}" for index in range(600)]
+
+    def fail_tushare(*_args, **_kwargs):
+        raise RuntimeError("401 Unauthorized")
+
+    def fail_akshare(*_args, **_kwargs):
+        raise AssertionError("large full-market sync should not fall back to per-symbol Akshare")
+
+    class _Db:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def commit(self):
+            return None
+
+    monkeypatch.setattr(market_universe, "SessionLocal", lambda: _Db())
+    monkeypatch.setattr(market_universe, "sync_tushare_daily", fail_tushare)
+    monkeypatch.setattr(market_universe, "sync_stock_daily_bars", fail_akshare)
+
+    rows, warnings = market_universe._sync_market_daily_bars(date(2026, 7, 7), symbols)
+
+    assert rows == 0
+    assert any("未执行逐只 Akshare 兜底" in item for item in warnings)

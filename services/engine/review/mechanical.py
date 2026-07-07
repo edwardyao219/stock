@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from services.engine.review.rule_diagnostics import diagnose_rule_performances
@@ -17,6 +18,10 @@ def _pct(value: object) -> str:
     return f"{float(value) * 100:.2f}%"
 
 
+def _pct_or_dash(value: object) -> str:
+    return _pct(value) if value is not None else "-"
+
+
 def _amount(value: object) -> str:
     if value is None:
         return "-"
@@ -26,6 +31,14 @@ def _amount(value: object) -> str:
     if abs(amount) >= 10_000:
         return f"{amount / 10_000:.1f}万"
     return f"{amount:.0f}"
+
+
+def _status_label(value: object) -> str:
+    return {
+        "ok": "正常",
+        "warning": "警告",
+        "critical": "严重",
+    }.get(str(value), str(value or "-"))
 
 
 def _bar_change_pct(bar: Any) -> float | None:
@@ -53,14 +66,57 @@ def _tag_number(tags: list[str], prefix: str, cast: Any) -> int | float | None:
     return None
 
 
+def _sector_line(item: dict[str, object]) -> str:
+    return (
+        f"{item.get('sector') or '-'} "
+        f"均涨 {_pct(item.get('avg_change_pct') or 0)} / "
+        f"上涨占比 {_pct(item.get('up_ratio') or 0)} / "
+        f"{int(item.get('stock_count') or 0)}只 / "
+        f"成交额 {_amount(item.get('total_amount'))}"
+    )
+
+
+def _mover_line(item: dict[str, object]) -> str:
+    name = str(item.get("name") or "").strip()
+    sector = str(item.get("sector") or "-").strip()
+    label = f"{item.get('symbol')}{f' {name}' if name else ''}"
+    return (
+        f"{label} / {sector} / "
+        f"{_pct(item.get('change_pct') or 0)} / "
+        f"成交额 {_amount(item.get('amount'))}"
+    )
+
+
+def _data_health_metrics(report: Any) -> dict[str, object]:
+    if report is None:
+        return {}
+    return {
+        "status": getattr(report, "status", ""),
+        "trade_date": getattr(getattr(report, "trade_date", None), "isoformat", lambda: "")(),
+        "daily_bar_count": getattr(report, "daily_bar_count", 0),
+        "feature_count": getattr(report, "feature_count", 0),
+        "amount_missing_ratio": getattr(report, "amount_missing_ratio", None),
+        "issues": [
+            {
+                "code": getattr(issue, "code", ""),
+                "severity": getattr(issue, "severity", ""),
+                "message": getattr(issue, "message", ""),
+            }
+            for issue in getattr(report, "issues", [])[:10]
+        ],
+    }
+
+
 def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
     try:
         from sqlalchemy import select
 
+        from services.engine.features.health import inspect_daily_data_health
         from services.engine.review.repository import (
             insert_review_report,
             load_candidate_pool_items_for_review,
             load_daily_bars_for_symbols,
+            load_market_cross_section_for_report_date,
             load_market_summary_for_report_date,
             load_rule_performance_for_date,
             load_trade_plans_for_date,
@@ -71,9 +127,21 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
 
         with SessionLocal() as db:
             market_summary = load_market_summary_for_report_date(db, report_date)
+            market_cross_section = load_market_cross_section_for_report_date(db, report_date)
+            trade_date = str(market_summary.get("trade_date") or report_date)
+            try:
+                health_trade_date = date.fromisoformat(trade_date) if trade_date else None
+            except ValueError:
+                health_trade_date = date.fromisoformat(report_date)
+            try:
+                data_health = inspect_daily_data_health(db, trade_date=health_trade_date)
+            except Exception:
+                data_health = None
             candidate_items = load_candidate_pool_items_for_review(db, report_date)
             candidate_items = [
-                item for item in candidate_items if str(item.get("symbol") or "").strip() not in NOISE_REVIEW_SYMBOLS
+                item
+                for item in candidate_items
+                if str(item.get("symbol") or "").strip() not in NOISE_REVIEW_SYMBOLS
             ]
             candidate_items = sorted(
                 candidate_items,
@@ -98,7 +166,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
             diagnostics = diagnose_rule_performances(performances)
 
             lines = [
-                "# 每日机械复盘",
+                "# 收盘总体复盘",
                 "",
                 f"报告日期: {report_date}",
                 "",
@@ -106,7 +174,6 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 "",
             ]
 
-            trade_date = market_summary.get("trade_date") or report_date
             stale_suffix = "（已过期）" if market_summary.get("stale") else ""
             lines.append(
                 "- "
@@ -117,7 +184,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 "- "
                 f"样本 {market_summary.get('stock_count', 0)} / "
                 f"{market_summary.get('active_security_count', 0)}，"
-                f"覆盖率 {_pct(market_summary['coverage_ratio']) if market_summary.get('coverage_ratio') is not None else '-'}，"
+                f"覆盖率 {_pct_or_dash(market_summary.get('coverage_ratio'))}，"
                 f"是否全市场 {'是' if market_summary.get('is_full_market') else '否'}"
             )
             lines.append(
@@ -125,12 +192,77 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 f"上涨 {market_summary.get('up_count', 0)} / "
                 f"下跌 {market_summary.get('down_count', 0)} / "
                 f"平盘 {market_summary.get('flat_count', 0)}，"
-                f"上涨占比 {_pct(market_summary['up_ratio']) if market_summary.get('up_ratio') is not None else '-'}，"
-                f"平均涨跌 {_pct(market_summary['avg_change_pct']) if market_summary.get('avg_change_pct') is not None else '-'}，"
+                f"上涨占比 {_pct_or_dash(market_summary.get('up_ratio'))}，"
+                f"平均涨跌 {_pct_or_dash(market_summary.get('avg_change_pct'))}，"
                 f"成交额 {_amount(market_summary.get('total_amount'))}"
             )
             if market_summary.get("amount_change_pct") is not None:
                 lines.append(f"- 较前日成交额 {_pct(market_summary['amount_change_pct'])}")
+            elif market_summary.get("amount_change_note"):
+                lines.append(f"- {market_summary['amount_change_note']}")
+
+            lines.extend(["", "## 数据健康", ""])
+            if data_health is None:
+                lines.append("- 数据健康检查未完成，本次复盘只能按已入库样本观察。")
+            else:
+                lines.append(
+                    "- "
+                    f"状态 {_status_label(getattr(data_health, 'status', ''))}，"
+                    f"日线 {getattr(data_health, 'daily_bar_count', 0)} 条，"
+                    f"特征 {getattr(data_health, 'feature_count', 0)} 条，"
+                    f"前一交易日日线 {getattr(data_health, 'previous_daily_bar_count', 0)} 条"
+                )
+                amount_missing_ratio = getattr(data_health, "amount_missing_ratio", None)
+                if amount_missing_ratio is not None:
+                    lines.append(f"- 成交额缺失占比 {_pct(amount_missing_ratio)}")
+                issues = list(getattr(data_health, "issues", []) or [])
+                if issues:
+                    for issue in issues[:4]:
+                        lines.append(
+                            "- "
+                            f"{_status_label(getattr(issue, 'severity', ''))}: "
+                            f"{getattr(issue, 'message', '')}"
+                        )
+                else:
+                    lines.append("- 暂未发现日线和特征覆盖异常。")
+
+            lines.extend(["", "## 大盘强弱分化", ""])
+            strong_sectors = list(market_cross_section.get("strong_sectors") or [])
+            weak_sectors = list(market_cross_section.get("weak_sectors") or [])
+            top_gainers = list(market_cross_section.get("top_gainers") or [])
+            top_losers = list(market_cross_section.get("top_losers") or [])
+            if not market_summary.get("is_full_market"):
+                lines.append(
+                    "- 全市场覆盖不足，暂不输出强弱板块排行；"
+                    "当前只能看作局部样本，不能据此判断今天市场主线。"
+                )
+            else:
+                if strong_sectors:
+                    lines.append(
+                        "- 强势板块: "
+                        + "；".join(_sector_line(item) for item in strong_sectors[:3])
+                    )
+                else:
+                    lines.append("- 强势板块: 暂无足够样本")
+                if weak_sectors:
+                    lines.append(
+                        "- 弱势板块: "
+                        + "；".join(_sector_line(item) for item in weak_sectors[:3])
+                    )
+                if top_gainers:
+                    lines.append(
+                        "- 当日强势个股: "
+                        + "；".join(_mover_line(item) for item in top_gainers[:5])
+                    )
+                if top_losers:
+                    lines.append(
+                        "- 当日承压个股: "
+                        + "；".join(_mover_line(item) for item in top_losers[:5])
+                    )
+                lines.append(
+                    "- 归因口径: 强股通常来自当日更强的板块、放量承接或逆势抗跌；"
+                    "弱股通常来自板块补跌、缩量无承接或冲高回落。"
+                )
 
             lines.extend(["", "## 规则表现", ""])
             if performances:
@@ -174,9 +306,12 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
             lines.extend(["", "## 昨日候选今日回看", ""])
             if candidate_items:
                 active_count = sum(1 for item in candidate_items if item.get("status") == "active")
-                retired_count = sum(1 for item in candidate_items if item.get("status") == "retired")
+                retired_count = sum(
+                    1 for item in candidate_items if item.get("status") == "retired"
+                )
                 lines.append(
-                    f"- 昨日候选 {len(candidate_items)} 只，活跃 {active_count} 只，已退休 {retired_count} 只"
+                    f"- 昨日候选 {len(candidate_items)} 只，活跃 {active_count} 只，"
+                    f"已退休 {retired_count} 只"
                 )
                 for item in candidate_items[:8]:
                     symbol = item["symbol"]
@@ -198,7 +333,8 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                     if bar is None:
                         lines.append(
                             f"- {candidate_label}"
-                            f"{f' / {meta_text}' if meta_text else ''}: 今日无日线数据，状态 {status}".strip()
+                            f"{f' / {meta_text}' if meta_text else ''}: "
+                            f"今日无日线数据，状态 {status}".strip()
                         )
                         continue
                     change_pct = _bar_change_pct(bar)
@@ -238,6 +374,8 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                     "rule_diagnostics": [item.to_dict() for item in diagnostics],
                     "parameter_suggestions": parameter_suggestions_json,
                     "trade_plan_count": len(plans),
+                    "data_health": _data_health_metrics(data_health),
+                    "market_cross_section": market_cross_section,
                 },
             )
             upsert_parameter_recommendations(
@@ -250,7 +388,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
 
             return MechanicalReview(
                 report_date=report_date,
-                title=f"{report_date} 每日机械复盘",
+                title=f"{report_date} 收盘总体复盘",
                 content_md=content,
             )
     except Exception:
@@ -258,7 +396,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
 
     content = "\n".join(
         [
-            "# 每日机械复盘",
+            "# 收盘总体复盘",
             "",
             "数据采集、特征计算、规则回归和候选回看模块仍在开发中。",
             "",
@@ -272,6 +410,6 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
     )
     return MechanicalReview(
         report_date=report_date,
-        title=f"{report_date} 每日机械复盘",
+        title=f"{report_date} 收盘总体复盘",
         content_md=content,
     )

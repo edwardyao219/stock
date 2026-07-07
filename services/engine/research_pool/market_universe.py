@@ -14,6 +14,8 @@ from services.engine.features.sync import (
 from services.shared.database import SessionLocal
 from services.shared.models import Security, StockFeatureDaily
 
+AKSHARE_DAILY_FALLBACK_SYMBOL_LIMIT = 300
+
 
 @dataclass(frozen=True)
 class MarketUniverseResult:
@@ -49,6 +51,13 @@ def _sync_market_daily_bars(target_date: date, symbols: list[str]) -> tuple[int,
         return rows, warnings
     except Exception as exc:
         warnings.append(f"Tushare 当日全市场日线同步失败：{type(exc).__name__}: {exc}")
+
+    if len(symbols) > AKSHARE_DAILY_FALLBACK_SYMBOL_LIMIT:
+        warnings.append(
+            "全市场股票数量过大，未执行逐只 Akshare 兜底；"
+            "请先恢复 Tushare 授权或缩小同步范围。"
+        )
+        return 0, warnings
 
     lookback_start = target_date - timedelta(days=120)
     results = sync_stock_daily_bars(

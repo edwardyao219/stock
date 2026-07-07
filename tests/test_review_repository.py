@@ -150,6 +150,96 @@ def test_load_market_summary_for_report_date_marks_stale_data() -> None:
     assert summary["total_amount"] == 1000
 
 
+def test_load_market_summary_suppresses_amount_change_when_previous_amount_is_sparse() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(
+                    symbol=f"00000{index}",
+                    name=f"样本{index}",
+                    exchange="SZ",
+                    is_active=True,
+                    is_st=False,
+                )
+                for index in range(1, 4)
+            ]
+        )
+        db.add_all(
+            [
+                DailyBar(
+                    symbol="000001",
+                    trade_date=date(2026, 7, 6),
+                    open=Decimal("10"),
+                    high=Decimal("11"),
+                    low=Decimal("9"),
+                    close=Decimal("10"),
+                    pre_close=Decimal("10"),
+                    volume=Decimal("100"),
+                    amount=None,
+                    turnover_rate=None,
+                    limit_up=Decimal("11"),
+                    limit_down=Decimal("9"),
+                    is_suspended=False,
+                ),
+                DailyBar(
+                    symbol="000002",
+                    trade_date=date(2026, 7, 6),
+                    open=Decimal("10"),
+                    high=Decimal("11"),
+                    low=Decimal("9"),
+                    close=Decimal("10"),
+                    pre_close=Decimal("10"),
+                    volume=Decimal("100"),
+                    amount=None,
+                    turnover_rate=None,
+                    limit_up=Decimal("11"),
+                    limit_down=Decimal("9"),
+                    is_suspended=False,
+                ),
+                DailyBar(
+                    symbol="000003",
+                    trade_date=date(2026, 7, 6),
+                    open=Decimal("10"),
+                    high=Decimal("11"),
+                    low=Decimal("9"),
+                    close=Decimal("10"),
+                    pre_close=Decimal("10"),
+                    volume=Decimal("100"),
+                    amount=Decimal("1000"),
+                    turnover_rate=None,
+                    limit_up=Decimal("11"),
+                    limit_down=Decimal("9"),
+                    is_suspended=False,
+                ),
+                DailyBar(
+                    symbol="000001",
+                    trade_date=date(2026, 7, 7),
+                    open=Decimal("10"),
+                    high=Decimal("11"),
+                    low=Decimal("9"),
+                    close=Decimal("11"),
+                    pre_close=Decimal("10"),
+                    volume=Decimal("100"),
+                    amount=Decimal("2000"),
+                    turnover_rate=None,
+                    limit_up=Decimal("11"),
+                    limit_down=Decimal("9"),
+                    is_suspended=False,
+                ),
+            ]
+        )
+        db.commit()
+
+        summary = load_market_summary_for_report_date(db, "2026-07-07")
+
+    assert summary["amount_change_pct"] is None
+    assert summary["amount_change_note"] == "前一交易日成交额覆盖不足，暂不计算成交额变化。"
+
+
 def test_insert_review_report_updates_same_day_type_without_duplicates() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

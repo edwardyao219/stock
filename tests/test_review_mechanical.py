@@ -1,5 +1,5 @@
-from types import SimpleNamespace
 from decimal import Decimal
+from types import SimpleNamespace
 
 from services.engine.review import mechanical as review_mechanical
 
@@ -18,7 +18,9 @@ class _DummySession:
         return SimpleNamespace(scalars=lambda: [])
 
 
-def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(monkeypatch) -> None:
+def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr("services.shared.database.SessionLocal", lambda: _DummySession())
     monkeypatch.setattr(
         "services.engine.review.repository.load_market_summary_for_report_date",
@@ -38,6 +40,65 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
             "coverage_ratio": 1.0,
             "is_full_market": True,
         },
+    )
+    monkeypatch.setattr(
+        "services.engine.review.repository.load_market_cross_section_for_report_date",
+        lambda db, report_date: {
+            "strong_sectors": [
+                {
+                    "sector": "消费电子",
+                    "stock_count": 4,
+                    "up_ratio": 0.75,
+                    "avg_change_pct": 0.035,
+                    "total_amount": 456789000,
+                }
+            ],
+            "weak_sectors": [
+                {
+                    "sector": "半导体",
+                    "stock_count": 5,
+                    "up_ratio": 0.2,
+                    "avg_change_pct": -0.026,
+                    "total_amount": 556789000,
+                }
+            ],
+            "top_gainers": [
+                {
+                    "symbol": "002001",
+                    "name": "样本强股",
+                    "sector": "消费电子",
+                    "change_pct": 0.1,
+                    "amount": 223456789,
+                }
+            ],
+            "top_losers": [
+                {
+                    "symbol": "300001",
+                    "name": "样本弱股",
+                    "sector": "半导体",
+                    "change_pct": -0.08,
+                    "amount": 123456789,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "services.engine.features.health.inspect_daily_data_health",
+        lambda db, trade_date: SimpleNamespace(
+            status="warning",
+            trade_date=__import__("datetime").date(2026, 6, 23),
+            daily_bar_count=2,
+            feature_count=1,
+            previous_daily_bar_count=2,
+            amount_missing_ratio=0.0,
+            issues=[
+                SimpleNamespace(
+                    code="feature_missing",
+                    severity="warning",
+                    message="已有日线但缺少当日特征，候选池可能仍在使用旧批次。",
+                )
+            ],
+        ),
     )
     monkeypatch.setattr(
         "services.engine.review.repository.load_candidate_pool_items_for_review",
@@ -111,6 +172,13 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
     review = review_mechanical.generate_daily_mechanical_review("2026-06-24")
 
     assert "## 市场概况" in review.content_md
+    assert "## 数据健康" in review.content_md
+    assert "已有日线但缺少当日特征" in review.content_md
+    assert "## 大盘强弱分化" in review.content_md
+    assert "消费电子" in review.content_md
+    assert "样本强股" in review.content_md
+    assert "样本弱股" in review.content_md
+    assert "强股通常来自当日更强的板块" in review.content_md
     assert "数据日期 2026-06-23（已过期）" in review.content_md
     assert "## 昨日候选今日回看" in review.content_md
     assert "第1名 / 86.4分" in review.content_md

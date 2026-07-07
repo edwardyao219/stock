@@ -169,7 +169,7 @@ def get_mechanical_review(
     return MechanicalReviewResponse(
         report_date=report.report_date.isoformat(),
         report_type=report.report_type,
-        title=f"{report.report_date.isoformat()} 每日机械复盘",
+        title=f"{report.report_date.isoformat()} 收盘总体复盘",
         content_md=report.content_md,
         metrics=report.metrics_json or {},
         found=True,
