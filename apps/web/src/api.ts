@@ -340,12 +340,23 @@ export interface CandidateBatch {
   stale_auto_candidate_count: number;
 }
 
+export interface IntradayMarketStress {
+  trade_date: string | null;
+  snapshot_scope_label: string | null;
+  stress_status: string;
+  stress_label: string;
+  stress_score: number | null;
+  risk_action_label: string | null;
+  stress_reasons: string[];
+}
+
 export interface IntradayCandidateList {
   trade_date: string;
   as_of: string | null;
   pool_name: string;
   candidate_count: number;
   candidate_batch: CandidateBatch;
+  market_stress: IntradayMarketStress | null;
   candidates: IntradayCandidate[];
 }
 

@@ -536,6 +536,64 @@ def test_list_intraday_candidates_defaults_as_of_to_current_time(monkeypatch) ->
     assert payload["candidates"][0]["price"] == 10.2
 
 
+def test_list_intraday_candidates_passes_live_market_stress_only_for_current(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    captured: list[dict] = []
+
+    def fake_discover_intraday_candidates(db, **kwargs):
+        captured.append(kwargs)
+        return {
+            "trade_date": kwargs["trade_date"].isoformat(),
+            "as_of": kwargs["as_of"].isoformat(timespec="seconds"),
+            "pool_name": kwargs["pool_name"],
+            "candidate_count": 0,
+            "candidate_batch": {
+                "auto_feature_date": None,
+                "auto_hold_until": None,
+                "source_item_count": 0,
+                "usable_item_count": 0,
+                "current_auto_candidate_count": 0,
+                "manual_focus_count": 0,
+                "stale_auto_candidate_count": 0,
+            },
+            "market_stress": kwargs.get("market_stress"),
+            "candidates": [],
+        }
+
+    with session() as db:
+        monkeypatch.setattr(
+            "apps.api.app.routers.workspace.now_local",
+            lambda: datetime(2026, 1, 22, 10, 10),
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "apps.api.app.routers.workspace.discover_intraday_candidates",
+            fake_discover_intraday_candidates,
+        )
+        monkeypatch.setattr(
+            "apps.api.app.routers.workspace._live_market_stress_snapshot",
+            lambda db: {"stress_status": "risk_off", "stress_label": "压力大"},
+            raising=False,
+        )
+
+        current_payload = list_intraday_candidates(db=db, pool_name="experiment")
+        historical_payload = list_intraday_candidates(
+            db=db,
+            pool_name="experiment",
+            as_of="2026-01-21T10:00:00",
+        )
+
+    assert current_payload["market_stress"]["stress_status"] == "risk_off"
+    assert historical_payload["market_stress"] is None
+    assert captured[0]["market_stress"]["stress_status"] == "risk_off"
+    assert captured[1]["market_stress"] is None
+
+
 def test_list_intraday_candidates_refreshes_research_pool_quotes_when_requested(
     monkeypatch,
 ) -> None:

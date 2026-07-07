@@ -26,6 +26,7 @@ from services.shared.symbols import is_growth_board_symbol
 
 SectorSignal = tuple[str, float, list[str], list[str], list[str]]
 AdjustmentSignal = tuple[float, list[str], list[str], list[str]]
+MarketStressSignal = tuple[float, list[str], list[str], list[str], dict[str, Any] | None]
 
 
 @dataclass(frozen=True)
@@ -548,6 +549,37 @@ def _caution_reasons(
     return deduped
 
 
+def _market_stress_signal(market_stress: dict[str, Any] | None) -> MarketStressSignal:
+    if not market_stress:
+        return 0.0, [], [], [], None
+
+    status = str(market_stress.get("stress_status") or "neutral")
+    label = str(market_stress.get("stress_label") or "中性")
+    action = str(market_stress.get("risk_action_label") or "")
+    raw_reasons = market_stress.get("stress_reasons") or []
+    reasons = [str(reason) for reason in raw_reasons if str(reason).strip()]
+    first_reason = reasons[0] if reasons else "市场压力信号不明确"
+    payload = {
+        "trade_date": market_stress.get("trade_date"),
+        "snapshot_scope_label": market_stress.get("snapshot_scope_label"),
+        "stress_status": status,
+        "stress_label": label,
+        "stress_score": market_stress.get("stress_score"),
+        "risk_action_label": action,
+        "stress_reasons": reasons,
+    }
+
+    if status == "risk_off":
+        caution = f"全市场压力大，{action or '停止扩散，只做观察和风控'}；{first_reason}"
+        return -12.0, [], ["market_risk_off"], [caution], payload
+    if status == "caution":
+        caution = f"全市场偏谨慎，{action or '降低频率，等盘中确认'}；{first_reason}"
+        return -5.0, [], ["market_caution"], [caution], payload
+    if status == "supportive":
+        return 2.0, ["market_supportive"], [], [], payload
+    return 0.0, [], [], [], payload
+
+
 def _selection_tier(
     *,
     state: str,
@@ -609,6 +641,10 @@ def _selection_tier(
         if sector_signal == "weak_sector" and "板块弱势" not in reason:
             reason = f"板块弱势，{reason}"
         return "defer", SELECTION_TIER_LABELS["defer"], reason
+
+    if "market_risk_off" in risk_flags:
+        reason = caution_reasons[0] if caution_reasons else "全市场压力大，停止扩散，只做观察"
+        return "watch", SELECTION_TIER_LABELS["watch"], reason
 
     volume_confirmed = "intraday_volume_confirmed" in support_flags
     sector_confirmed = sector_signal == "strong_sector"
@@ -818,6 +854,7 @@ def discover_intraday_candidates(
     include_growth_board: bool = False,
     as_of: datetime | None = None,
     sector_feedback: dict[str, dict[str, int]] | None = None,
+    market_stress: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     source_pool_items = _candidate_items_source(db, pool_name=pool_name)
     candidate_batch = candidate_batch_summary(source_pool_items)
@@ -834,6 +871,13 @@ def discover_intraday_candidates(
     )
     theme_moneyflow_rows = load_latest_theme_moneyflow_rows(db, trade_date=trade_date)
     latest_quotes = _latest_quotes(db, symbols, trade_date=trade_date, as_of=as_of)
+    (
+        market_stress_delta,
+        market_stress_support,
+        market_stress_risks,
+        market_stress_cautions,
+        market_stress_payload,
+    ) = _market_stress_signal(market_stress)
     candidates: list[IntradayCandidate] = []
     for item in pool_items:
         if not include_growth_board and is_growth_board_symbol(item.symbol):
@@ -886,6 +930,8 @@ def discover_intraday_candidates(
         )
         support_flags = [*support_flags, *theme_signal.support_flags]
         risk_flags = [*risk_flags, *theme_signal.risk_flags]
+        support_flags = [*support_flags, *market_stress_support]
+        risk_flags = [*risk_flags, *market_stress_risks]
         review_window = _review_window(quote)
         caution_reasons = _caution_reasons(
             quote=quote,
@@ -896,6 +942,7 @@ def discover_intraday_candidates(
                 *volume_cautions,
                 *feedback_cautions,
                 *theme_signal.caution_reasons,
+                *market_stress_cautions,
             ],
         )
         intraday_score = _intraday_score(
@@ -908,6 +955,7 @@ def discover_intraday_candidates(
                 + volume_delta
                 + feedback_delta
                 + theme_signal.score_delta
+                + market_stress_delta
             ),
         )
         selection_tier, selection_tier_label, selection_reason = _selection_tier(
@@ -967,5 +1015,6 @@ def discover_intraday_candidates(
         "pool_name": pool_name,
         "candidate_count": len(selected),
         "candidate_batch": candidate_batch,
+        "market_stress": market_stress_payload,
         "candidates": [item.to_dict() for item in selected],
     }

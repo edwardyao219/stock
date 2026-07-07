@@ -1310,6 +1310,60 @@ def test_discover_intraday_candidates_limits_formal_tier_to_three() -> None:
     assert "正式名额收敛" in watch[0]["selection_reason"]
 
 
+def test_discover_intraday_candidates_downgrades_formal_on_market_risk_off() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add(
+            _sector_features(
+                "半导体",
+                date(2026, 6, 30),
+                strength=82,
+                continuity=78,
+                momentum=74,
+                breadth=66,
+                avg_return_20d=0.12,
+                positive_20d_rate=70,
+            )
+        )
+        _add_confirmed_formal_candidate(
+            db,
+            symbol="600925",
+            name="强势但弱市",
+            sector="半导体",
+            rank=1,
+            score=90,
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=5,
+            market_stress={
+                "trade_date": "2026-06-30",
+                "snapshot_scope_label": "盘中实时",
+                "stress_status": "risk_off",
+                "stress_label": "压力大",
+                "stress_score": 80.0,
+                "risk_action_label": "停止扩散，只做观察和风控",
+                "stress_reasons": ["上涨占比仅13%，市场宽度明显不足"],
+            },
+        )
+
+    item = result["candidates"][0]
+    assert result["market_stress"]["trade_date"] == "2026-06-30"
+    assert result["market_stress"]["snapshot_scope_label"] == "盘中实时"
+    assert result["market_stress"]["stress_status"] == "risk_off"
+    assert result["market_stress"]["stress_score"] == 80.0
+    assert item["selection_tier"] == "watch"
+    assert item["selection_tier_label"] == "观察确认"
+    assert "全市场压力大" in item["selection_reason"]
+    assert "market_risk_off" in item["risk_flags"]
+
+
 def test_discover_intraday_candidates_keeps_formal_tier_sector_diversified() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

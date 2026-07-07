@@ -846,6 +846,13 @@ function candidateBatchText(batch: IntradayCandidateList["candidate_batch"] | un
   return parts.join(" / ");
 }
 
+function intradayMarketStressText(stress: IntradayCandidateList["market_stress"] | undefined) {
+  if (!stress) return "市场压力未接入";
+  const scope = stress.snapshot_scope_label ?? stress.trade_date ?? "盘面";
+  const action = stress.risk_action_label ? ` / ${stress.risk_action_label}` : "";
+  return `${scope} ${stress.stress_label}${action}`;
+}
+
 function learningTone(verdict: string) {
   if (["repaired", "held_strength", "improved"].includes(verdict)) return "up";
   if (["weakened", "stayed_weak", "softened"].includes(verdict)) return "down";
@@ -1562,6 +1569,7 @@ export function App() {
                   {intradayCandidates?.trade_date ?? "-"} /{" "}
                   {candidateBatchText(intradayCandidates?.candidate_batch)}
                 </small>
+                <small>{intradayMarketStressText(intradayCandidates?.market_stress)}</small>
               </div>
               <button
                 type="button"

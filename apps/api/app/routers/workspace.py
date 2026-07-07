@@ -141,6 +141,16 @@ class IntradayCandidateResponse(BaseModel):
     risk_flags: list[str]
 
 
+class IntradayMarketStressResponse(BaseModel):
+    trade_date: str | None = None
+    snapshot_scope_label: str | None = None
+    stress_status: str
+    stress_label: str
+    stress_score: float | None = None
+    risk_action_label: str | None = None
+    stress_reasons: list[str] = Field(default_factory=list)
+
+
 class CandidateBatchResponse(BaseModel):
     auto_feature_date: str | None = None
     auto_hold_until: str | None = None
@@ -158,6 +168,7 @@ class IntradayCandidateListResponse(BaseModel):
     pool_name: str
     candidate_count: int
     candidate_batch: CandidateBatchResponse
+    market_stress: IntradayMarketStressResponse | None = None
     candidates: list[IntradayCandidateResponse]
 
 
@@ -190,6 +201,25 @@ def _active_intraday_candidate_symbols(
             continue
         symbols.append(item.symbol)
     return sorted(set(symbols))
+
+
+def _live_market_stress_snapshot(db: Session) -> dict[str, object] | None:
+    try:
+        from apps.api.app.routers.market import get_market_overview
+
+        overview = get_market_overview(db=db, live=True)
+    except Exception:
+        return None
+
+    return {
+        "trade_date": overview.trade_date.isoformat() if overview.trade_date else None,
+        "snapshot_scope_label": overview.snapshot_scope_label,
+        "stress_status": overview.stress_status,
+        "stress_label": overview.stress_label,
+        "stress_score": overview.stress_score,
+        "risk_action_label": overview.risk_action_label,
+        "stress_reasons": overview.stress_reasons,
+    }
 
 
 class IntradaySnapshotLearningResponse(BaseModel):
@@ -457,6 +487,7 @@ def list_intraday_candidates(
         if symbols:
             sync_realtime_quotes(symbols=symbols, quote_time=parsed_as_of)
             db.expire_all()
+    market_stress = None if as_of else _live_market_stress_snapshot(db)
     return discover_intraday_candidates(
         db,
         trade_date=current_time.date(),
@@ -466,6 +497,7 @@ def list_intraday_candidates(
         formal_per_sector_limit=formal_per_sector_limit,
         include_growth_board=include_growth_board,
         as_of=parsed_as_of,
+        market_stress=market_stress,
     )
 
 
