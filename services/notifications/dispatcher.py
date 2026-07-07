@@ -663,8 +663,8 @@ def _defensive_sector_watch_enabled(discovery: dict[str, Any]) -> bool:
     return str(_market_stress_snapshot(discovery).get("stress_status") or "") == "risk_off"
 
 
-def _sector_watch_allowed_styles(discovery: dict[str, Any]) -> set[str]:
-    styles: set[str] = set()
+def _sector_watch_policy_status_by_style(discovery: dict[str, Any]) -> dict[str, str]:
+    statuses: dict[str, str] = {}
     for policy_key in ("style_gate_policy", "startup_preheat_policy"):
         policy = discovery.get(policy_key)
         if not isinstance(policy, dict):
@@ -672,12 +672,31 @@ def _sector_watch_allowed_styles(discovery: dict[str, Any]) -> set[str]:
         for row in policy.get("rows") or []:
             if not isinstance(row, dict):
                 continue
-            if str(row.get("status") or "") != "upgrade_allowed":
-                continue
             style = str(row.get("style") or "").strip()
-            if style:
-                styles.add(style)
-    return styles or set(LONG_ACTION_TREND_STYLES)
+            status = str(row.get("status") or "").strip()
+            if style and status:
+                statuses[style] = status
+    return statuses
+
+
+def _sector_watch_gate_rank(
+    discovery: dict[str, Any],
+    item: dict[str, Any],
+) -> int:
+    style = _candidate_sector_style(item)
+    status = str(item.get("style_gate_status") or "").strip()
+    policy_statuses = _sector_watch_policy_status_by_style(discovery)
+    if not status:
+        status = policy_statuses.get(style, "")
+    if status == "upgrade_allowed":
+        return 2
+    if status == "observe_only":
+        return 1
+    if status == "stand_down":
+        return 0
+    if policy_statuses:
+        return 0
+    return 1 if style in LONG_ACTION_TREND_STYLES else 0
 
 
 def _sector_watch_style_label(item: dict[str, Any]) -> str:
@@ -706,36 +725,58 @@ def _select_sector_watch_candidates(
     candidates: list[dict[str, Any]],
     *,
     excluded_symbols: set[str],
+    max_per_sector: int = 2,
     max_per_style: int = 2,
     max_items: int = 8,
 ) -> list[dict[str, Any]]:
     if not _defensive_sector_watch_enabled(discovery):
         return []
-    allowed_styles = _sector_watch_allowed_styles(discovery)
     selected: list[dict[str, Any]] = []
+    selected_symbols: set[str] = set()
+    selected_by_sector: dict[str, int] = {}
     selected_by_style: dict[str, int] = {}
-    for item in _ordered_candidate_items(candidates, max_items=len(candidates)):
-        symbol = str(item.get("symbol") or "")
-        if not symbol or symbol in excluded_symbols or is_star_market_symbol(symbol):
-            continue
-        if _is_heavy_risk_candidate(item):
-            continue
-        style = _candidate_sector_style(item)
-        if style not in allowed_styles:
-            continue
-        if selected_by_style.get(style, 0) >= max_per_style:
-            continue
-        selected.append(
-            _tiered_candidate(
-                item,
-                tier="sector_watch",
-                label="板块观察",
-                reason=_sector_watch_reason(item),
+
+    ordered_items = sorted(
+        _ordered_candidate_items(candidates, max_items=len(candidates)),
+        key=lambda item: (
+            _sector_watch_gate_rank(discovery, item),
+            _candidate_order_key(item),
+        ),
+        reverse=True,
+    )
+    for sector_round_limit in range(1, max_per_sector + 1):
+        for item in ordered_items:
+            symbol = str(item.get("symbol") or "")
+            if (
+                not symbol
+                or symbol in excluded_symbols
+                or symbol in selected_symbols
+                or is_star_market_symbol(symbol)
+            ):
+                continue
+            if _is_heavy_risk_candidate(item):
+                continue
+            if _sector_watch_gate_rank(discovery, item) <= 0:
+                continue
+            style = _candidate_sector_style(item)
+            sector = str(item.get("sector") or style or "未分类").strip()
+            if selected_by_sector.get(sector, 0) >= sector_round_limit:
+                continue
+            if selected_by_style.get(style, 0) >= max_per_style:
+                continue
+            selected.append(
+                _tiered_candidate(
+                    item,
+                    tier="sector_watch",
+                    label="板块观察",
+                    reason=_sector_watch_reason(item),
+                )
             )
-        )
-        selected_by_style[style] = selected_by_style.get(style, 0) + 1
-        if len(selected) >= max_items:
-            break
+            selected_symbols.add(symbol)
+            selected_by_sector[sector] = selected_by_sector.get(sector, 0) + 1
+            selected_by_style[style] = selected_by_style.get(style, 0) + 1
+            if len(selected) >= max_items:
+                return selected
     return selected
 
 

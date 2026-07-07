@@ -979,13 +979,14 @@ def test_build_candidate_tiers_adds_sector_watch_basket_when_market_stress_is_ri
         "002558",
         "300308",
         "600111",
+        "600519",
     ]
     assert "600584" not in [item["symbol"] for item in tiers["sector_watch"]]
-    assert "600519" not in [item["symbol"] for item in tiers["sector_watch"]]
     assert all(item["candidate_tier"] == "sector_watch" for item in tiers["sector_watch"])
     assert "防守阶段板块观察" in tiers["sector_watch"][0]["tier_reason"]
     assert "交给人盘中判断" in tiers["sector_watch"][0]["tier_reason"]
-    assert tiers["summary"]["sector_watch_count"] == 3
+    assert "只观察" in tiers["sector_watch"][-1]["tier_reason"]
+    assert tiers["summary"]["sector_watch_count"] == 4
 
 
 def test_build_candidate_tiers_limits_core_to_one_when_market_stress_is_caution() -> None:
