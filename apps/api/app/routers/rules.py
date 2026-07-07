@@ -874,6 +874,11 @@ def diagnose_strategy_pk(
         ]
         positive_months = sum(1 for value in month_total_returns if value > 0.0)
         negative_months = sum(1 for value in month_total_returns if value < 0.0)
+        monthly_positive_ratio = (
+            round(positive_months / len(month_total_returns), 4)
+            if month_total_returns
+            else None
+        )
         monthly_max_drawdown = (
             round(min(0.0, min(month_total_returns)), 6) if month_total_returns else None
         )
@@ -883,6 +888,14 @@ def diagnose_strategy_pk(
             else None
         )
         primary_metric = metrics_by_horizon.get(primary_horizon, {})
+        primary_total_return = primary_metric.get("total_return")
+        return_drawdown_ratio = (
+            round(float(primary_total_return) / abs(monthly_max_drawdown), 4)
+            if primary_total_return is not None
+            and monthly_max_drawdown is not None
+            and monthly_max_drawdown < 0.0
+            else None
+        )
         policy, policy_label = _strategy_pk_policy(
             scope=str(scope),
             sample_count=int(primary_metric.get("sample_count") or 0),
@@ -917,7 +930,9 @@ def diagnose_strategy_pk(
                 "month_count": len(monthly_rows),
                 "positive_months": positive_months,
                 "negative_months": negative_months,
+                "monthly_positive_ratio": monthly_positive_ratio,
                 "monthly_max_drawdown": monthly_max_drawdown,
+                "return_drawdown_ratio": return_drawdown_ratio,
                 "avg_monthly_sample_count": avg_monthly_sample_count,
                 "worst_month_total_return": (
                     round(min(month_total_returns), 6) if month_total_returns else None
@@ -1441,9 +1456,30 @@ def _sector_leadership_policy_needs_enrichment(diagnosis: dict[str, Any]) -> boo
     return not required_keys.issubset(policy)
 
 
+def _strategy_pk_needs_enrichment(diagnosis: dict[str, Any]) -> bool:
+    strategy_pk = diagnosis.get("strategy_pk")
+    if not isinstance(strategy_pk, dict):
+        return True
+    rows = strategy_pk.get("rows")
+    if not isinstance(rows, list):
+        return True
+    required_row_keys = {
+        "monthly_max_drawdown",
+        "avg_monthly_sample_count",
+        "monthly_positive_ratio",
+        "return_drawdown_ratio",
+    }
+    return any(
+        isinstance(row, dict) and not required_row_keys.issubset(row)
+        for row in rows
+    )
+
+
 def _enrich_candidate_replay_effect_payload(payload: dict[str, Any]) -> dict[str, Any]:
     diagnosis = payload.get("diagnosis") if isinstance(payload.get("diagnosis"), dict) else {}
-    if not _sector_leadership_policy_needs_enrichment(diagnosis):
+    needs_sector_policy = _sector_leadership_policy_needs_enrichment(diagnosis)
+    needs_strategy_pk = _strategy_pk_needs_enrichment(diagnosis)
+    if not needs_sector_policy and not needs_strategy_pk:
         return payload
     comparison = {
         "start_date": payload.get("start_date"),
@@ -1452,15 +1488,17 @@ def _enrich_candidate_replay_effect_payload(payload: dict[str, Any]) -> dict[str
         "discovery_cache_dir": payload.get("discovery_cache_dir"),
     }
     horizon = int(diagnosis.get("horizon") or 20)
+    enriched_diagnosis = {**diagnosis}
+    if needs_sector_policy:
+        enriched_diagnosis["sector_leadership_policy"] = diagnose_sector_leadership_policy(
+            comparison,
+            horizon=horizon,
+        )
+    if needs_strategy_pk:
+        enriched_diagnosis["strategy_pk"] = diagnose_strategy_pk(comparison)
     return {
         **payload,
-        "diagnosis": {
-            **diagnosis,
-            "sector_leadership_policy": diagnose_sector_leadership_policy(
-                comparison,
-                horizon=horizon,
-            ),
-        },
+        "diagnosis": enriched_diagnosis,
     }
 
 

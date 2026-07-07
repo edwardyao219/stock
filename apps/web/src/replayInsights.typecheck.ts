@@ -190,7 +190,9 @@ const candidateReplay = {
           month_count: 5,
           positive_months: 4,
           negative_months: 1,
+          monthly_positive_ratio: 0.8,
           monthly_max_drawdown: -0.12,
+          return_drawdown_ratio: 8.5662,
           avg_monthly_sample_count: 6.4,
           worst_month_total_return: -0.12,
           best_month_total_return: 0.52,
@@ -627,6 +629,8 @@ strategyRows[0].policyLabel satisfies string;
 strategyRows[0].primaryMetric?.total_return satisfies number | null | undefined;
 strategyRows[0].monthlyMaxDrawdown satisfies number | null;
 strategyRows[0].avgMonthlySampleCount satisfies number | null;
+strategyRows[0].monthlyPositiveRatio satisfies number | null;
+strategyRows[0].returnDrawdownRatio satisfies number | null;
 dualLineSummary.mainLine.label satisfies "长期行动池";
 dualLineSummary.supportLine.label satisfies "启动前夜池";
 dualLineSummary.guidance satisfies string;

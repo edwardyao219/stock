@@ -951,6 +951,9 @@ def test_candidate_replay_effect_enriches_legacy_cached_diagnosis(monkeypatch, t
         payload["diagnosis"]["sector_leadership_policy"]["rhythm_status"]
         == "follow_with_confirmation"
     )
+    strategy_pk = payload["diagnosis"]["strategy_pk"]
+    assert strategy_pk["rows"][0]["monthly_positive_ratio"] == 1.0
+    assert strategy_pk["rows"][0]["return_drawdown_ratio"] is None
 
 
 def test_candidate_replay_effect_refreshes_stale_cached_sector_policy(
@@ -1158,6 +1161,8 @@ def test_strategy_pk_keeps_tactical_lines_out_of_core_even_when_strong() -> None
     assert pk["rows"][0]["worst_month_total_return"] == -0.16
     assert pk["rows"][0]["monthly_max_drawdown"] == -0.16
     assert pk["rows"][0]["avg_monthly_sample_count"] == 9.0
+    assert pk["rows"][0]["monthly_positive_ratio"] == 0.5
+    assert pk["rows"][0]["return_drawdown_ratio"] == 9.0
     assert pk["rows"][0]["positive_months"] == 1
     assert pk["rows"][0]["metrics_by_horizon"][10]["avg_return"] == 0.10
     assert "compounded_return" not in pk["rows"][0]["metrics_by_horizon"][20]
@@ -1165,6 +1170,8 @@ def test_strategy_pk_keeps_tactical_lines_out_of_core_even_when_strong() -> None
     assert core_row["policy"] == "core_candidate"
     assert core_row["monthly_max_drawdown"] == 0.0
     assert core_row["avg_monthly_sample_count"] == 3.5
+    assert core_row["monthly_positive_ratio"] == 1.0
+    assert core_row["return_drawdown_ratio"] is None
     preheat_row = next(row for row in pk["rows"] if row["scope"] == "startup_preheat")
     assert preheat_row["policy"] == "tactical_observe"
 

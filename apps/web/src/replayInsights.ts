@@ -122,7 +122,9 @@ export interface StrategyPkDisplayRow {
   monthCount: number;
   positiveMonths: number;
   negativeMonths: number;
+  monthlyPositiveRatio: number | null;
   monthlyMaxDrawdown: number | null;
+  returnDrawdownRatio: number | null;
   avgMonthlySampleCount: number | null;
   worstMonthTotalReturn: number | null;
   bestMonthTotalReturn: number | null;
@@ -534,7 +536,9 @@ export function strategyPkRows(report: CandidateReplayEffectReport | null): Stra
       monthCount: row.month_count,
       positiveMonths: row.positive_months,
       negativeMonths: row.negative_months,
+      monthlyPositiveRatio: row.monthly_positive_ratio,
       monthlyMaxDrawdown: row.monthly_max_drawdown,
+      returnDrawdownRatio: row.return_drawdown_ratio,
       avgMonthlySampleCount: row.avg_monthly_sample_count,
       worstMonthTotalReturn: row.worst_month_total_return,
       bestMonthTotalReturn: row.best_month_total_return,

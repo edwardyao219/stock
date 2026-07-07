@@ -2352,6 +2352,10 @@ export function App() {
                             <small>
                               月回撤 {pct(row.monthlyMaxDrawdown)} / 月均样本 {row.avgMonthlySampleCount ?? "-"}
                             </small>
+                            <small>
+                              月正比 {pct(row.monthlyPositiveRatio)} / 收益回撤比{" "}
+                              {row.returnDrawdownRatio?.toFixed(2) ?? "-"}
+                            </small>
                           </div>
                           <div className="strategy-pk-metrics">
                             {row.horizonMetrics.map((metric) => (

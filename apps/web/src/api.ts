@@ -648,7 +648,9 @@ export interface StrategyPkRow {
   month_count: number;
   positive_months: number;
   negative_months: number;
+  monthly_positive_ratio: number | null;
   monthly_max_drawdown: number | null;
+  return_drawdown_ratio: number | null;
   avg_monthly_sample_count: number | null;
   worst_month_total_return: number | null;
   best_month_total_return: number | null;
