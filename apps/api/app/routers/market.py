@@ -13,7 +13,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from services.collector.akshare_client import RealtimeQuoteRow, fetch_realtime_quotes
+from services.collector.akshare_client import (
+    RealtimeQuoteRow,
+    fetch_realtime_quotes,
+    fetch_sina_realtime_quotes,
+)
 from services.engine.features.health import inspect_daily_data_health
 from services.engine.news.catalysts import (
     build_sector_catalyst_report,
@@ -39,6 +43,7 @@ router = APIRouter()
 DbSession = Annotated[Session, Depends(get_db)]
 LIVE_MARKET_CACHE_SECONDS = 15.0
 LIVE_MARKET_TIMEOUT_SECONDS = 1.0
+LIVE_MARKET_SYMBOL_BATCH_SIZE = 500
 _LIVE_MARKET_CACHE: tuple[float, "MarketOverviewResponse"] | None = None
 _LIVE_MARKET_LOCK = Lock()
 _LIVE_MARKET_FUTURE: Future | None = None
@@ -382,6 +387,21 @@ def _quote_change_pct(item: RealtimeQuoteRow) -> float | None:
     return float(item.price / item.pre_close - Decimal("1"))
 
 
+def _symbol_batches(symbols: list[str], batch_size: int) -> list[list[str]]:
+    return [symbols[index : index + batch_size] for index in range(0, len(symbols), batch_size)]
+
+
+def _active_live_symbols(db: Session) -> list[str]:
+    return list(
+        db.execute(
+            select(Security.symbol)
+            .where(Security.is_active.is_(True))
+            .where(Security.is_st.is_(False))
+            .order_by(Security.symbol)
+        ).scalars()
+    )
+
+
 def _sum_amount(items: list[DailyBar]) -> float:
     return sum(float(item.amount or 0) for item in items)
 
@@ -599,6 +619,93 @@ def _sina_a_share_overview() -> MarketOverviewResponse:
         **_market_snapshot_scope(trade_date=trade_date, is_live=True),
         indexes=_safe_live_market_indexes(),
     )
+
+
+def _sina_symbol_live_a_share_overview(db: Session) -> MarketOverviewResponse:
+    symbols = _active_live_symbols(db)
+    if not symbols:
+        raise ValueError("No active A-share symbols available for Sina live snapshot")
+
+    quotes: list[RealtimeQuoteRow] = []
+    failed_batches = 0
+    for batch in _symbol_batches(symbols, LIVE_MARKET_SYMBOL_BATCH_SIZE):
+        try:
+            quotes.extend(fetch_sina_realtime_quotes(set(batch)))
+        except Exception:
+            failed_batches += 1
+
+    latest_trade_date_text = max(
+        (item.trade_date for item in quotes if item.trade_date),
+        default=None,
+    )
+    if not latest_trade_date_text:
+        raise ValueError("No Sina live quote dates available")
+
+    latest_quotes = [item for item in quotes if item.trade_date == latest_trade_date_text]
+    changes = [value for item in latest_quotes if (value := _quote_change_pct(item)) is not None]
+    if not changes:
+        raise ValueError("No Sina live quote changes available")
+
+    up_count = sum(1 for value in changes if value > 0)
+    down_count = sum(1 for value in changes if value < 0)
+    flat_count = len(changes) - up_count - down_count
+    stock_count = len(changes)
+    active_security_count = len(symbols)
+    coverage_ratio = (
+        round(stock_count / active_security_count, 6) if active_security_count else None
+    )
+    up_ratio = up_count / stock_count if stock_count else None
+    avg_change_pct = round(sum(changes) / stock_count, 6) if stock_count else None
+    total_amount = sum(float(item.amount or 0) for item in latest_quotes)
+    parsed_trade_date = date.fromisoformat(latest_trade_date_text)
+    stale_quote_count = len(quotes) - len(latest_quotes)
+    is_full_market = bool(
+        coverage_ratio is not None and coverage_ratio >= MARKET_DAILY_MIN_COVERAGE_RATIO
+    )
+    quality_notes = [f"统计样本 {stock_count}/{active_security_count}"]
+    if stale_quote_count:
+        quality_notes.append(f"旧日期 {stale_quote_count}")
+    if failed_batches:
+        quality_notes.append(f"失败批次 {failed_batches}")
+
+    return MarketOverviewResponse(
+        trade_date=parsed_trade_date,
+        stock_count=stock_count,
+        up_count=up_count,
+        down_count=down_count,
+        flat_count=flat_count,
+        up_ratio=up_ratio,
+        avg_change_pct=avg_change_pct,
+        total_amount=total_amount,
+        amount_change_pct=None,
+        active_security_count=active_security_count,
+        coverage_ratio=coverage_ratio,
+        is_full_market=is_full_market,
+        message=(
+            f"A股新浪分批实时快照：上涨 {up_count}，下跌 {down_count}，"
+            f"平盘 {flat_count}；{'；'.join(quality_notes)}。"
+        ),
+        **_market_stress_policy(
+            up_ratio=up_ratio,
+            avg_change_pct=avg_change_pct,
+            amount_change_pct=None,
+        ),
+        **_market_snapshot_scope(trade_date=parsed_trade_date, is_live=True),
+        indexes=_safe_live_market_indexes(),
+    )
+
+
+def _try_sina_symbol_live_a_share_overview(db: Session) -> MarketOverviewResponse | None:
+    try:
+        return _sina_symbol_live_a_share_overview(db)
+    except Exception:
+        return None
+
+
+def _store_live_market_cache(overview: MarketOverviewResponse) -> None:
+    global _LIVE_MARKET_CACHE
+    with _LIVE_MARKET_LOCK:
+        _LIVE_MARKET_CACHE = (monotonic(), overview)
 
 
 def _live_a_share_overview() -> MarketOverviewResponse:
@@ -1156,6 +1263,10 @@ def get_market_overview(db: DbSession, live: bool = False) -> MarketOverviewResp
     if live:
         overview = _try_cached_live_a_share_overview(LIVE_MARKET_TIMEOUT_SECONDS)
         if overview is not None:
+            return overview
+        overview = _try_sina_symbol_live_a_share_overview(db)
+        if overview is not None:
+            _store_live_market_cache(overview)
             return overview
 
     return _stored_market_overview(db)

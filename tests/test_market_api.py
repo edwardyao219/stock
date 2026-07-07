@@ -341,6 +341,13 @@ def test_get_market_overview_live_falls_back_when_live_snapshot_is_slow(monkeypa
     session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
     with session() as db:
+        db.add_all(
+            [
+                Security(symbol="000001", name="样本1", exchange="SZ", is_active=True, is_st=False),
+                Security(symbol="000002", name="样本2", exchange="SZ", is_active=True, is_st=False),
+            ]
+        )
+        db.commit()
         stored_payload = market.MarketOverviewResponse(
             trade_date=date(2026, 7, 1),
             stock_count=2,
@@ -368,27 +375,44 @@ def test_get_market_overview_live_falls_back_when_live_snapshot_is_slow(monkeypa
             ],
         )
 
-        def slow_live_snapshot() -> market.MarketOverviewResponse:
-            time.sleep(0.2)
-            return market.MarketOverviewResponse(
-                trade_date=date(2026, 7, 2),
-                stock_count=1,
-                up_count=0,
-                down_count=1,
-                flat_count=0,
-                up_ratio=0.0,
-                avg_change_pct=-0.01,
-                total_amount=1000,
-                amount_change_pct=None,
-                active_security_count=1,
-                coverage_ratio=1.0,
-                is_full_market=True,
-                message="slow live",
-                indexes=[],
-            )
-
-        monkeypatch.setattr(market, "_LIVE_MARKET_CACHE", None)
-        monkeypatch.setattr(market, "_cached_live_a_share_overview", slow_live_snapshot)
+        monkeypatch.setattr(market, "_try_cached_live_a_share_overview", lambda timeout: None)
+        monkeypatch.setattr(
+            market,
+            "fetch_sina_realtime_quotes",
+            lambda symbols: [
+                market.RealtimeQuoteRow(
+                    symbol="000001",
+                    trade_date="2026-07-02",
+                    quote_time=datetime(2026, 7, 2, 13, 30),
+                    price=Decimal("9.8"),
+                    open=Decimal("10"),
+                    high=Decimal("10"),
+                    low=Decimal("9.8"),
+                    pre_close=Decimal("10"),
+                    pct_change=None,
+                    volume=Decimal("100"),
+                    amount=Decimal("1000"),
+                    turnover_rate=None,
+                    source="sina.hq",
+                ),
+                market.RealtimeQuoteRow(
+                    symbol="000002",
+                    trade_date="2026-07-02",
+                    quote_time=datetime(2026, 7, 2, 13, 30),
+                    price=Decimal("19.6"),
+                    open=Decimal("20"),
+                    high=Decimal("20"),
+                    low=Decimal("19.6"),
+                    pre_close=Decimal("20"),
+                    pct_change=None,
+                    volume=Decimal("100"),
+                    amount=Decimal("2000"),
+                    turnover_rate=None,
+                    source="sina.hq",
+                ),
+            ],
+        )
+        monkeypatch.setattr(market, "_safe_live_market_indexes", lambda: [])
         monkeypatch.setattr(market, "_stored_market_overview", lambda db: stored_payload)
         monkeypatch.setattr(market, "LIVE_MARKET_TIMEOUT_SECONDS", 0.001, raising=False)
 
@@ -397,8 +421,96 @@ def test_get_market_overview_live_falls_back_when_live_snapshot_is_slow(monkeypa
         elapsed = time.monotonic() - started
 
     assert elapsed < 0.08
-    assert payload.message == "stored"
-    assert [item.code for item in payload.indexes] == ["sh000001"]
+    assert payload.trade_date == date(2026, 7, 2)
+    assert payload.up_count == 0
+    assert payload.down_count == 2
+    assert payload.message.startswith("A股新浪分批实时快照")
+    assert payload.indexes == []
+
+
+def test_sina_symbol_live_overview_filters_stale_quote_dates(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(symbol="000001", name="样本1", exchange="SZ", is_active=True, is_st=False),
+                Security(symbol="000002", name="样本2", exchange="SZ", is_active=True, is_st=False),
+                Security(
+                    symbol="000003",
+                    name="停牌旧样本",
+                    exchange="SZ",
+                    is_active=True,
+                    is_st=False,
+                ),
+            ]
+        )
+        db.commit()
+        monkeypatch.setattr(
+            market,
+            "fetch_sina_realtime_quotes",
+            lambda symbols: [
+                market.RealtimeQuoteRow(
+                    symbol="000001",
+                    trade_date="2026-07-02",
+                    quote_time=datetime(2026, 7, 2, 13, 30),
+                    price=Decimal("11"),
+                    open=Decimal("10"),
+                    high=Decimal("11"),
+                    low=Decimal("10"),
+                    pre_close=Decimal("10"),
+                    pct_change=None,
+                    volume=Decimal("100"),
+                    amount=Decimal("1000"),
+                    turnover_rate=None,
+                    source="sina.hq",
+                ),
+                market.RealtimeQuoteRow(
+                    symbol="000002",
+                    trade_date="2026-07-02",
+                    quote_time=datetime(2026, 7, 2, 13, 30),
+                    price=Decimal("9"),
+                    open=Decimal("10"),
+                    high=Decimal("10"),
+                    low=Decimal("9"),
+                    pre_close=Decimal("10"),
+                    pct_change=None,
+                    volume=Decimal("100"),
+                    amount=Decimal("2000"),
+                    turnover_rate=None,
+                    source="sina.hq",
+                ),
+                market.RealtimeQuoteRow(
+                    symbol="000003",
+                    trade_date="2026-06-19",
+                    quote_time=datetime(2026, 6, 19, 15, 0),
+                    price=Decimal("5"),
+                    open=Decimal("5"),
+                    high=Decimal("5"),
+                    low=Decimal("5"),
+                    pre_close=Decimal("10"),
+                    pct_change=None,
+                    volume=Decimal("100"),
+                    amount=Decimal("500"),
+                    turnover_rate=None,
+                    source="sina.hq",
+                ),
+            ],
+        )
+        monkeypatch.setattr(market, "_safe_live_market_indexes", lambda: [])
+
+        payload = market._sina_symbol_live_a_share_overview(db)
+
+    assert payload.trade_date == date(2026, 7, 2)
+    assert payload.stock_count == 2
+    assert payload.up_count == 1
+    assert payload.down_count == 1
+    assert payload.flat_count == 0
+    assert payload.active_security_count == 3
+    assert payload.coverage_ratio == round(2 / 3, 6)
+    assert "旧日期 1" in payload.message
 
 
 def test_get_data_health_returns_daily_feature_diagnostics() -> None:
