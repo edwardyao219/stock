@@ -13,6 +13,7 @@ import {
   startupSignalReplayRows,
   startupPreheatRows,
   replayMonthlyStyleRows,
+  yesterdayReplayEndDate,
 } from "./replayInsights";
 
 const candidateReplay = {
@@ -680,11 +681,23 @@ startupSignalStyleRows[0].highSignalMetric?.sample_count satisfies number | unde
 startupSignalStyleRows[0].postureLabel satisfies string;
 startupSignalStyleRows[0].guidance satisfies string;
 longCandidateReplayQuery.start_date satisfies "2025-01-02";
-longCandidateReplayQuery.end_date satisfies "2026-06-05";
+longCandidateReplayQuery.end_date satisfies string;
 longCandidateReplayQuery.limit satisfies 15;
 longCandidateReplayQuery.min_coverage_ratio satisfies 0.7;
 longCandidateReplayQuery.include_fundamentals satisfies false;
 longCandidateReplayQuery.use_monthly_shards satisfies true;
 initialCandidateReplayQuery.start_date satisfies "2025-01-02";
-initialCandidateReplayQuery.end_date satisfies "2026-06-05";
+initialCandidateReplayQuery.end_date satisfies string;
 initialCandidateReplayQuery.use_monthly_shards satisfies true;
+
+if (!/^\d{4}-\d{2}-\d{2}$/.test(longCandidateReplayQuery.end_date ?? "")) {
+  throw new Error("长周期回放结束日必须是 yyyy-mm-dd");
+}
+
+if (longCandidateReplayQuery.end_date === "2026-06-05") {
+  throw new Error("长周期回放结束日不能固定在旧样本");
+}
+
+if (yesterdayReplayEndDate(new Date("2026-07-07T12:00:00+08:00")) !== "2026-07-06") {
+  throw new Error("长周期回放结束日应该按本地日期滚动到昨天");
+}

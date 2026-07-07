@@ -7,9 +7,20 @@ import type {
   StrategyPkHorizonMetric,
 } from "./api";
 
+function formatReplayDate(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function yesterdayReplayEndDate(today = new Date()) {
+  return formatReplayDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
+}
+
 export const longCandidateReplayQuery = {
   start_date: "2025-01-02",
-  end_date: "2026-06-05",
+  end_date: yesterdayReplayEndDate(),
   limit: 15,
   min_coverage_ratio: 0.7,
   include_fundamentals: false,
