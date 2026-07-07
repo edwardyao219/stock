@@ -8,6 +8,7 @@ import {
   replayWeakMonthRows,
   replayStylePreferenceRows,
   strategyPkRows,
+  startupSignalStyleReplayRows,
   startupSignalReplayRows,
   startupPreheatRows,
   replayMonthlyStyleRows,
@@ -440,6 +441,26 @@ const candidateReplay = {
           },
         },
       },
+      startup_signal_style_horizons: {
+        20: {
+          growth_cycle: {
+            high: {
+              raw: { sample_count: 3, avg_return: 0.055, win_rate: 0.67, total_return: 0.165 },
+              guarded: { sample_count: 3, avg_return: 0.045, win_rate: 0.67, total_return: 0.135 },
+            },
+            low: {
+              raw: { sample_count: 2, avg_return: -0.01, win_rate: 0, total_return: -0.02 },
+              guarded: { sample_count: 2, avg_return: -0.02, win_rate: 0, total_return: -0.04 },
+            },
+          },
+          cyclical: {
+            high: {
+              raw: { sample_count: 2, avg_return: -0.015, win_rate: 0, total_return: -0.03 },
+              guarded: { sample_count: 2, avg_return: -0.025, win_rate: 0, total_return: -0.05 },
+            },
+          },
+        },
+      },
       monthly_style_horizons: {},
       monthly_selection_mode_horizons: {},
       monthly_startup_signal_horizons: {},
@@ -586,6 +607,7 @@ const strategyRows = strategyPkRows(candidateReplay);
 const dualLineSummary = dualLineLongReplaySummary(candidateReplay);
 const monthlyPkRows = monthlyStrategyPkRows(candidateReplay, 20);
 const startupSignalRows = startupSignalReplayRows(candidateReplay);
+const startupSignalStyleRows = startupSignalStyleReplayRows(candidateReplay, 20);
 if (!dualLineSummary) {
   throw new Error("双线摘要应在长期行动池和启动前夜池都有样本时存在");
 }
@@ -614,6 +636,11 @@ startupSignalRows[0].postureLabel satisfies string;
 startupSignalRows[0].highSignalMetric?.sample_count satisfies number | undefined;
 startupSignalRows[0].liftAvgReturn satisfies number | null;
 startupSignalRows[0].guidance satisfies string;
+startupSignalStyleRows[0].style satisfies string;
+startupSignalStyleRows[0].label satisfies string;
+startupSignalStyleRows[0].highSignalMetric?.sample_count satisfies number | undefined;
+startupSignalStyleRows[0].postureLabel satisfies string;
+startupSignalStyleRows[0].guidance satisfies string;
 longCandidateReplayQuery.start_date satisfies "2025-01-02";
 longCandidateReplayQuery.end_date satisfies "2026-06-05";
 longCandidateReplayQuery.limit satisfies 15;

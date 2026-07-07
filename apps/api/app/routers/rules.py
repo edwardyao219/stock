@@ -35,7 +35,7 @@ _CORE_POLICY_SCOPES = {"action_long", "action"}
 _TACTICAL_POLICY_SCOPES = {"potential_watch", "startup_preheat", "startup_confirmed"}
 DEFAULT_REPLAY_START_DATE = "2024-01-01"
 DEFAULT_INTERACTIVE_REPLAY_MONTHS = 3
-CANDIDATE_REPLAY_EFFECT_CACHE_VERSION = "candidate-replay-effect-v1"
+CANDIDATE_REPLAY_EFFECT_CACHE_VERSION = "candidate-replay-effect-v2"
 CANDIDATE_REPLAY_EFFECT_CACHE_DIR = Path(".tmp/candidate-replay-effect-cache")
 CANDIDATE_REPLAY_EFFECT_HORIZONS = (1, 5, 10, 20)
 CANDIDATE_REPLAY_EFFECT_SCOPES = (
@@ -51,6 +51,7 @@ _CANDIDATE_REPLAY_NUMERIC_KEY_MAPS = {
     "monthly_horizons",
     "portfolio_horizons",
     "monthly_portfolio_horizons",
+    "startup_signal_style_horizons",
     "metrics_by_horizon",
 }
 _STYLE_LABELS = {
@@ -343,6 +344,58 @@ def _merge_monthly_horizons(
     return merged
 
 
+def _merge_nested_category_horizons(
+    summaries: list[dict[str, Any]],
+    key: str,
+    *,
+    horizons: tuple[int, ...],
+) -> dict[int, dict[str, Any]]:
+    merged: dict[int, dict[str, Any]] = {}
+    for horizon in horizons:
+        outer_keys = sorted(
+            {
+                str(outer_key)
+                for summary in summaries
+                for outer_key in _horizon_item(summary, key, horizon)
+            }
+        )
+        merged[horizon] = {}
+        for outer_key in outer_keys:
+            inner_keys = sorted(
+                {
+                    str(inner_key)
+                    for summary in summaries
+                    for inner_key in (
+                        (_horizon_item(summary, key, horizon).get(outer_key) or {})
+                    )
+                }
+            )
+            merged[horizon][outer_key] = {}
+            for inner_key in inner_keys:
+                inner_items = [
+                    (
+                        (_horizon_item(summary, key, horizon).get(outer_key) or {}).get(
+                            inner_key
+                        )
+                        or {}
+                    )
+                    for summary in summaries
+                ]
+                row = _merge_metric_pair(inner_items)
+                label = next(
+                    (
+                        item.get("label")
+                        for item in inner_items
+                        if isinstance(item, dict) and item.get("label")
+                    ),
+                    None,
+                )
+                if label:
+                    row["label"] = label
+                merged[horizon][outer_key][inner_key] = row
+    return merged
+
+
 def _style_horizon_preferences_from_summary(
     style_horizons: dict[int, dict[str, Any]],
     *,
@@ -446,6 +499,11 @@ def _merge_candidate_replay_scope_summaries(
         "startup_signal_horizons": _merge_category_horizons(
             summaries,
             "startup_signal_horizons",
+            horizons=horizons,
+        ),
+        "startup_signal_style_horizons": _merge_nested_category_horizons(
+            summaries,
+            "startup_signal_style_horizons",
             horizons=horizons,
         ),
         "style_horizon_preferences": _style_horizon_preferences_from_summary(style_horizons),

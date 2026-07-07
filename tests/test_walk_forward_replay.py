@@ -2535,6 +2535,80 @@ def test_summarize_walk_forward_replay_groups_by_startup_signal_bucket() -> None
     ] == 0.09
 
 
+def test_summarize_walk_forward_replay_groups_startup_signal_by_style() -> None:
+    result = WalkForwardReplayResult(
+        start_date="2026-01-01",
+        end_date="2026-01-31",
+        processed_days=1,
+        days=[
+            WalkForwardDay(
+                signal_date="2026-01-02",
+                next_trade_date="2026-01-05",
+                universe_size=3,
+                feature_rows=3,
+                active_symbols=3,
+                feature_coverage_ratio=1.0,
+                candidates=[
+                    WalkForwardCandidate(
+                        symbol="600020",
+                        name="科技高分启动",
+                        sector="半导体",
+                        sector_style="growth_cycle",
+                        selection_mode="potential_watch",
+                        score=82,
+                        entry_date="2026-01-05",
+                        forward_returns={20: 0.16},
+                        guarded_forward_returns={20: 0.12},
+                        startup_signal_score=86.0,
+                        startup_signal_label="启动观察",
+                        startup_signal_reasons=["板块修复", "量价修复"],
+                    ),
+                    WalkForwardCandidate(
+                        symbol="600021",
+                        name="周期高分启动",
+                        sector="煤炭",
+                        sector_style="cyclical",
+                        selection_mode="potential_watch",
+                        score=80,
+                        entry_date="2026-01-05",
+                        forward_returns={20: -0.05},
+                        guarded_forward_returns={20: -0.08},
+                        startup_signal_score=84.0,
+                        startup_signal_label="启动观察",
+                        startup_signal_reasons=["量价修复"],
+                    ),
+                    WalkForwardCandidate(
+                        symbol="600022",
+                        name="科技低分启动",
+                        sector="半导体",
+                        sector_style="growth_cycle",
+                        selection_mode="potential_watch",
+                        score=66,
+                        entry_date="2026-01-05",
+                        forward_returns={20: -0.03},
+                        guarded_forward_returns={20: -0.04},
+                        startup_signal_score=62.0,
+                        startup_signal_label="预热观察",
+                        startup_signal_reasons=["量价修复不足"],
+                    ),
+                ],
+            )
+        ],
+    )
+
+    summary = summarize_walk_forward_replay(result, horizons=(20,))
+
+    assert summary["startup_signal_style_horizons"][20]["growth_cycle"]["high"][
+        "guarded"
+    ]["total_return"] == 0.12
+    assert summary["startup_signal_style_horizons"][20]["growth_cycle"]["low"][
+        "guarded"
+    ]["total_return"] == -0.04
+    assert summary["startup_signal_style_horizons"][20]["cyclical"]["high"][
+        "guarded"
+    ]["total_return"] == -0.08
+
+
 def test_summarize_walk_forward_replay_excludes_noise_and_attributes_strong_sectors() -> None:
     result = WalkForwardReplayResult(
         start_date="2026-01-01",

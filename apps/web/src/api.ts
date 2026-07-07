@@ -559,6 +559,10 @@ export interface ReplayScopeSummary {
   style_horizons: Record<number, Record<string, ReplayHorizonSummary>>;
   selection_mode_horizons: Record<number, Record<string, ReplayHorizonSummary>>;
   startup_signal_horizons?: Record<number, Record<string, ReplayHorizonSummary>>;
+  startup_signal_style_horizons?: Record<
+    number,
+    Record<string, Record<string, ReplayHorizonSummary>>
+  >;
   style_horizon_preferences: Record<string, ReplayStylePreference>;
   monthly_horizons: Record<number, Record<string, ReplayMonthlyHorizonSummary>>;
   monthly_portfolio_horizons: Record<number, Record<string, ReplayPortfolioHorizonSummary>>;

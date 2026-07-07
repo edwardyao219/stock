@@ -58,6 +58,7 @@ import {
   replayScopeRows,
   replayStylePreferenceRows,
   strategyPkRows,
+  startupSignalStyleReplayRows,
   startupSignalReplayRows,
   startupPreheatRows,
   replayWeakMonthRows,
@@ -1315,6 +1316,7 @@ export function App() {
   const replayStylePreferences = replayStylePreferenceRows(lowDimensionalReplay).slice(0, 5);
   const startupPreheatEffectRows = startupPreheatRows(candidateReplayEffect);
   const startupSignalEffectRows = startupSignalReplayRows(candidateReplayEffect);
+  const startupSignalStyleEffectRows = startupSignalStyleReplayRows(candidateReplayEffect, 20, 5);
   const potentialWatchStyleRows = replayMonthlyStyleRows(
     candidateReplayEffect?.scopes.potential_watch,
     10,
@@ -2411,6 +2413,50 @@ export function App() {
                             {row.lowSignalMetric ? (
                               <span className="neutral">
                                 低分均值 {pct(row.lowSignalMetric.avg_return)} / 样本{" "}
+                                {row.lowSignalMetric.sample_count}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {startupSignalStyleEffectRows.length ? (
+                  <div className="startup-signal-style-replay">
+                    <strong>启动信号风格拆分</strong>
+                    <div className="startup-signal-style-list">
+                      {startupSignalStyleEffectRows.map((row) => (
+                        <div className={`startup-signal-style-row ${row.tone}`} key={row.style}>
+                          <div className="startup-signal-style-head">
+                            <span>{row.label}</span>
+                            <strong>{row.postureLabel}</strong>
+                            <small>{row.guidance}</small>
+                          </div>
+                          <div className="startup-signal-style-metrics">
+                            <span className={row.tone}>
+                              高分20日 {pct(row.highSignalMetric?.avg_return)} / 总收益{" "}
+                              {pct(row.highSignalMetric?.total_return)} / 样本{" "}
+                              {row.highSignalMetric?.sample_count ?? 0}
+                            </span>
+                            <span>
+                              风格整体 {pct(row.baselineMetric?.avg_return)} / 样本{" "}
+                              {row.baselineMetric?.sample_count ?? 0}
+                            </span>
+                            <span
+                              className={
+                                row.liftAvgReturn === null
+                                  ? "neutral"
+                                  : row.liftAvgReturn > 0
+                                    ? "up"
+                                    : "down"
+                              }
+                            >
+                              均值差 {pct(row.liftAvgReturn)}
+                            </span>
+                            {row.lowSignalMetric ? (
+                              <span className="neutral">
+                                低分20日 {pct(row.lowSignalMetric.avg_return)} / 样本{" "}
                                 {row.lowSignalMetric.sample_count}
                               </span>
                             ) : null}

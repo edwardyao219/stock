@@ -408,6 +408,31 @@ def _startup_signal_return_summaries(
     return summaries
 
 
+def _startup_signal_style_return_summaries(
+    candidates: list[WalkForwardCandidate],
+    *,
+    horizon: int,
+) -> dict[str, dict[str, Any]]:
+    styles = sorted(
+        {
+            str(candidate.sector_style or "unknown")
+            for candidate in candidates
+            if _startup_signal_bucket(candidate) is not None
+        }
+    )
+    return {
+        style: _startup_signal_return_summaries(
+            [
+                candidate
+                for candidate in candidates
+                if str(candidate.sector_style or "unknown") == style
+            ],
+            horizon=horizon,
+        )
+        for style in styles
+    }
+
+
 def _monthly_return_summaries(
     candidates: list[WalkForwardCandidate],
     *,
@@ -666,6 +691,7 @@ def summarize_walk_forward_replay(
     style_horizon_summaries: dict[int, dict[str, Any]] = {}
     selection_mode_horizon_summaries: dict[int, dict[str, Any]] = {}
     startup_signal_horizon_summaries: dict[int, dict[str, Any]] = {}
+    startup_signal_style_horizon_summaries: dict[int, dict[str, Any]] = {}
     for horizon in horizons:
         raw_values = [
             value
@@ -700,6 +726,12 @@ def summarize_walk_forward_replay(
         startup_signal_horizon_summaries[horizon] = _startup_signal_return_summaries(
             candidates,
             horizon=horizon,
+        )
+        startup_signal_style_horizon_summaries[horizon] = (
+            _startup_signal_style_return_summaries(
+                candidates,
+                horizon=horizon,
+            )
         )
     return {
         "start_date": result.start_date,
@@ -737,6 +769,7 @@ def summarize_walk_forward_replay(
         "style_horizons": style_horizon_summaries,
         "selection_mode_horizons": selection_mode_horizon_summaries,
         "startup_signal_horizons": startup_signal_horizon_summaries,
+        "startup_signal_style_horizons": startup_signal_style_horizon_summaries,
         "style_horizon_preferences": _style_horizon_preferences(
             style_horizon_summaries,
         ),

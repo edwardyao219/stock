@@ -73,6 +73,20 @@ export interface StartupSignalReplayRow {
   tone: ReplayTone;
 }
 
+export interface StartupSignalStyleReplayRow {
+  style: string;
+  label: string;
+  horizon: number;
+  baselineMetric: ReplayReturnSummary | null;
+  highSignalMetric: ReplayReturnSummary | null;
+  lowSignalMetric: ReplayReturnSummary | null;
+  liftAvgReturn: number | null;
+  posture: StartupSignalReplayPosture;
+  postureLabel: string;
+  guidance: string;
+  tone: ReplayTone;
+}
+
 export interface ReplayStylePreferenceRow {
   style: string;
   label: string;
@@ -590,6 +604,47 @@ export function startupSignalReplayRows(
         || (row.highSignalMetric?.sample_count ?? 0) > 0
         || (row.lowSignalMetric?.sample_count ?? 0) > 0,
     );
+}
+
+export function startupSignalStyleReplayRows(
+  report: CandidateReplayEffectReport | null,
+  horizon = 20,
+  limit = 5,
+): StartupSignalStyleReplayRow[] {
+  const scope = report?.scopes.startup_preheat;
+  if (!scope) return [];
+  const styleBuckets = scope.startup_signal_style_horizons?.[horizon] ?? {};
+  return Object.entries(styleBuckets)
+    .map(([style, buckets]) => {
+      const baselineMetric = scope.style_horizons[horizon]?.[style]?.guarded ?? null;
+      const highSignalMetric = buckets.high?.guarded ?? null;
+      const lowSignalMetric = buckets.low?.guarded ?? null;
+      const liftAvgReturn = metricDiff(highSignalMetric, baselineMetric, "avg_return");
+      const posture = startupSignalPosture(highSignalMetric, liftAvgReturn);
+      const label = styleLabels[style] ?? "其他风格";
+      return {
+        style,
+        label,
+        horizon,
+        baselineMetric,
+        highSignalMetric,
+        lowSignalMetric,
+        liftAvgReturn,
+        ...posture,
+        guidance:
+          posture.posture === "observe"
+            ? `${label}里的高分启动信号更值得提前观察，仍需盘中承接确认。`
+            : posture.guidance,
+      };
+    })
+    .filter((row) => (row.highSignalMetric?.sample_count ?? 0) > 0)
+    .sort((left, right) => {
+      const leftObserve = left.posture === "observe" ? 1 : 0;
+      const rightObserve = right.posture === "observe" ? 1 : 0;
+      if (leftObserve !== rightObserve) return rightObserve - leftObserve;
+      return metricTotal(right.highSignalMetric) - metricTotal(left.highSignalMetric);
+    })
+    .slice(0, limit);
 }
 
 export function replayBreakdownRows(
