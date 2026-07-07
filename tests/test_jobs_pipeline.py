@@ -941,6 +941,185 @@ def test_discover_next_session_candidates_step_blocks_growth_core_on_market_stre
     assert any("大盘压力大" in item for item in result.details)
 
 
+def test_discover_next_session_candidates_step_uses_live_market_stress_for_today(
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    def fake_discovery(db, **kwargs):
+        if kwargs.get("include_growth_board"):
+            return {
+                "feature_date": "2026-07-07",
+                "universe_size": 100,
+                "sector_focus": [],
+                "candidates": [],
+                "written": 0,
+                "retired": 0,
+            }
+        return {
+            "feature_date": "2026-07-07",
+            "universe_size": 100,
+            "universe_warning": "",
+            "sector_focus": [],
+            "market_regime": "range",
+            "market_regime_snapshot": {
+                "breadth_score": 52.0,
+                "emotion_gate": "neutral",
+            },
+            "market_participation_snapshot": {
+                "participation_score": 55.0,
+                "liquidity_score": 51.0,
+            },
+            "candidates": [
+                {
+                    "symbol": "603061",
+                    "name": "金海通",
+                    "sector": "半导体",
+                    "sector_style": "growth_cycle",
+                    "selection_mode": "formal_strategy",
+                    "score": 88.0,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["低维主线：板块趋势和个股强度共振"],
+                    "risk_flags": [],
+                    "day_change_pct": -0.012,
+                },
+                {
+                    "symbol": "002558",
+                    "name": "巨人网络",
+                    "sector": "互联网",
+                    "sector_style": "growth_cycle",
+                    "selection_mode": "potential_watch",
+                    "score": 82.0,
+                    "selected_rule_id": "POT001",
+                    "selected_rule_name": "潜力启动观察",
+                    "selected_strategy_type": "watch_breakout",
+                    "reasons": ["潜力观察：个股启动但板块未确认"],
+                    "risk_flags": [],
+                    "day_change_pct": 0.02,
+                },
+            ],
+            "written": 2,
+            "retired": 0,
+        }
+
+    def fake_generate_and_store_trade_plans(**kwargs):
+        captured["plan_args"] = kwargs
+        return {"written": len(kwargs["symbols"])}
+
+    def fake_dispatch(discovery):
+        captured["discovery"] = discovery
+        return []
+
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        "services.engine.research_pool.candidates.discover_next_session_candidates",
+        fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
+    )
+    monkeypatch.setattr(
+        "services.notifications.dispatcher.dispatch_candidate_screening",
+        fake_dispatch,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_candidate_live_market_stress_for_trade_date",
+        lambda trade_date, db=None: {
+            "stress_status": "risk_off",
+            "stress_label": "压力大",
+            "stress_score": 86.0,
+            "stress_reasons": ["上涨占比仅12%，市场宽度明显不足"],
+            "risk_action_label": "停止扩散，只做观察和风控",
+        },
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_load_candidate_gate_policies",
+        lambda trade_date: {
+            "style_gate_policy": {
+                "rows": [
+                    {
+                        "style": "growth_cycle",
+                        "label": "科技成长",
+                        "status": "upgrade_allowed",
+                        "status_label": "允许潜力升级",
+                        "summary": "科技成长近期回放占优，可放网页端重点观察。",
+                    }
+                ]
+            }
+        },
+    )
+
+    result = pipeline._discover_next_session_candidates_step(
+        "2026-07-07",
+        "2026-07-08",
+        limit=10,
+        use_learning_adjustments=False,
+    )
+
+    tiers = captured["discovery"]["candidate_tiers"]
+    assert captured["discovery"]["market_stress"]["stress_status"] == "risk_off"
+    assert tiers["core_action"] == []
+    assert [item["symbol"] for item in tiers["sector_watch"]] == ["002558"]
+    assert "plan_args" not in captured
+    assert result.summary is not None
+    assert "压力大" in result.summary
+    assert "生成 0 条交易计划" in result.summary
+
+
+def test_candidate_live_market_stress_falls_back_to_sina_symbol_snapshot(
+    monkeypatch,
+) -> None:
+    from datetime import date, datetime
+
+    from apps.api.app.routers import market
+
+    class FakeOverview:
+        trade_date = date(2026, 7, 7)
+        snapshot_scope_label = "盘中实时"
+        stress_status = "risk_off"
+        stress_label = "压力大"
+        stress_score = 80.0
+        stress_reasons = ["上涨占比仅12%，市场宽度明显不足"]
+        risk_action_label = "停止扩散，只做观察和风控"
+
+    fake_db = object()
+    fake_overview = FakeOverview()
+    fallback_calls = []
+    cached_overviews = []
+
+    monkeypatch.setattr(pipeline, "now_local", lambda: datetime(2026, 7, 7, 14, 30))
+    monkeypatch.setattr(market, "_try_cached_live_a_share_overview", lambda timeout: None)
+    monkeypatch.setattr(
+        market,
+        "_try_sina_symbol_live_a_share_overview",
+        lambda db: fallback_calls.append(db) or fake_overview,
+    )
+    monkeypatch.setattr(
+        market,
+        "_store_live_market_cache",
+        lambda overview: cached_overviews.append(overview),
+    )
+
+    stress = pipeline._candidate_live_market_stress_for_trade_date("2026-07-07", fake_db)
+
+    assert fallback_calls == [fake_db]
+    assert cached_overviews == [fake_overview]
+    assert stress == {
+        "trade_date": "2026-07-07",
+        "snapshot_scope_label": "盘中实时",
+        "stress_status": "risk_off",
+        "stress_label": "压力大",
+        "stress_score": 80.0,
+        "stress_reasons": ["上涨占比仅12%，市场宽度明显不足"],
+        "risk_action_label": "停止扩散，只做观察和风控",
+    }
+
+
 def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

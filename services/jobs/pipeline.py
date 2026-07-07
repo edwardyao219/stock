@@ -595,6 +595,45 @@ def _candidate_market_stress_from_discovery(discovery: dict[str, Any]) -> dict[s
     }
 
 
+def _candidate_live_market_stress_for_trade_date(
+    trade_date: str,
+    db: Session | None = None,
+) -> dict[str, Any] | None:
+    if trade_date != now_local().date().isoformat():
+        return None
+    try:
+        from apps.api.app.routers.market import (
+            _store_live_market_cache,
+            _try_cached_live_a_share_overview,
+            _try_sina_symbol_live_a_share_overview,
+        )
+
+        overview = _try_cached_live_a_share_overview(8.0)
+        if overview is None and db is not None:
+            overview = _try_sina_symbol_live_a_share_overview(db)
+            if overview is not None:
+                _store_live_market_cache(overview)
+    except Exception:
+        return None
+    if overview is None:
+        return None
+    overview_date = getattr(overview, "trade_date", None)
+    if overview_date is not None and overview_date.isoformat() != trade_date:
+        return None
+    status = str(getattr(overview, "stress_status", "") or "")
+    if status not in {"caution", "risk_off"}:
+        return None
+    return {
+        "trade_date": overview_date.isoformat() if overview_date else trade_date,
+        "snapshot_scope_label": getattr(overview, "snapshot_scope_label", "盘中实时"),
+        "stress_status": status,
+        "stress_label": getattr(overview, "stress_label", "压力大"),
+        "stress_score": getattr(overview, "stress_score", None),
+        "stress_reasons": list(getattr(overview, "stress_reasons", []) or []),
+        "risk_action_label": getattr(overview, "risk_action_label", None),
+    }
+
+
 def _apply_candidate_tier_tags(
     db: Session,
     *,
@@ -734,7 +773,10 @@ def _discover_next_session_candidates_step(
         discovery["candidates"] = normal_candidates + star_candidates
         discovery["action_candidates"] = action_candidates
         discovery["long_action_candidates"] = long_action_candidates
-        discovery["market_stress"] = _candidate_market_stress_from_discovery(discovery)
+        discovery["market_stress"] = (
+            _candidate_live_market_stress_for_trade_date(trade_date, db)
+            or _candidate_market_stress_from_discovery(discovery)
+        )
         discovery.update(_load_candidate_gate_policies(trade_date))
         discovery["candidate_tiers"] = build_candidate_tiers(
             discovery,
@@ -800,9 +842,19 @@ def _discover_next_session_candidates_step(
         ]
     )
     market_snapshot = discovery.get("market_regime_snapshot") or {}
+    market_stress = discovery.get("market_stress") if isinstance(discovery, dict) else {}
+    if not isinstance(market_stress, dict):
+        market_stress = {}
+    stress_status = str(market_stress.get("stress_status") or "")
+    stress_label = str(market_stress.get("stress_label") or "")
+    stress_suffix = (
+        f" / {stress_label}"
+        if stress_label and stress_status in {"caution", "risk_off"}
+        else ""
+    )
     details.insert(
         0,
-        f"市场环境 {discovery.get('market_regime') or '-'} / "
+        f"市场环境 {discovery.get('market_regime') or '-'}{stress_suffix} / "
         f"有效上限 {discovery.get('effective_limit', candidate_limit)} / "
         f"趋势 {float(market_snapshot.get('trend_score') or 0):.1f} / "
         f"上升信号 {float(market_snapshot.get('up_signal_rate') or 0):.1f}%",
@@ -838,7 +890,7 @@ def _discover_next_session_candidates_step(
     retired_count = int(discovery.get("retired") or 0) + int(star_discovery.get("retired") or 0)
     summary = (
         f"明日候选完成：扫描 {discovery.get('universe_size', 0)} 只股票，"
-        f"市场 {discovery.get('market_regime') or '-'}，"
+        f"市场 {discovery.get('market_regime') or '-'}{stress_suffix}，"
         f"有效上限 {discovery.get('effective_limit', candidate_limit)}，"
         f"写入 {written_count} 只股票，"
         f"淘汰 {retired_count} 只旧候选，"
