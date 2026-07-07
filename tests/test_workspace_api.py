@@ -293,6 +293,71 @@ def test_workspace_plan_defers_when_intraday_candidate_is_deferred(monkeypatch) 
     assert "板块弱势" in plan.execution_note
 
 
+def test_workspace_plan_defers_when_live_market_is_risk_off(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(Security(symbol="002558", name="巨人网络", exchange="SZ", industry="互联网"))
+        for day in range(1, 22):
+            db.add(
+                DailyBar(
+                    symbol="002558",
+                    trade_date=date(2026, 6, day),
+                    open=Decimal(day),
+                    high=Decimal(day + 1),
+                    low=Decimal(day - 1),
+                    close=Decimal(day),
+                    pre_close=Decimal(day - 1) if day > 1 else None,
+                    volume=Decimal(day * 100),
+                    amount=Decimal(day * 1000),
+                    turnover_rate=None,
+                    limit_up=Decimal(day) * Decimal("1.1"),
+                    limit_down=Decimal(day) * Decimal("0.9"),
+                    is_suspended=False,
+                )
+            )
+        db.add(
+            TradePlan(
+                plan_date=date(2026, 6, 29),
+                trade_date=date(2026, 6, 30),
+                symbol="002558",
+                rule_id="OBS001",
+                strategy_type="watch_breakout",
+                sector_code="互联网",
+                entry_condition_json={"snapshot": {"industry": "互联网", "route_score": 66}},
+                entry_trigger_price=Decimal("22"),
+                position_size=Decimal("0.03"),
+                confidence_score=Decimal("70"),
+                status="planned",
+            )
+        )
+        db.commit()
+
+        monkeypatch.setattr(
+            "services.engine.workspace.repository.now_local",
+            lambda: datetime(2026, 6, 30, 13, 30),
+        )
+        monkeypatch.setattr(
+            "apps.api.app.routers.workspace._live_market_stress_snapshot",
+            lambda db: {
+                "stress_status": "risk_off",
+                "stress_label": "压力大",
+                "risk_action_label": "停止扩散，只做观察和风控",
+                "stress_reasons": ["上涨占比仅12%，市场宽度明显不足"],
+            },
+            raising=False,
+        )
+        payload = list_workspace_stocks(db=db, pool_name="experiment")
+
+    plan = payload[0].plans[0]
+    assert plan.can_buy_now is False
+    assert plan.execution_status == "market_risk_off"
+    assert plan.execution_label == "市场压力暂缓"
+    assert "上涨占比仅12%" in plan.execution_note
+
+
 def test_add_manual_stock_uses_local_security_when_remote_security_sync_fails(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

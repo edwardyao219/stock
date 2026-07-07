@@ -792,6 +792,7 @@ def list_workspace_stocks(
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     include_growth_board: bool = False,
 ) -> list[WorkspaceStockResponse]:
+    market_stress = _live_market_stress_snapshot(db)
     return [
         _to_response(item)
         for item in load_stock_workspace_items(
@@ -799,6 +800,7 @@ def list_workspace_stocks(
             pool_name=pool_name,
             limit=limit,
             include_growth_board=include_growth_board,
+            market_stress=market_stress,
         )
     ]
 
@@ -821,6 +823,7 @@ def refresh_workspace_stocks(
         except Exception:
             db.rollback()
         db.expire_all()
+    market_stress = _live_market_stress_snapshot(db)
     return [
         _to_response(item)
         for item in load_stock_workspace_items(
@@ -828,6 +831,7 @@ def refresh_workspace_stocks(
             pool_name=pool_name,
             limit=limit,
             include_growth_board=include_growth_board,
+            market_stress=market_stress,
         )
     ]
 
@@ -839,11 +843,13 @@ def get_workspace_stock(
     pool_name: str = "experiment",
     include_growth_board: bool = False,
 ) -> WorkspaceStockResponse:
+    market_stress = _live_market_stress_snapshot(db)
     item = load_stock_workspace_item(
         db,
         symbol=symbol,
         pool_name=pool_name,
         include_growth_board=include_growth_board,
+        market_stress=market_stress,
     )
     if item is None:
         raise HTTPException(status_code=404, detail="股票不在工作台列表中")
@@ -879,11 +885,13 @@ def add_manual_stock(
         refresh_result = ManualResearchResult(symbol=symbol)
 
     db.expire_all()
+    market_stress = _live_market_stress_snapshot(db)
     item = load_stock_workspace_item(
         db,
         symbol=symbol,
         pool_name=payload.pool_name,
         include_growth_board=True,
+        market_stress=market_stress,
     )
     if item is None:
         raise HTTPException(status_code=500, detail="手动股票已保存，但工作台加载失败")

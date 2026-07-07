@@ -256,6 +256,7 @@ def _load_intraday_plan_guards(
     *,
     pool_name: str,
     include_growth_board: bool,
+    market_stress: dict[str, Any] | None = None,
 ) -> dict[str, IntradayPlanGuard]:
     current = now_local()
     if not _is_intraday_trading_time(current.time()):
@@ -270,6 +271,7 @@ def _load_intraday_plan_guards(
         limit=50,
         include_growth_board=include_growth_board,
         as_of=current,
+        market_stress=market_stress,
     )
     guards: dict[str, IntradayPlanGuard] = {}
     for item in result.get("candidates", []):
@@ -299,6 +301,29 @@ def _apply_intraday_plan_guard(
     context = f"最新盘中快照：{guard.intraday_label}，{guard.sector_signal_label}"
     note = f"{context}；{guard.selection_reason}。"
     return False, "intraday_defer", "盘中暂缓", note
+
+
+def _apply_market_stress_plan_guard(
+    state: tuple[bool, str, str, str],
+    market_stress: dict[str, Any] | None,
+) -> tuple[bool, str, str, str]:
+    can_buy_now, _, _, _ = state
+    if not can_buy_now or not market_stress:
+        return state
+
+    status = str(market_stress.get("stress_status") or "")
+    if status != "risk_off":
+        return state
+
+    action = str(market_stress.get("risk_action_label") or "停止扩散，只做观察和风控")
+    reasons = [str(reason) for reason in market_stress.get("stress_reasons") or []]
+    reason_text = f"；{reasons[0]}" if reasons else ""
+    return (
+        False,
+        "market_risk_off",
+        "市场压力暂缓",
+        f"全市场压力大，{action}{reason_text}。",
+    )
 
 
 def _score_verdict(score: float | None, *, reverse: bool = False) -> str:
@@ -725,9 +750,11 @@ def _to_workspace_plan(
     db: Session,
     plan: TradePlan,
     intraday_guard: IntradayPlanGuard | None = None,
+    market_stress: dict[str, Any] | None = None,
 ) -> WorkspacePlan:
+    state = _apply_market_stress_plan_guard(_plan_execution_state(db, plan), market_stress)
     can_buy_now, execution_status, execution_label, execution_note = _apply_intraday_plan_guard(
-        _plan_execution_state(db, plan),
+        state,
         intraday_guard,
     )
     return WorkspacePlan(
@@ -760,6 +787,7 @@ def _build_workspace_item(
     plans: list[TradePlan],
     latest_quote: RealtimeQuote | None = None,
     intraday_guards: dict[str, IntradayPlanGuard] | None = None,
+    market_stress: dict[str, Any] | None = None,
 ) -> WorkspaceItem:
     recent_bars = _load_recent_bars(db, symbol)
     latest_bar = recent_bars[-1] if recent_bars else None
@@ -850,6 +878,7 @@ def _build_workspace_item(
                 db,
                 plan,
                 (intraday_guards or {}).get(plan.symbol),
+                market_stress,
             )
             for plan in plans
         ],
@@ -866,6 +895,7 @@ def load_stock_workspace_items(
     pool_name: str = "manual",
     limit: int = 200,
     include_growth_board: bool = False,
+    market_stress: dict[str, Any] | None = None,
 ) -> list[WorkspaceItem]:
     plan_map = _load_latest_trade_plans(db)
     manual_map = _load_manual_pool_items(db, pool_name=pool_name)
@@ -882,6 +912,7 @@ def load_stock_workspace_items(
         db,
         pool_name=pool_name,
         include_growth_board=include_growth_board,
+        market_stress=market_stress,
     )
     securities = {
         item.symbol: item
@@ -900,6 +931,7 @@ def load_stock_workspace_items(
                 plans=plan_map.get(symbol, []),
                 latest_quote=latest_quotes.get(symbol),
                 intraday_guards=intraday_guards,
+                market_stress=market_stress,
             )
         )
 
@@ -924,6 +956,7 @@ def load_stock_workspace_item(
     symbol: str,
     pool_name: str = "manual",
     include_growth_board: bool = False,
+    market_stress: dict[str, Any] | None = None,
 ) -> WorkspaceItem | None:
     manual_map = _load_manual_pool_items(db, pool_name=pool_name)
     if not include_growth_board and symbol not in _filter_workspace_symbols(
@@ -942,6 +975,7 @@ def load_stock_workspace_item(
         db,
         pool_name=pool_name,
         include_growth_board=include_growth_board,
+        market_stress=market_stress,
     )
     return _build_workspace_item(
         db,
@@ -951,4 +985,5 @@ def load_stock_workspace_item(
         plans=plan_map.get(symbol, []),
         latest_quote=latest_quote,
         intraday_guards=intraday_guards,
+        market_stress=market_stress,
     )
