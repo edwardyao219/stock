@@ -1720,6 +1720,90 @@ button {
   color: #1f8a55;
 }
 
+.monthly-strategy-pk {
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 6px;
+  display: grid;
+  gap: 7px;
+  padding: 6px;
+}
+
+.monthly-strategy-pk > strong {
+  color: #17202b;
+  font-size: 13px;
+}
+
+.monthly-strategy-pk-list {
+  display: grid;
+  gap: 6px;
+}
+
+.monthly-strategy-pk-row {
+  border-bottom: 1px solid #e8eef5;
+  display: grid;
+  gap: 5px;
+  padding-bottom: 6px;
+}
+
+.monthly-strategy-pk-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.monthly-strategy-pk-head,
+.monthly-strategy-pk-lines {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.monthly-strategy-pk-head span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.monthly-strategy-pk-head strong {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.monthly-strategy-pk-row.up .monthly-strategy-pk-head strong {
+  color: #c73535;
+}
+
+.monthly-strategy-pk-row.down .monthly-strategy-pk-head strong {
+  color: #1f8a55;
+}
+
+.monthly-strategy-pk-head small,
+.monthly-strategy-pk-row > small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.monthly-strategy-pk-lines span {
+  background: #ffffff;
+  border: 1px solid #dbe4ee;
+  border-radius: 999px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.monthly-strategy-pk-lines span.up {
+  color: #c73535;
+}
+
+.monthly-strategy-pk-lines span.down {
+  color: #1f8a55;
+}
+
 .replay-diagnosis .replay-sector-policy {
   background: #fff7ed;
   border: 1px solid #fed7aa;

@@ -52,6 +52,7 @@ import {
 import {
   dualLineLongReplaySummary,
   longCandidateReplayQuery,
+  monthlyStrategyPkRows,
   replayBreakdownRows,
   replayMonthlyStyleRows,
   replayScopeRows,
@@ -1297,6 +1298,7 @@ export function App() {
   const candidateStrategyPk = candidateReplayEffect?.diagnosis.strategy_pk ?? null;
   const candidateStrategyPkRows = strategyPkRows(candidateReplayEffect);
   const candidateDualLineLongSummary = dualLineLongReplaySummary(candidateReplayEffect);
+  const candidateMonthlyStrategyPkRows = monthlyStrategyPkRows(candidateReplayEffect, 20, 6);
   const candidateReplayCacheText = replayCacheText(candidateReplayEffect);
   const candidateReplayWindowLabel = candidateReplayEffect
     ? (
@@ -2242,6 +2244,30 @@ export function App() {
                         均值领先：{dualLineLeaderText(candidateDualLineLongSummary.qualityLeader)} / 覆盖领先：
                         {dualLineLeaderText(candidateDualLineLongSummary.coverageLeader)}
                       </small>
+                    </div>
+                  ) : null}
+                  {candidateMonthlyStrategyPkRows.length ? (
+                    <div className="monthly-strategy-pk">
+                      <strong>月度策略 PK</strong>
+                      <div className="monthly-strategy-pk-list">
+                        {candidateMonthlyStrategyPkRows.map((row) => (
+                          <div className={`monthly-strategy-pk-row ${row.tone}`} key={row.month}>
+                            <div className="monthly-strategy-pk-head">
+                              <span>{row.month}</span>
+                              <strong>{row.postureLabel}</strong>
+                              <small>领先：{row.leaderLabel}</small>
+                            </div>
+                            <div className="monthly-strategy-pk-lines">
+                              {row.lines.map((line) => (
+                                <span className={line.tone} key={`${row.month}-${line.scope}`}>
+                                  {line.label} {pct(line.metric?.avg_return)} / {line.metric?.sample_count ?? 0}
+                                </span>
+                              ))}
+                            </div>
+                            <small>{row.guidance}</small>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                   <div className="replay-sector-policy">

@@ -118,6 +118,28 @@ export interface DualLineLongReplaySummary {
   guidance: string;
 }
 
+export type MonthlyStrategyPkScope = "action_long" | "startup_preheat" | "potential_watch";
+export type MonthlyStrategyPkPosture = "core_available" | "observe_only" | "risk_off";
+
+export interface MonthlyStrategyPkLine {
+  scope: MonthlyStrategyPkScope;
+  label: string;
+  role: string;
+  metric: ReplayReturnSummary | null;
+  tone: ReplayTone;
+}
+
+export interface MonthlyStrategyPkRow {
+  month: string;
+  lines: MonthlyStrategyPkLine[];
+  leaderScope: MonthlyStrategyPkScope | "none";
+  leaderLabel: string;
+  posture: MonthlyStrategyPkPosture;
+  postureLabel: string;
+  guidance: string;
+  tone: ReplayTone;
+}
+
 const scopeOrder = [
   "action_long",
   "action",
@@ -228,6 +250,117 @@ function leaderByMetric(
   }
   if (mainValue === supportValue) return "none";
   return mainValue > supportValue ? "main" : "support";
+}
+
+const monthlyStrategyPkScopes: Array<{
+  scope: MonthlyStrategyPkScope;
+  label: string;
+  role: string;
+}> = [
+  { scope: "action_long", label: "长期行动池", role: "核心少量" },
+  { scope: "startup_preheat", label: "启动前夜池", role: "观察预热" },
+  { scope: "potential_watch", label: "潜力观察池", role: "扩散观察" },
+];
+
+function monthlyScopeMetric(
+  report: CandidateReplayEffectReport,
+  scope: MonthlyStrategyPkScope,
+  month: string,
+  horizon: number,
+) {
+  const summary = report.scopes[scope];
+  return (
+    summary?.monthly_portfolio_horizons[horizon]?.[month]?.guarded
+    ?? summary?.monthly_horizons[horizon]?.[month]?.guarded
+    ?? null
+  );
+}
+
+function hasPositiveMetric(metric: ReplayReturnSummary | null | undefined) {
+  if (!metric) return false;
+  return (metric.sample_count ?? 0) > 0
+    && (metric.avg_return ?? 0) > 0
+    && (metric.total_return ?? 0) > 0;
+}
+
+function monthlyStrategyPosture(lines: MonthlyStrategyPkLine[]) {
+  const coreMetric = lines.find((line) => line.scope === "action_long")?.metric ?? null;
+  const hasSupportPositive = lines.some(
+    (line) => line.scope !== "action_long" && hasPositiveMetric(line.metric),
+  );
+  if (hasPositiveMetric(coreMetric)) {
+    return {
+      posture: "core_available" as const,
+      postureLabel: "核心可用",
+      guidance: "核心线为主，启动线和潜力线只做辅助观察。",
+      tone: "up" as const,
+    };
+  }
+  if (hasSupportPositive) {
+    return {
+      posture: "observe_only" as const,
+      postureLabel: "只观察",
+      guidance: "核心线不占优，启动和潜力线只做观察与盘中确认。",
+      tone: "neutral" as const,
+    };
+  }
+  return {
+    posture: "risk_off" as const,
+    postureLabel: "降低频率",
+    guidance: "三条线都没有正向证据，优先降低交易频率。",
+    tone: "down" as const,
+  };
+}
+
+export function monthlyStrategyPkRows(
+  report: CandidateReplayEffectReport | null,
+  horizon = 20,
+  limit = 6,
+): MonthlyStrategyPkRow[] {
+  if (!report) return [];
+  const months = new Set<string>();
+  for (const { scope } of monthlyStrategyPkScopes) {
+    const summary = report.scopes[scope];
+    for (const month of Object.keys(summary?.monthly_portfolio_horizons[horizon] ?? {})) {
+      months.add(month);
+    }
+    for (const month of Object.keys(summary?.monthly_horizons[horizon] ?? {})) {
+      months.add(month);
+    }
+  }
+  return [...months]
+    .sort()
+    .reverse()
+    .map((month) => {
+      const lines: MonthlyStrategyPkLine[] = monthlyStrategyPkScopes.map((item) => {
+        const metric = monthlyScopeMetric(report, item.scope, month, horizon);
+        return {
+          ...item,
+          metric,
+          tone: toneFor(metric?.avg_return),
+        };
+      });
+      const validLines = lines.filter((line) => (line.metric?.sample_count ?? 0) > 0);
+      const leader = validLines.reduce<MonthlyStrategyPkLine | null>((best, line) => {
+        if (!hasPositiveMetric(line.metric)) return best;
+        if (!best) return line;
+        return (line.metric?.avg_return ?? Number.NEGATIVE_INFINITY)
+          > (best.metric?.avg_return ?? Number.NEGATIVE_INFINITY)
+          ? line
+          : best;
+      }, null);
+      const leaderScope: MonthlyStrategyPkScope | "none" = leader?.scope ?? "none";
+      const posture = monthlyStrategyPosture(lines);
+      return {
+        month,
+        lines,
+        leaderScope,
+        leaderLabel: leader?.label ?? "无明显领先",
+        ...posture,
+      };
+    })
+    .filter((row) => row.lines.some((line) => (line.metric?.sample_count ?? 0) > 0))
+    .slice(0, limit);
 }
 
 export function dualLineLongReplaySummary(

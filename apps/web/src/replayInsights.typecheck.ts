@@ -2,6 +2,7 @@ import type { CandidateReplayEffectReport, LowDimensionalReplayReport } from "./
 import {
   dualLineLongReplaySummary,
   longCandidateReplayQuery,
+  monthlyStrategyPkRows,
   replayScopeRows,
   replayBreakdownRows,
   replayWeakMonthRows,
@@ -332,7 +333,22 @@ const candidateReplay = {
         },
       },
       monthly_horizons: {},
-      monthly_portfolio_horizons: {},
+      monthly_portfolio_horizons: {
+        20: {
+          "2026-05": {
+            max_positions: 3,
+            weighting: "equal_weight_by_signal_day",
+            raw: { sample_count: 3, avg_return: 0.045, win_rate: 0.67, total_return: 0.135 },
+            guarded: { sample_count: 3, avg_return: 0.04, win_rate: 0.67, total_return: 0.12 },
+          },
+          "2026-06": {
+            max_positions: 3,
+            weighting: "equal_weight_by_signal_day",
+            raw: { sample_count: 2, avg_return: -0.015, win_rate: 0, total_return: -0.03 },
+            guarded: { sample_count: 2, avg_return: -0.02, win_rate: 0, total_return: -0.04 },
+          },
+        },
+      },
       style_horizons: {},
       selection_mode_horizons: {},
       startup_signal_horizons: {},
@@ -371,7 +387,22 @@ const candidateReplay = {
         },
       },
       monthly_horizons: {},
-      monthly_portfolio_horizons: {},
+      monthly_portfolio_horizons: {
+        20: {
+          "2026-05": {
+            max_positions: 3,
+            weighting: "equal_weight_by_signal_day",
+            raw: { sample_count: 3, avg_return: 0.02, win_rate: 0.67, total_return: 0.06 },
+            guarded: { sample_count: 3, avg_return: 0.015, win_rate: 0.67, total_return: 0.045 },
+          },
+          "2026-06": {
+            max_positions: 3,
+            weighting: "equal_weight_by_signal_day",
+            raw: { sample_count: 4, avg_return: 0.035, win_rate: 0.75, total_return: 0.14 },
+            guarded: { sample_count: 4, avg_return: 0.03, win_rate: 0.75, total_return: 0.12 },
+          },
+        },
+      },
       style_horizons: {},
       selection_mode_horizons: {},
       startup_signal_horizons: {
@@ -426,6 +457,38 @@ const candidateReplay = {
         },
       },
       monthly_selection_mode_horizons: {},
+      style_horizon_preferences: {},
+      processed_days: 300,
+      excluded_symbols: [],
+    },
+    potential_watch: {
+      start_date: "2024-01-01",
+      end_date: "2026-07-01",
+      candidate_count: 12,
+      warning_days: 0,
+      top_sectors: [],
+      style_counts: [{ style: "growth_cycle", count: 12 }],
+      selection_mode_counts: [{ selection_mode: "potential_watch", count: 12 }],
+      startup_signal_counts: [],
+      horizons: {},
+      portfolio_horizons: {},
+      monthly_horizons: {},
+      monthly_portfolio_horizons: {
+        20: {
+          "2026-06": {
+            max_positions: 3,
+            weighting: "equal_weight_by_signal_day",
+            raw: { sample_count: 5, avg_return: 0.022, win_rate: 0.6, total_return: 0.11 },
+            guarded: { sample_count: 5, avg_return: 0.02, win_rate: 0.6, total_return: 0.1 },
+          },
+        },
+      },
+      style_horizons: {},
+      selection_mode_horizons: {},
+      startup_signal_horizons: {},
+      monthly_style_horizons: {},
+      monthly_selection_mode_horizons: {},
+      monthly_startup_signal_horizons: {},
       style_horizon_preferences: {},
       processed_days: 300,
       excluded_symbols: [],
@@ -494,6 +557,7 @@ const startupRows = startupPreheatRows(candidateReplay);
 const monthlyStyleRows = replayMonthlyStyleRows(candidateReplay.scopes.all, 10);
 const strategyRows = strategyPkRows(candidateReplay);
 const dualLineSummary = dualLineLongReplaySummary(candidateReplay);
+const monthlyPkRows = monthlyStrategyPkRows(candidateReplay, 20);
 if (!dualLineSummary) {
   throw new Error("双线摘要应在长期行动池和启动前夜池都有样本时存在");
 }
@@ -512,6 +576,11 @@ dualLineSummary.mainLine.label satisfies "长期行动池";
 dualLineSummary.supportLine.label satisfies "启动前夜池";
 dualLineSummary.guidance satisfies string;
 dualLineSummary.qualityLeader satisfies "main" | "support" | "none";
+monthlyPkRows[0].month satisfies "2026-06" | string;
+monthlyPkRows[0].postureLabel satisfies string;
+monthlyPkRows[0].leaderLabel satisfies string;
+monthlyPkRows[0].lines[0].label satisfies string;
+monthlyPkRows[0].guidance satisfies string;
 longCandidateReplayQuery.start_date satisfies "2025-01-02";
 longCandidateReplayQuery.end_date satisfies "2026-06-05";
 longCandidateReplayQuery.limit satisfies 15;
