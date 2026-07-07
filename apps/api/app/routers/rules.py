@@ -365,9 +365,7 @@ def _merge_nested_category_horizons(
                 {
                     str(inner_key)
                     for summary in summaries
-                    for inner_key in (
-                        (_horizon_item(summary, key, horizon).get(outer_key) or {})
-                    )
+                    for inner_key in (_horizon_item(summary, key, horizon).get(outer_key) or {})
                 }
             )
             merged[horizon][outer_key] = {}
@@ -1845,6 +1843,12 @@ def diagnose_market_stress_gate_policy(
     min_all_month_samples: int = 20,
 ) -> dict[str, Any]:
     months = _month_candidates(comparison, horizon=horizon)
+    all_summary = (comparison.get("scopes") or {}).get("all") or {}
+    min_required_samples = (
+        3
+        if _monthly_metric_label(all_summary, horizon) == "3只等权"
+        else min_all_month_samples
+    )
     rows: list[dict[str, Any]] = []
     for month in months[-lookback_months:]:
         all_metric = _monthly_guarded_metric(
@@ -1854,7 +1858,7 @@ def diagnose_market_stress_gate_policy(
             horizon=horizon,
         )
         all_sample_count = int(all_metric.get("sample_count") or 0)
-        if all_sample_count < min_all_month_samples:
+        if all_sample_count < min_required_samples:
             continue
         core_scope, core_metric = _best_core_month_metric(
             comparison,
@@ -1896,7 +1900,6 @@ def diagnose_market_stress_gate_policy(
             "reasons": ["没有足够的弱市月度样本。"],
         }
 
-    all_summary = (comparison.get("scopes") or {}).get("all") or {}
     all_metric = _guarded_metric(all_summary, horizon)
     best_core_scope, best_core_metric = _best_core_metric(comparison, horizon=horizon)
     all_total = _metric_float(all_metric, "total_return")

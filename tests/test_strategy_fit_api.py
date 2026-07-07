@@ -2121,6 +2121,99 @@ def test_candidate_replay_market_stress_gate_measures_defensive_value() -> None:
     assert "弱月收缩有效" in gate["summary"]
 
 
+def test_candidate_replay_market_stress_gate_accepts_portfolio_month_samples() -> None:
+    comparison = {
+        "scopes": {
+            "all": {
+                "candidate_count": 120,
+                "portfolio_horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 20,
+                            "avg_return": -0.01,
+                            "total_return": -0.2,
+                            "win_rate": 0.35,
+                        }
+                    }
+                },
+                "monthly_portfolio_horizons": {
+                    20: {
+                        "2026-04": {
+                            "guarded": {
+                                "sample_count": 4,
+                                "avg_return": 0.03,
+                                "total_return": 0.12,
+                            }
+                        },
+                        "2026-05": {
+                            "guarded": {
+                                "sample_count": 5,
+                                "avg_return": -0.04,
+                                "total_return": -0.2,
+                            }
+                        },
+                    }
+                },
+            },
+            "action": {
+                "candidate_count": 8,
+                "portfolio_horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 6,
+                            "avg_return": -0.005,
+                            "total_return": -0.03,
+                        }
+                    }
+                },
+                "monthly_portfolio_horizons": {
+                    20: {
+                        "2026-05": {
+                            "guarded": {
+                                "sample_count": 3,
+                                "avg_return": -0.01,
+                                "total_return": -0.03,
+                            }
+                        }
+                    }
+                },
+            },
+            "action_long": {
+                "candidate_count": 4,
+                "portfolio_horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 4,
+                            "avg_return": 0.01,
+                            "total_return": 0.04,
+                        }
+                    }
+                },
+                "monthly_portfolio_horizons": {
+                    20: {
+                        "2026-05": {
+                            "guarded": {
+                                "sample_count": 3,
+                                "avg_return": 0.02,
+                                "total_return": 0.06,
+                            }
+                        }
+                    }
+                },
+            },
+        }
+    }
+
+    diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+
+    gate = diagnosis["market_stress_gate_policy"]
+    assert gate["status"] != "insufficient_data"
+    assert gate["lookback_months"] == 2
+    assert gate["weak_months"] == 1
+    assert gate["defended_months"] == 1
+    assert gate["rows"][1]["all_sample_count"] == 5
+
+
 def test_candidate_replay_dual_line_prefers_main_trend_in_strong_phase() -> None:
     comparison = {
         "scopes": {
