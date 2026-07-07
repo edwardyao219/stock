@@ -538,6 +538,19 @@ function marketMoodText(overview: MarketOverview | null) {
   return "市场情绪中性，主要看个股结构";
 }
 
+function marketStressTone(overview: MarketOverview | null) {
+  if (!overview) return "neutral";
+  if (overview.stress_status === "risk_off" || overview.stress_status === "caution") return "down";
+  if (overview.stress_status === "supportive") return "up";
+  return "neutral";
+}
+
+function marketStressDetail(overview: MarketOverview | null) {
+  if (!overview) return "暂无大盘压力数据";
+  const reason = overview.stress_reasons.slice(0, 2).join("；");
+  return `${overview.risk_action_label}${reason ? ` / ${reason}` : ""}`;
+}
+
 function dataHealthTone(health: DataHealth | null) {
   if (!health) return "neutral";
   if (health.status === "ok") return "up";
@@ -1272,6 +1285,8 @@ export function App() {
 
   const marketTrendText = mainIndexText(marketOverview);
   const marketWidthText = marketBreadthText(marketOverview);
+  const marketStressScopeText = marketOverview?.stress_scope_label ?? "盘面压力";
+  const marketStressText = marketOverview?.stress_label ?? "-";
   const capitalText = marketOverview ? compactAmountText(marketOverview.total_amount) : "-";
   const coverageText = marketOverview
     ? `${marketOverview.stock_count}/${marketOverview.active_security_count} 样本`
@@ -1513,6 +1528,11 @@ export function App() {
                   ? `${marketOverview.trade_date ?? "-"} / 较前日 ${pct(marketOverview.amount_change_pct)}`
                   : "暂无成交额数据"}
               </small>
+            </div>
+            <div>
+              <span>{marketStressScopeText}</span>
+              <strong className={marketStressTone(marketOverview)}>{marketStressText}</strong>
+              <small>{marketStressDetail(marketOverview)}</small>
             </div>
             <div>
               <span>今日可买</span>

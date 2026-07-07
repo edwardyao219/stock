@@ -81,6 +81,15 @@ export interface MarketOverview {
   coverage_ratio: number | null;
   is_full_market: boolean;
   message: string;
+  is_live_snapshot: boolean;
+  is_current_snapshot: boolean;
+  snapshot_scope_label: string;
+  stress_status: "risk_off" | "caution" | "neutral" | "supportive" | string;
+  stress_label: string;
+  stress_score: number;
+  stress_reasons: string[];
+  stress_scope_label: string;
+  risk_action_label: string;
   indexes: MarketIndex[];
 }
 

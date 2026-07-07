@@ -184,7 +184,37 @@ def test_get_market_overview_returns_breadth_and_amount_metrics(monkeypatch) -> 
     assert payload.active_security_count == 3
     assert payload.coverage_ratio == round(2 / 3, 6)
     assert payload.is_full_market is False
+    assert payload.stress_status == "neutral"
+    assert payload.stress_label == "中性"
+    assert payload.risk_action_label == "按原计划精选"
     assert payload.indexes == []
+
+
+def test_market_stress_policy_flags_broad_selloff() -> None:
+    policy = market._market_stress_policy(
+        up_ratio=0.18,
+        avg_change_pct=-0.026,
+        amount_change_pct=0.45,
+    )
+
+    assert policy["stress_status"] == "risk_off"
+    assert policy["stress_label"] == "压力大"
+    assert policy["risk_action_label"] == "停止扩散，只做观察和风控"
+    assert any("上涨占比" in reason for reason in policy["stress_reasons"])
+    assert any("放量下跌" in reason for reason in policy["stress_reasons"])
+
+
+def test_market_snapshot_scope_marks_stale_live_snapshot() -> None:
+    scope = market._market_snapshot_scope(
+        trade_date=date(2026, 7, 6),
+        is_live=True,
+        today=date(2026, 7, 7),
+    )
+
+    assert scope["is_live_snapshot"] is True
+    assert scope["is_current_snapshot"] is False
+    assert scope["snapshot_scope_label"] == "实时源非今日"
+    assert scope["stress_scope_label"] == "最近交易日压力"
 
 
 def test_get_market_overview_uses_latest_well_covered_daily_bar_date(monkeypatch) -> None:

@@ -99,6 +99,15 @@ class MarketOverviewResponse(BaseModel):
     coverage_ratio: float | None
     is_full_market: bool
     message: str
+    is_live_snapshot: bool = False
+    is_current_snapshot: bool = False
+    snapshot_scope_label: str = "最近交易日"
+    stress_status: str = "neutral"
+    stress_label: str = "中性"
+    stress_score: float = 0.0
+    stress_reasons: list[str] = Field(default_factory=list)
+    stress_scope_label: str = "最近交易日压力"
+    risk_action_label: str = "按原计划精选"
     indexes: list[MarketIndexResponse] = Field(default_factory=list)
 
 
@@ -109,6 +118,106 @@ class DataHealthIssueResponse(BaseModel):
     metric: str
     value: float | int | None
     threshold: float | int | None
+
+
+def _market_stress_policy(
+    *,
+    up_ratio: float | None,
+    avg_change_pct: float | None,
+    amount_change_pct: float | None,
+) -> dict[str, object]:
+    score = 0.0
+    reasons: list[str] = []
+
+    if up_ratio is not None:
+        if up_ratio <= 0.25:
+            score += 45.0
+            reasons.append(f"上涨占比仅{up_ratio:.0%}，市场宽度明显不足")
+        elif up_ratio <= 0.35:
+            score += 30.0
+            reasons.append(f"上涨占比{up_ratio:.0%}，弱势面较宽")
+        elif up_ratio <= 0.45:
+            score += 15.0
+            reasons.append(f"上涨占比{up_ratio:.0%}，赚钱效应偏弱")
+
+    if avg_change_pct is not None:
+        if avg_change_pct <= -0.02:
+            score += 35.0
+            reasons.append(f"平均涨跌{avg_change_pct:+.2%}，全市场跌幅较深")
+        elif avg_change_pct <= -0.01:
+            score += 20.0
+            reasons.append(f"平均涨跌{avg_change_pct:+.2%}，市场明显回落")
+        elif avg_change_pct < 0:
+            score += 8.0
+            reasons.append(f"平均涨跌{avg_change_pct:+.2%}，市场小幅偏弱")
+
+    if amount_change_pct is not None and avg_change_pct is not None:
+        if amount_change_pct >= 0.30 and avg_change_pct < 0:
+            score += 15.0
+            reasons.append("放量下跌，先降低交易频率")
+        elif amount_change_pct <= -0.20 and (up_ratio or 0.5) <= 0.45:
+            score += 8.0
+            reasons.append("缩量弱势，反弹确认度不足")
+
+    if score >= 70.0:
+        status = "risk_off"
+        label = "压力大"
+        action = "停止扩散，只做观察和风控"
+    elif score >= 40.0:
+        status = "caution"
+        label = "谨慎"
+        action = "降低频率，等盘中确认"
+    elif (
+        up_ratio is not None
+        and avg_change_pct is not None
+        and up_ratio >= 0.55
+        and avg_change_pct >= 0.005
+    ):
+        status = "supportive"
+        label = "偏暖"
+        action = "允许顺势，但不追高"
+    else:
+        status = "neutral"
+        label = "中性"
+        action = "按原计划精选"
+
+    return {
+        "stress_status": status,
+        "stress_label": label,
+        "stress_score": round(score, 2),
+        "stress_reasons": reasons or ["没有明显全市场压力信号"],
+        "risk_action_label": action,
+    }
+
+
+def _market_snapshot_scope(
+    *,
+    trade_date: date | None,
+    is_live: bool,
+    today: date | None = None,
+) -> dict[str, object]:
+    current_date = today or now_local().date()
+    is_current = bool(is_live and trade_date == current_date)
+
+    if trade_date is None:
+        snapshot_scope_label = "暂无行情"
+        stress_scope_label = "盘面压力"
+    elif is_current:
+        snapshot_scope_label = "盘中实时"
+        stress_scope_label = "今日压力"
+    elif is_live:
+        snapshot_scope_label = "实时源非今日"
+        stress_scope_label = "最近交易日压力"
+    else:
+        snapshot_scope_label = "最近交易日"
+        stress_scope_label = "最近交易日压力"
+
+    return {
+        "is_live_snapshot": is_live,
+        "is_current_snapshot": is_current,
+        "snapshot_scope_label": snapshot_scope_label,
+        "stress_scope_label": stress_scope_label,
+    }
 
 
 class DataHealthResponse(BaseModel):
@@ -418,6 +527,8 @@ def _eastmoney_a_share_overview() -> MarketOverviewResponse:
     flat_count = len(changes) - up_count - down_count
     total_amount = sum(float(item.amount or 0) for item in quotes)
     stock_count = len(changes)
+    up_ratio = up_count / stock_count if stock_count else None
+    avg_change_pct = round(sum(changes) / stock_count, 6) if stock_count else None
     trade_date = max((item.trade_date for item in quotes), default=None)
     parsed_trade_date = date.fromisoformat(trade_date) if trade_date else None
     return MarketOverviewResponse(
@@ -426,8 +537,8 @@ def _eastmoney_a_share_overview() -> MarketOverviewResponse:
         up_count=up_count,
         down_count=down_count,
         flat_count=flat_count,
-        up_ratio=up_count / stock_count if stock_count else None,
-        avg_change_pct=round(sum(changes) / stock_count, 6) if stock_count else None,
+        up_ratio=up_ratio,
+        avg_change_pct=avg_change_pct,
         total_amount=total_amount,
         amount_change_pct=None,
         active_security_count=len(quotes),
@@ -437,6 +548,12 @@ def _eastmoney_a_share_overview() -> MarketOverviewResponse:
             f"A股实时全市场快照：上涨 {up_count}，下跌 {down_count}，"
             f"平盘 {flat_count}；统计样本 {stock_count}/{len(quotes)}。"
         ),
+        **_market_stress_policy(
+            up_ratio=up_ratio,
+            avg_change_pct=avg_change_pct,
+            amount_change_pct=None,
+        ),
+        **_market_snapshot_scope(trade_date=parsed_trade_date, is_live=True),
         indexes=_safe_live_market_indexes(),
     )
 
@@ -453,15 +570,18 @@ def _sina_a_share_overview() -> MarketOverviewResponse:
     down_count = int((changes < 0).sum())
     flat_count = int((changes == 0).sum())
     stock_count = int(changes.count())
+    up_ratio = up_count / stock_count if stock_count else None
+    avg_change_pct = round(float(changes.mean()), 6) if stock_count else None
     total_rows = int(len(df))
+    trade_date = now_local().date()
     return MarketOverviewResponse(
-        trade_date=now_local().date(),
+        trade_date=trade_date,
         stock_count=stock_count,
         up_count=up_count,
         down_count=down_count,
         flat_count=flat_count,
-        up_ratio=up_count / stock_count if stock_count else None,
-        avg_change_pct=round(float(changes.mean()), 6) if stock_count else None,
+        up_ratio=up_ratio,
+        avg_change_pct=avg_change_pct,
         total_amount=float(amount.sum()),
         amount_change_pct=None,
         active_security_count=total_rows,
@@ -471,6 +591,12 @@ def _sina_a_share_overview() -> MarketOverviewResponse:
             f"A股实时全市场快照：上涨 {up_count}，下跌 {down_count}，"
             f"平盘 {flat_count}；统计样本 {stock_count}/{total_rows}。"
         ),
+        **_market_stress_policy(
+            up_ratio=up_ratio,
+            avg_change_pct=avg_change_pct,
+            amount_change_pct=None,
+        ),
+        **_market_snapshot_scope(trade_date=trade_date, is_live=True),
         indexes=_safe_live_market_indexes(),
     )
 
@@ -549,6 +675,12 @@ def _stored_market_overview(db: Session) -> MarketOverviewResponse:
             coverage_ratio=None,
             is_full_market=False,
             message="暂无行情数据。",
+            **_market_stress_policy(
+                up_ratio=None,
+                avg_change_pct=None,
+                amount_change_pct=None,
+            ),
+            **_market_snapshot_scope(trade_date=None, is_live=False),
             indexes=_safe_live_market_indexes(),
         )
 
@@ -607,6 +739,12 @@ def _stored_market_overview(db: Session) -> MarketOverviewResponse:
             f"{latest_date.isoformat()} 上涨 {up_count}，下跌 {down_count}，"
             f"平盘 {flat_count}；统计样本 {stock_count}/{active_security_count}。"
         ),
+        **_market_stress_policy(
+            up_ratio=up_ratio,
+            avg_change_pct=avg_change_pct,
+            amount_change_pct=amount_change_pct,
+        ),
+        **_market_snapshot_scope(trade_date=latest_date, is_live=False),
         indexes=_safe_live_market_indexes(),
     )
 
