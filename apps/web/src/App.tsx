@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   Candle,
+  CandidateReplayEffectQuery,
   CandidateReplayEffectReport,
   DataHealth,
   addManualStock,
@@ -49,6 +50,7 @@ import {
   groupStocksByCandidateTier,
 } from "./candidateTiers";
 import {
+  longCandidateReplayQuery,
   replayBreakdownRows,
   replayMonthlyStyleRows,
   replayScopeRows,
@@ -1126,11 +1128,11 @@ export function App() {
     }
   }
 
-  async function loadCandidateReplayEffect() {
+  async function loadCandidateReplayEffect(query?: CandidateReplayEffectQuery) {
     setCandidateReplayEffectLoading(true);
     setCandidateReplayEffectError(null);
     try {
-      setCandidateReplayEffect(await fetchCandidateReplayEffect());
+      setCandidateReplayEffect(await fetchCandidateReplayEffect(query));
     } catch (exc) {
       setCandidateReplayEffect(null);
       setCandidateReplayEffectError(exc instanceof Error ? exc.message : "策略效果加载失败");
@@ -1288,6 +1290,14 @@ export function App() {
   const candidateStrategyPk = candidateReplayEffect?.diagnosis.strategy_pk ?? null;
   const candidateStrategyPkRows = strategyPkRows(candidateReplayEffect);
   const candidateReplayCacheText = replayCacheText(candidateReplayEffect);
+  const candidateReplayWindowLabel = candidateReplayEffect
+    ? (
+        candidateReplayEffect.start_date === longCandidateReplayQuery.start_date
+        && candidateReplayEffect.end_date === longCandidateReplayQuery.end_date
+      )
+        ? "长周期回放"
+        : "近三个月回放"
+    : null;
   const replayModeRows = replayBreakdownRows(lowDimensionalReplay, 20, "selection_mode").slice(0, 4);
   const replayStyleRows = replayBreakdownRows(lowDimensionalReplay, 20, "style").slice(0, 5);
   const replayWeakMonths = replayWeakMonthRows(lowDimensionalReplay, 20, 5);
@@ -2090,6 +2100,9 @@ export function App() {
                 {candidateReplayCacheText ? (
                   <span>{candidateReplayCacheText}</span>
                 ) : null}
+                {candidateReplayWindowLabel ? (
+                  <span>{candidateReplayWindowLabel}</span>
+                ) : null}
                 <button
                   className="refresh-button"
                   type="button"
@@ -2098,6 +2111,15 @@ export function App() {
                 >
                   <RefreshCw size={14} />
                   {candidateReplayEffectLoading ? "策略运行中" : "策略效果"}
+                </button>
+                <button
+                  className="refresh-button"
+                  type="button"
+                  onClick={() => loadCandidateReplayEffect(longCandidateReplayQuery)}
+                  disabled={candidateReplayEffectLoading}
+                >
+                  <RefreshCw size={14} />
+                  长周期回放
                 </button>
                 <button
                   className="refresh-button"

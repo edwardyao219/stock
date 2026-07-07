@@ -1,5 +1,6 @@
 import type { CandidateReplayEffectReport, LowDimensionalReplayReport } from "./api";
 import {
+  longCandidateReplayQuery,
   replayScopeRows,
   replayBreakdownRows,
   replayWeakMonthRows,
@@ -456,3 +457,9 @@ monthlyStyleRows[0].month satisfies string;
 candidateReplay.diagnosis.primary_scope satisfies string;
 strategyRows[0].policyLabel satisfies string;
 strategyRows[0].primaryMetric?.total_return satisfies number | null | undefined;
+longCandidateReplayQuery.start_date satisfies "2025-01-02";
+longCandidateReplayQuery.end_date satisfies "2026-06-05";
+longCandidateReplayQuery.limit satisfies 15;
+longCandidateReplayQuery.min_coverage_ratio satisfies 0.7;
+longCandidateReplayQuery.include_fundamentals satisfies false;
+longCandidateReplayQuery.use_monthly_shards satisfies true;

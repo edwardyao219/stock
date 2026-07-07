@@ -1,10 +1,20 @@
 import type {
+  CandidateReplayEffectQuery,
   CandidateReplayEffectReport,
   LowDimensionalReplayReport,
   ReplayReturnSummary,
   ReplayScopeSummary,
   StrategyPkHorizonMetric,
 } from "./api";
+
+export const longCandidateReplayQuery = {
+  start_date: "2025-01-02",
+  end_date: "2026-06-05",
+  limit: 15,
+  min_coverage_ratio: 0.7,
+  include_fundamentals: false,
+  use_monthly_shards: true,
+} as const satisfies CandidateReplayEffectQuery;
 
 export type ReplayBreakdownGroup = "selection_mode" | "style";
 export type ReplayTone = "up" | "down" | "neutral";
