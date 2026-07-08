@@ -360,6 +360,36 @@ def _hot_sector_codes(
     return [sector for _, sector in sorted(scored, reverse=True)[:limit]]
 
 
+def early_sector_scan_symbols(
+    db: Session,
+    *,
+    trade_date: date,
+    include_growth_board: bool = False,
+    limit: int = EARLY_SECTOR_SCAN_MAX_SYMBOLS,
+) -> list[str]:
+    if limit <= 0:
+        return []
+    hot_sectors = _hot_sector_codes(db, trade_date=trade_date)
+    if not hot_sectors:
+        return []
+
+    stmt = (
+        select(Security.symbol)
+        .where(Security.industry.in_(hot_sectors))
+        .where(Security.is_active.is_(True))
+        .where(Security.is_st.is_(False))
+        .order_by(Security.symbol.asc())
+        .limit(limit)
+    )
+    if not include_growth_board:
+        stmt = (
+            stmt.where(~Security.symbol.startswith("300"))
+            .where(~Security.symbol.startswith("301"))
+            .where(~Security.symbol.startswith("688"))
+        )
+    return list(db.execute(stmt).scalars())
+
+
 def _sector_quality(features: dict[str, Any] | None, signal: str) -> tuple[float, str]:
     if not features:
         return 0.0, SECTOR_QUALITY_LABELS["unknown"]

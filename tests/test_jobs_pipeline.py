@@ -261,7 +261,7 @@ def test_intraday_session_passes_stage_and_as_of_to_monitor(monkeypatch) -> None
 
 
 def test_early_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> None:
-    from datetime import datetime
+    from datetime import date, datetime
 
     captured = []
 
@@ -276,6 +276,27 @@ def test_early_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> 
         captured.append({"trade_date": trade_date, **kwargs})
         return _Result(kwargs["stage"])
 
+    monkeypatch.setattr(
+        tasks,
+        "early_sector_scan_symbols",
+        lambda db, *, trade_date, include_growth_board=False: captured.append(
+            {
+                "step": "early_symbols",
+                "trade_date": trade_date,
+                "include_growth_board": include_growth_board,
+            }
+        )
+        or ["600212", "600214"],
+    )
+    monkeypatch.setattr(
+        tasks,
+        "sync_realtime_quotes",
+        lambda *, symbols, quote_time: captured.append(
+            {"step": "early_sync", "symbols": list(symbols), "quote_time": quote_time}
+        )
+        or [object(), object()],
+    )
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 24, 14, 50))
     monkeypatch.setattr(tasks, "run_intraday_trade_session", fake_run)
 
@@ -284,9 +305,21 @@ def test_early_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> 
     late = tasks.paper_late_session_snapshot_task()
 
     assert early["stage"] == "early_divergence_snapshot"
+    assert early["early_sector_quote_symbol_count"] == 2
+    assert early["early_sector_quote_rows"] == 2
     assert midday["stage"] == "midday_snapshot"
     assert late["stage"] == "late_session_snapshot"
     assert captured == [
+        {
+            "step": "early_symbols",
+            "trade_date": date(2026, 6, 24),
+            "include_growth_board": False,
+        },
+        {
+            "step": "early_sync",
+            "symbols": ["600212", "600214"],
+            "quote_time": datetime(2026, 6, 24, 14, 50),
+        },
         {
             "trade_date": "2026-06-24",
             "stage": "early_divergence_snapshot",
@@ -305,6 +338,45 @@ def test_early_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> 
             "as_of": datetime(2026, 6, 24, 14, 50),
             "force": True,
         },
+    ]
+
+
+def test_early_divergence_snapshot_keeps_running_when_quote_refresh_fails(monkeypatch) -> None:
+    from datetime import datetime
+
+    calls = []
+
+    class _Result:
+        def to_dict(self):
+            return {"stage": "early_divergence_snapshot"}
+
+    def fake_sync_realtime_quotes(*, symbols, quote_time):
+        calls.append(("sync", list(symbols), quote_time))
+        raise ConnectionError("quote source closed")
+
+    def fake_run(trade_date, **kwargs):
+        calls.append(("run", trade_date, kwargs["stage"]))
+        return _Result()
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 24, 9, 45))
+    monkeypatch.setattr(
+        tasks,
+        "early_sector_scan_symbols",
+        lambda db, *, trade_date, include_growth_board=False: ["600212"],
+    )
+    monkeypatch.setattr(tasks, "sync_realtime_quotes", fake_sync_realtime_quotes)
+    monkeypatch.setattr(tasks, "run_intraday_trade_session", fake_run)
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+
+    result = tasks.paper_early_divergence_snapshot_task()
+
+    assert result["stage"] == "early_divergence_snapshot"
+    assert result["early_sector_quote_symbol_count"] == 1
+    assert result["early_sector_quote_rows"] == 0
+    assert "quote source closed" in result["early_sector_quote_warning"]
+    assert calls == [
+        ("sync", ["600212"], datetime(2026, 6, 24, 9, 45)),
+        ("run", "2026-06-24", "early_divergence_snapshot"),
     ]
 
 

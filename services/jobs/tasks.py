@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import date, datetime
+
+from services.collector.realtime import sync_realtime_quotes
+from services.engine.intraday.candidates import early_sector_scan_symbols
 from services.engine.review.mechanical import generate_daily_mechanical_review
 from services.engine.review.monthly_summary import generate_monthly_trade_summary
 from services.jobs.celery_app import celery_app
@@ -12,6 +16,7 @@ from services.jobs.pipeline import (
     run_intraday_trade_session,
 )
 from services.notifications.dispatcher import dispatch_monthly_trade_summary
+from services.shared.database import SessionLocal
 from services.shared.time import now_local
 
 
@@ -78,16 +83,41 @@ def monitor_paper_positions_realtime_task() -> dict[str, object]:
     return run_intraday_trade_session(today, as_of=current_time).to_dict()
 
 
+def _refresh_early_sector_quotes(trade_date: date, quote_time: datetime) -> dict[str, object]:
+    symbols: list[str] = []
+    rows = 0
+    warning = ""
+    try:
+        with SessionLocal() as db:
+            symbols = early_sector_scan_symbols(db, trade_date=trade_date)
+        if symbols:
+            rows = len(sync_realtime_quotes(symbols=symbols, quote_time=quote_time))
+    except Exception as exc:
+        warning = f"早盘热门板块行情刷新失败：{type(exc).__name__}: {exc}"
+
+    result: dict[str, object] = {
+        "early_sector_quote_symbol_count": len(symbols),
+        "early_sector_quote_rows": rows,
+    }
+    if warning:
+        result["early_sector_quote_warning"] = warning
+    return result
+
+
 @celery_app.task(name="services.jobs.tasks.paper_early_divergence_snapshot_task")
 def paper_early_divergence_snapshot_task() -> dict[str, object]:
     current_time = now_local()
-    today = current_time.date().isoformat()
-    return run_intraday_trade_session(
+    trade_date = current_time.date()
+    today = trade_date.isoformat()
+    refresh = _refresh_early_sector_quotes(trade_date, current_time)
+    result = run_intraday_trade_session(
         today,
         stage="early_divergence_snapshot",
         as_of=current_time,
         force=True,
     ).to_dict()
+    result.update(refresh)
+    return result
 
 
 @celery_app.task(name="services.jobs.tasks.paper_midday_snapshot_task")

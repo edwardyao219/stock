@@ -4,7 +4,10 @@ from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from services.engine.intraday.candidates import discover_intraday_candidates
+from services.engine.intraday.candidates import (
+    discover_intraday_candidates,
+    early_sector_scan_symbols,
+)
 from services.shared.database import Base
 from services.shared.models import (
     RealtimeQuote,
@@ -486,6 +489,63 @@ def test_discover_intraday_candidates_expands_early_scan_to_hot_sector_quotes() 
     assert candidate["selection_tier"] == "watch"
     assert "sector_hot_pool_scan" in candidate["support_flags"]
     assert "热门板块" in candidate["selection_reason"]
+
+
+def test_early_sector_scan_symbols_uses_hot_sectors_before_quotes() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600216", "强板块待刷一", industry="机器人"),
+                _security("600217", "强板块待刷二", industry="机器人"),
+                _security("688216", "科创默认排除", industry="机器人"),
+                _security("600218", "弱板块不刷", industry="地产服务"),
+                Security(
+                    symbol="600219",
+                    name="ST不刷",
+                    exchange="SH",
+                    industry="机器人",
+                    is_active=True,
+                    is_st=True,
+                ),
+                _sector_features(
+                    "机器人",
+                    date(2026, 6, 30),
+                    strength=82,
+                    continuity=78,
+                    momentum=75,
+                    breadth=68,
+                    avg_return_20d=0.12,
+                    positive_20d_rate=70,
+                ),
+                _sector_features(
+                    "地产服务",
+                    date(2026, 6, 30),
+                    strength=43,
+                    continuity=39,
+                    momentum=42,
+                    breadth=36,
+                    avg_return_20d=-0.04,
+                    positive_20d_rate=31,
+                ),
+            ]
+        )
+        db.commit()
+
+        default_symbols = early_sector_scan_symbols(
+            db,
+            trade_date=date(2026, 6, 30),
+        )
+        with_growth_board = early_sector_scan_symbols(
+            db,
+            trade_date=date(2026, 6, 30),
+            include_growth_board=True,
+        )
+
+    assert default_symbols == ["600216", "600217"]
+    assert with_growth_board == ["600216", "600217", "688216"]
 
 
 def test_discover_intraday_candidates_expands_early_scan_to_observe_sector() -> None:
