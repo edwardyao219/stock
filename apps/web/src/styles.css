@@ -2853,6 +2853,9 @@ textarea {
 
 @media (max-width: 760px) {
   .app-shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
     padding: 12px;
   }
 
@@ -2882,6 +2885,27 @@ textarea {
     justify-content: stretch;
   }
 
+  .workspace-layout {
+    flex: none;
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .stock-list-panel,
+  .stock-detail-panel,
+  .page-panel {
+    overflow: visible;
+  }
+
+  .stock-list-panel,
+  .stock-table {
+    flex: none;
+  }
+
+  .stock-table {
+    overflow: visible;
+  }
+
   .search-box {
     min-width: 0;
     min-inline-size: 0;
@@ -2897,8 +2921,18 @@ textarea {
     width: 100%;
   }
 
+  .stock-view-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .source-tabs button,
   .sort-tabs button {
     flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .stock-view-tabs button {
+    width: 100%;
   }
 }

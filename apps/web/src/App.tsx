@@ -116,6 +116,14 @@ const stockViewLabels: Record<StockView, string> = {
   manual: "手动关注",
 };
 
+const stockViewTestIds: Record<StockView, string> = {
+  focus: "stock-view-focus",
+  tradable: "stock-view-tradable",
+  holding: "stock-view-holding",
+  candidate: "stock-view-candidate",
+  manual: "stock-view-manual",
+};
+
 const stockSortLabels: Record<StockSortMode, string> = {
   priority: "交易优先",
   day_return: "当日收益",
@@ -1672,10 +1680,11 @@ export function App() {
                   placeholder="搜索股票、名称、行业"
                 />
               </div>
-              <div className="source-tabs">
+              <div className="source-tabs stock-view-tabs" data-testid="stock-view-tabs">
                 {(Object.keys(stockViewLabels) as StockView[]).map((view) => (
                   <button
                     className={stockView === view ? "active" : ""}
+                    data-testid={stockViewTestIds[view]}
                     key={view}
                     type="button"
                     onClick={() => setStockView(view)}
@@ -1684,9 +1693,10 @@ export function App() {
                   </button>
                 ))}
               </div>
-              <div className="source-tabs sort-tabs">
+              <div className="source-tabs sort-tabs" data-testid="stock-sort-tabs">
                 <button
                   className={stockSortMode === "priority" ? "active" : ""}
+                  data-testid="stock-sort-priority"
                   type="button"
                   onClick={() => setStockSortMode("priority")}
                 >
@@ -1695,6 +1705,7 @@ export function App() {
                 </button>
                 <button
                   className={stockSortMode === "day_return" ? "active" : ""}
+                  data-testid="stock-sort-day-return"
                   type="button"
                   onClick={() => setStockSortMode("day_return")}
                 >
