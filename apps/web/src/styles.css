@@ -999,6 +999,45 @@ button {
   padding: 10px 12px;
 }
 
+.candidate-gate-summary {
+  background: #f8fbff;
+  border-top: 1px solid #dbeafe;
+  color: #334155;
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.candidate-gate-summary span {
+  color: #64748b;
+  display: block;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.candidate-gate-summary strong {
+  color: #174ea6;
+  display: block;
+  font-size: 14px;
+}
+
+.candidate-gate-summary p {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+.candidate-gate-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.candidate-gate-grid small {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .candidate-tier-section:first-of-type {
   border-top: 0;
 }

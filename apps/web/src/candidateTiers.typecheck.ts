@@ -1,4 +1,5 @@
 import {
+  candidateListGateSummary,
   candidateCoreBlockReason,
   candidatePoolReason,
   groupStocksByCandidateTier,
@@ -35,6 +36,10 @@ const sampleStocks = [
 ] as unknown as WorkspaceStock[];
 
 const grouped = groupStocksByCandidateTier(sampleStocks);
+const listGateSummary = candidateListGateSummary(
+  { ...grouped, coreAction: [] },
+  "今天防守阶段，没有核心候选。",
+);
 
 grouped.coreAction[0].candidate_tier satisfies
   | "core_action"
@@ -47,6 +52,11 @@ grouped.startupPreheat.length satisfies number;
 grouped.expansionConfirm.length satisfies number;
 grouped.watchWait.length satisfies number;
 grouped.riskReject.length satisfies number;
+listGateSummary.title satisfies string;
+listGateSummary.reason satisfies string;
+listGateSummary.coreLimitText satisfies string;
+listGateSummary.supportLineText satisfies string;
+listGateSummary.styleGateText satisfies string | null;
 
 const blockReason = candidateCoreBlockReason([
   {
@@ -78,3 +88,11 @@ const expansionReason = candidatePoolReason({
 } as unknown as WorkspaceStock);
 
 expansionReason satisfies string | null;
+
+if (/core_action|sector_watch|startup_preheat|risk_reject/.test(Object.values(listGateSummary).join(" "))) {
+  throw new Error("候选列表门控摘要不能展示英文分层枚举");
+}
+
+if (!listGateSummary.reason.includes("今天防守阶段")) {
+  throw new Error("候选列表门控摘要应保留当前无核心候选原因");
+}

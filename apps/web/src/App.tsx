@@ -44,14 +44,18 @@ import {
   WorkspaceStock,
 } from "./api";
 import {
+  candidateListGateSummary,
   candidateCoreBlockReason,
   candidatePoolReason,
   candidateTierMeta,
   groupStocksByCandidateTier,
 } from "./candidateTiers";
 import {
+  candidateGateSummary,
+  dingPolicyText,
   dualLineLongReplaySummary,
   initialCandidateReplayQuery,
+  lineStatusText,
   longCandidateReplayQuery,
   monthlyStrategyPkRows,
   replayBreakdownRows,
@@ -926,37 +930,8 @@ function replayCoverageSummary(coverage: ReplayDataCoverage | null) {
   return `可用月份 ${overall.usable_months}/${overall.months}，风险月份 ${overall.warning_months}，活跃样本 ${overall.active_symbols}`;
 }
 
-const dingPolicyLabels: Record<string, string> = {
-  ding_core_only: "只推核心",
-  ding_action_selective: "行动精选",
-  ding_core_main_line: "主线核心推送",
-  ding_core_selective: "精选核心推送",
-  web_observe_only: "网页端观察",
-  web_support_only: "辅线只在网页端观察",
-  hold: "暂停推送",
-};
-
-const lineStatusLabels: Record<string, string> = {
-  core_enabled: "核心生效",
-  monitor_only: "仅观察",
-  web_preheat: "网页端预热",
-  selective_core: "精选核心",
-  paused: "暂停",
-  stand_down: "暂停观察",
-};
-
 function uiText(value: string | null | undefined) {
   return cleanDisplayText(value);
-}
-
-function dingPolicyText(value: string | null | undefined) {
-  if (!value) return "未定";
-  return dingPolicyLabels[value] ?? "未定策略";
-}
-
-function lineStatusText(value: string | null | undefined) {
-  if (!value) return "未定";
-  return lineStatusLabels[value] ?? "未定状态";
 }
 
 function dualLineLeaderText(value: string) {
@@ -1383,6 +1358,13 @@ export function App() {
     () => candidateCoreBlockReason(filteredStocks.filter(isNextSessionCandidate)),
     [filteredStocks],
   );
+  const candidateGate = useMemo(
+    () =>
+      candidateReplayEffect
+        ? candidateGateSummary(candidateReplayEffect, candidateBlockReason)
+        : candidateListGateSummary(candidateTierGroups, candidateBlockReason),
+    [candidateReplayEffect, candidateBlockReason, candidateTierGroups],
+  );
   const candidateTierSections = [
     {
       key: "core-action",
@@ -1778,6 +1760,23 @@ export function App() {
             {!loading && filteredStocks.length && stockView === "candidate"
               ? (
                   <>
+                    {candidateGate ? (
+                      <div className="candidate-gate-summary">
+                        <div>
+                          <span>今日策略门控</span>
+                          <strong>{candidateGate.title}</strong>
+                          <p>{uiText(candidateGate.reason)}</p>
+                        </div>
+                        <div className="candidate-gate-grid">
+                          <small>{uiText(candidateGate.postureText)}</small>
+                          <small>{uiText(candidateGate.coreLimitText)}</small>
+                          <small>{uiText(candidateGate.dingPolicyText)}</small>
+                          <small>{uiText(candidateGate.mainLineText)}</small>
+                          <small>{uiText(candidateGate.supportLineText)}</small>
+                          {candidateGate.styleGateText ? <small>{uiText(candidateGate.styleGateText)}</small> : null}
+                        </div>
+                      </div>
+                    ) : null}
                     {candidateBlockReason && !candidateTierGroups.coreAction.length ? (
                       <div className="candidate-block-reason">{uiText(candidateBlockReason)}</div>
                     ) : null}

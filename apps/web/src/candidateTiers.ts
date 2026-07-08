@@ -17,6 +17,17 @@ export interface CandidateTierGroups {
   riskReject: WorkspaceStock[];
 }
 
+export interface CandidateListGateSummary {
+  title: string;
+  reason: string;
+  postureText: string;
+  coreLimitText: string;
+  dingPolicyText: string;
+  mainLineText: string;
+  supportLineText: string;
+  styleGateText: string | null;
+}
+
 const tierLabels: Record<CandidateTier, string> = {
   core_action: "核心行动",
   sector_watch: "板块观察",
@@ -104,6 +115,31 @@ export function candidateCoreBlockReason(stocks: WorkspaceStock[]): string | nul
     if (reason) return reason;
   }
   return null;
+}
+
+export function candidateListGateSummary(
+  groups: CandidateTierGroups,
+  blockReason?: string | null,
+): CandidateListGateSummary {
+  const coreCount = groups.coreAction.length;
+  const supportCount = groups.sectorWatch.length + groups.startupPreheat.length + groups.expansionConfirm.length;
+  return {
+    title: coreCount > 0 ? `今天核心行动 ${coreCount} 只` : "今天先观察，不推核心",
+    reason:
+      blockReason ??
+      (coreCount > 0
+        ? "已有少数核心候选，仍要等板块延续、量能和盘中承接确认。"
+        : "当前候选以板块观察、启动前夜和风险淘汰为主，先交给盘中验证。"),
+    postureText: `候选分层：核心 ${coreCount} 只，观察预热 ${supportCount} 只，风险淘汰 ${groups.riskReject.length} 只。`,
+    coreLimitText:
+      coreCount > 0
+        ? `页面核心 ${coreCount} 只，钉钉仍按少量核心处理。`
+        : "钉钉核心上限暂按 0 只处理，网页端保留观察和学习。",
+    dingPolicyText: coreCount > 0 ? "钉钉策略：核心少量推送" : "钉钉策略：暂不推核心，只做网页观察",
+    mainLineText: coreCount > 0 ? "主线：已有核心候选，继续看板块和量能" : "主线：未确认，不追高",
+    supportLineText: `辅线：板块观察 ${groups.sectorWatch.length} 只，启动前夜 ${groups.startupPreheat.length} 只，扩散确认 ${groups.expansionConfirm.length} 只。`,
+    styleGateText: "风格门控：等待回放诊断加载，先看板块强弱和个股承接。",
+  };
 }
 
 export function candidatePoolReason(stock: WorkspaceStock): string | null {

@@ -1,5 +1,6 @@
 import type { CandidateReplayEffectReport, LowDimensionalReplayReport } from "./api";
 import {
+  candidateGateSummary,
   dualLineLongReplaySummary,
   initialCandidateReplayQuery,
   longCandidateReplayQuery,
@@ -640,6 +641,7 @@ const dualLineSummary = dualLineLongReplaySummary(candidateReplay);
 const monthlyPkRows = monthlyStrategyPkRows(candidateReplay, 20);
 const startupSignalRows = startupSignalReplayRows(candidateReplay);
 const startupSignalStyleRows = startupSignalStyleReplayRows(candidateReplay, 20);
+const gateSummary = candidateGateSummary(candidateReplay, "今天市场防守，核心候选暂不推送。");
 if (!dualLineSummary) {
   throw new Error("双线摘要应在长期行动池和启动前夜池都有样本时存在");
 }
@@ -680,6 +682,13 @@ startupSignalStyleRows[0].label satisfies string;
 startupSignalStyleRows[0].highSignalMetric?.sample_count satisfies number | undefined;
 startupSignalStyleRows[0].postureLabel satisfies string;
 startupSignalStyleRows[0].guidance satisfies string;
+gateSummary.title satisfies string;
+gateSummary.postureText satisfies string;
+gateSummary.coreLimitText satisfies string;
+gateSummary.dingPolicyText satisfies string;
+gateSummary.mainLineText satisfies string;
+gateSummary.supportLineText satisfies string;
+gateSummary.styleGateText satisfies string | null;
 longCandidateReplayQuery.start_date satisfies "2025-01-02";
 longCandidateReplayQuery.end_date satisfies string;
 longCandidateReplayQuery.limit satisfies 15;
@@ -700,4 +709,12 @@ if (longCandidateReplayQuery.end_date === "2026-06-05") {
 
 if (yesterdayReplayEndDate(new Date("2026-07-07T12:00:00+08:00")) !== "2026-07-06") {
   throw new Error("长周期回放结束日应该按本地日期滚动到昨天");
+}
+
+if (/ding_|core_enabled|monitor_only|web_support_only/.test(Object.values(gateSummary).join(" "))) {
+  throw new Error("候选门控摘要不能把英文枚举直接展示给用户");
+}
+
+if (!gateSummary.reason.includes("今天市场防守")) {
+  throw new Error("候选门控摘要应保留无核心候选时的直接原因");
 }

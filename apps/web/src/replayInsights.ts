@@ -165,6 +165,17 @@ export interface DualLineLongReplaySummary {
   guidance: string;
 }
 
+export interface CandidateGateSummary {
+  title: string;
+  reason: string;
+  postureText: string;
+  coreLimitText: string;
+  dingPolicyText: string;
+  mainLineText: string;
+  supportLineText: string;
+  styleGateText: string | null;
+}
+
 export type MonthlyStrategyPkScope = "action_long" | "startup_preheat" | "potential_watch";
 export type MonthlyStrategyPkPosture = "core_available" | "observe_only" | "risk_off";
 
@@ -236,6 +247,35 @@ const strategyPkPolicyLabels: Record<string, string> = {
   low_sample: "样本不足",
   stand_down: "休息",
 };
+
+const dingPolicyLabels: Record<string, string> = {
+  ding_core_only: "只推核心",
+  ding_action_selective: "行动精选",
+  ding_core_main_line: "主线核心推送",
+  ding_core_selective: "精选核心推送",
+  web_observe_only: "网页端观察",
+  web_support_only: "辅线只在网页端观察",
+  hold: "暂停推送",
+};
+
+const lineStatusLabels: Record<string, string> = {
+  core_enabled: "核心生效",
+  monitor_only: "仅观察",
+  web_preheat: "网页端预热",
+  selective_core: "精选核心",
+  paused: "暂停",
+  stand_down: "暂停观察",
+};
+
+export function dingPolicyText(value: string | null | undefined) {
+  if (!value) return "未定";
+  return dingPolicyLabels[value] ?? "未定策略";
+}
+
+export function lineStatusText(value: string | null | undefined) {
+  if (!value) return "未定";
+  return lineStatusLabels[value] ?? "未定状态";
+}
 
 function toneFor(value: number | null | undefined): ReplayTone {
   if (value === null || value === undefined || value === 0) return "neutral";
@@ -331,6 +371,44 @@ function hasPositiveMetric(metric: ReplayReturnSummary | null | undefined) {
   return (metric.sample_count ?? 0) > 0
     && (metric.avg_return ?? 0) > 0
     && (metric.total_return ?? 0) > 0;
+}
+
+function gateTitle(coreLimit: number, dingPolicy: string) {
+  if (coreLimit <= 0 || dingPolicy.startsWith("web_") || dingPolicy === "hold") {
+    return "今天先观察，不推核心";
+  }
+  if (coreLimit === 1) return "今天核心收敛，少量跟踪";
+  return "今天主线可用，核心少量行动";
+}
+
+function styleGateText(report: CandidateReplayEffectReport) {
+  const rows = report.diagnosis.style_gate_policy.rows;
+  const upgradeLabels = rows
+    .filter((row) => row.status === "upgrade_allowed")
+    .map((row) => row.label || styleLabels[row.style] || "其他风格");
+  if (!upgradeLabels.length) return "暂无风格允许升级，潜力票只做观察。";
+  return `可升级风格：${upgradeLabels.slice(0, 3).join("、")}；其余风格先观察。`;
+}
+
+export function candidateGateSummary(
+  report: CandidateReplayEffectReport,
+  blockReason?: string | null,
+): CandidateGateSummary {
+  const market = report.diagnosis.market_phase_policy;
+  const dualLine = report.diagnosis.dual_line_policy;
+  const coreLimit = Math.max(0, Math.min(market.max_core_positions, dualLine.max_core_positions));
+  return {
+    title: gateTitle(coreLimit, dualLine.ding_policy),
+    reason: blockReason || dualLine.summary || market.summary,
+    postureText: `${market.label}：${market.summary}`,
+    coreLimitText: `钉钉核心上限 ${coreLimit} 只，网页端保留观察和盘中验证。`,
+    dingPolicyText: `钉钉策略：${dingPolicyText(dualLine.ding_policy)}`,
+    mainLineText: `主线：${lineStatusText(dualLine.main_line.status)} / ${dualLine.main_line.summary}`,
+    supportLineText: `辅线：${lineStatusText(dualLine.support_line.status)} / ${
+      dualLine.support_line.summary ?? "暂无预热信号"
+    }`,
+    styleGateText: styleGateText(report),
+  };
 }
 
 function metricDiff(
