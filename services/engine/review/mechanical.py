@@ -121,6 +121,113 @@ def _index_line(item: dict[str, object]) -> str:
     return f"{item.get('name') or item.get('symbol')} {close_text} / {change_text}{stale_suffix}"
 
 
+def _breadth_label(up_ratio: object) -> str:
+    if up_ratio is None:
+        return "市场宽度未知"
+    value = float(up_ratio)
+    if value >= 0.62:
+        return "市场宽度偏强"
+    if value >= 0.55:
+        return "市场宽度温和修复"
+    if value <= 0.38:
+        return "市场宽度偏弱"
+    if value <= 0.45:
+        return "市场宽度承压"
+    return "市场宽度均衡偏分歧"
+
+
+def _sector_names(items: list[dict[str, object]], limit: int = 2) -> str:
+    names = [str(item.get("sector") or "").strip() for item in items[:limit]]
+    return "、".join(name for name in names if name)
+
+
+def _candidate_change_values(
+    candidate_items: list[dict[str, object]],
+    candidate_bars: dict[str, Any],
+) -> list[float]:
+    values: list[float] = []
+    for item in candidate_items:
+        change_pct = _bar_change_pct(candidate_bars.get(item["symbol"]))
+        if change_pct is not None:
+            values.append(change_pct)
+    return values
+
+
+def _candidate_divergence_lines(
+    *,
+    market_summary: dict[str, object],
+    market_cross_section: dict[str, object],
+    candidate_items: list[dict[str, object]],
+    candidate_bars: dict[str, Any],
+) -> list[str]:
+    lines = ["", "## 盘面与候选分化", ""]
+    up_ratio = market_summary.get("up_ratio")
+    avg_change_pct = market_summary.get("avg_change_pct")
+    lines.append(
+        "- "
+        f"{_breadth_label(up_ratio)}："
+        f"上涨 {market_summary.get('up_count', 0)} / "
+        f"下跌 {market_summary.get('down_count', 0)}，"
+        f"上涨占比 {_pct_or_dash(up_ratio)}，"
+        f"市场平均 {_pct_or_dash(avg_change_pct)}。"
+    )
+
+    strong_sectors = list(market_cross_section.get("strong_sectors") or [])
+    weak_sectors = list(market_cross_section.get("weak_sectors") or [])
+    strong_names = _sector_names(strong_sectors)
+    weak_names = _sector_names(weak_sectors)
+    if strong_names and weak_names:
+        if up_ratio is not None and float(up_ratio) <= 0.38:
+            lines.append(
+                f"- 弱市里相对抗跌先看 {strong_names}，承压集中在 {weak_names}；"
+                "这不等于主线确认，只说明今天这些方向更抗跌。"
+            )
+        else:
+            lines.append(
+                f"- 主线先看 {strong_names}，承压集中在 {weak_names}；"
+                "今天不是只看个股涨跌，更要看它站在哪个板块风口里。"
+            )
+    elif strong_names:
+        lines.append(f"- 主线先看 {strong_names}；弱势端不明显，继续观察扩散能否延续。")
+    elif weak_names:
+        lines.append(f"- 暂无清晰强势板块，承压集中在 {weak_names}；防守阶段先少动。")
+    else:
+        lines.append("- 板块强弱分化暂不清晰，今天先把个股表现当作局部样本。")
+
+    changes = _candidate_change_values(candidate_items, candidate_bars)
+    if not candidate_items:
+        lines.append("- 昨日没有可回看的候选，今天只复盘市场和板块。")
+        return lines
+    if not changes:
+        lines.append(
+            f"- 昨日候选有日线 0/{len(candidate_items)} 只，"
+            "数据不足，暂不判断候选是否跑赢市场。"
+        )
+        return lines
+
+    red_count = sum(1 for value in changes if value > 0)
+    green_count = sum(1 for value in changes if value < 0)
+    avg_candidate = sum(changes) / len(changes)
+    lines.append(
+        "- "
+        f"昨日候选有日线 {len(changes)}/{len(candidate_items)} 只，"
+        f"红盘 {red_count} 只，绿盘 {green_count} 只，"
+        f"平均 {_pct(avg_candidate)}。"
+    )
+    if avg_change_pct is None:
+        lines.append("- 市场平均涨跌缺失，暂不比较候选和大盘。")
+    else:
+        delta = avg_candidate - float(avg_change_pct)
+        direction = "跑赢" if delta >= 0 else "跑输"
+        lines.append(f"- 候选整体{direction}市场平均 {abs(delta) * 100:.2f} 个百分点。")
+
+    lines.append(
+        "- 如果候选表现好于市场，优先看板块顺风和个股自身承接；"
+        "如果候选表现弱于市场，先查是否处在弱板块、缩量无承接或冲高回落。"
+    )
+    return lines
+
+
 def _data_health_metrics(report: Any) -> dict[str, object]:
     if report is None:
         return {}
@@ -344,6 +451,15 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                     "- 归因口径: 强股通常来自当日更强的板块、放量承接或逆势抗跌；"
                     "弱股通常来自板块补跌、缩量无承接或冲高回落。"
                 )
+
+            lines.extend(
+                _candidate_divergence_lines(
+                    market_summary=market_summary,
+                    market_cross_section=market_cross_section,
+                    candidate_items=candidate_items,
+                    candidate_bars=candidate_bars,
+                )
+            )
 
             lines.extend(["", "## 规则表现", ""])
             if performances:

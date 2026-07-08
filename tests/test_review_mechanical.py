@@ -215,6 +215,12 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
     assert "样本强股" in review.content_md
     assert "样本弱股" in review.content_md
     assert "强股通常来自当日更强的板块" in review.content_md
+    assert "## 盘面与候选分化" in review.content_md
+    assert "市场宽度均衡偏分歧" in review.content_md
+    assert "主线先看 消费电子，承压集中在 半导体" in review.content_md
+    assert "昨日候选有日线 1/1 只，红盘 1 只，绿盘 0 只，平均 2.00%" in review.content_md
+    assert "候选整体跑赢市场平均 1.00 个百分点" in review.content_md
+    assert "如果候选表现好于市场，优先看板块顺风和个股自身承接" in review.content_md
     assert "数据日期 2026-06-23（已过期）" in review.content_md
     assert "## 昨日候选今日回看" in review.content_md
     assert "第1名 / 86.4分" in review.content_md
@@ -240,3 +246,26 @@ def test_sector_line_marks_aggregated_moneyflow_sources() -> None:
 
     assert "资金净流入 7500.0万 / 净流入率 -" in line
     assert "细分合计 2 个" in line
+
+
+def test_candidate_divergence_describes_relative_strength_in_weak_market() -> None:
+    lines = review_mechanical._candidate_divergence_lines(
+        market_summary={
+            "up_count": 693,
+            "down_count": 4797,
+            "up_ratio": 0.1256,
+            "avg_change_pct": -0.0263,
+        },
+        market_cross_section={
+            "strong_sectors": [{"sector": "半导体"}, {"sector": "银行"}],
+            "weak_sectors": [{"sector": "黄金"}],
+        },
+        candidate_items=[],
+        candidate_bars={},
+    )
+    text = "\n".join(lines)
+
+    assert "市场宽度偏弱" in text
+    assert "弱市里相对抗跌先看 半导体、银行" in text
+    assert "不等于主线确认" in text
+    assert "主线先看 半导体、银行" not in text
