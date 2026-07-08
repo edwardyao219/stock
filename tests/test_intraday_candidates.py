@@ -375,6 +375,63 @@ def test_discover_intraday_candidates_explains_midday_and_late_session_cautions(
     assert "尾盘前不追回落" in "；".join(late["caution_reasons"])
 
 
+def test_discover_intraday_candidates_marks_early_divergence_as_watch_only() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600211", "早盘承接", industry="半导体"),
+                _candidate("600211", rank=1, score=86),
+                _sector_features(
+                    "半导体",
+                    date(2026, 6, 30),
+                    strength=82,
+                    continuity=78,
+                    momentum=75,
+                    breadth=68,
+                    avg_return_20d=0.12,
+                    positive_20d_rate=70,
+                ),
+                _quote(
+                    "600211",
+                    datetime(2026, 6, 30, 9, 35),
+                    price="10.10",
+                    open_price="9.90",
+                    high="10.15",
+                    low="9.85",
+                    volume="100000",
+                ),
+                _quote(
+                    "600211",
+                    datetime(2026, 6, 30, 9, 45),
+                    price="10.55",
+                    open_price="9.90",
+                    high="10.60",
+                    low="9.85",
+                    volume="250000",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 9, 45),
+        )
+
+    candidate = result["candidates"][0]
+    assert candidate["review_window"] == "early_divergence"
+    assert candidate["review_window_label"] == "早盘分歧"
+    assert candidate["selection_tier"] == "watch"
+    assert "早盘分歧" in candidate["selection_reason"]
+    assert "早盘分歧" in "；".join(candidate["caution_reasons"])
+
+
 def test_discover_intraday_candidates_marks_after_close_snapshots() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -474,6 +531,83 @@ def test_discover_intraday_candidates_uses_only_snapshots_at_or_before_as_of() -
     assert candidate["price"] == 10.2
     assert candidate["intraday_state"] != "distribution"
     assert "intraday_distribution" not in candidate["risk_flags"]
+
+
+def test_discover_intraday_candidates_early_divergence_ignores_later_weak_quote() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600402", "早盘真实快照"),
+                _candidate("600402", rank=1, score=80),
+                _quote(
+                    "600402",
+                    datetime(2026, 6, 30, 9, 45),
+                    price="10.20",
+                    open_price="9.95",
+                    high="10.25",
+                    low="9.90",
+                ),
+                _quote(
+                    "600402",
+                    datetime(2026, 6, 30, 10, 30),
+                    price="9.70",
+                    open_price="9.95",
+                    high="10.80",
+                    low="9.65",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 9, 45),
+        )
+
+    candidate = result["candidates"][0]
+    assert candidate["quote_time"] == "2026-06-30T09:45:00"
+    assert candidate["review_window"] == "early_divergence"
+    assert candidate["price"] == 10.2
+    assert candidate["intraday_state"] != "distribution"
+
+
+def test_discover_intraday_candidates_skips_zero_price_realtime_quotes() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600403", "无效早盘快照"),
+                _candidate("600403", rank=1, score=80),
+                _quote(
+                    "600403",
+                    datetime(2026, 6, 30, 9, 10),
+                    price="0",
+                    open_price="0",
+                    high="0",
+                    low="0",
+                    pre_close="10",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 9, 10),
+        )
+
+    assert result["candidates"] == []
 
 
 def test_discover_intraday_candidates_marks_volume_confirmation_and_distribution_risk() -> None:

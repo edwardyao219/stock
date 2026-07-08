@@ -78,6 +78,18 @@ def monitor_paper_positions_realtime_task() -> dict[str, object]:
     return run_intraday_trade_session(today, as_of=current_time).to_dict()
 
 
+@celery_app.task(name="services.jobs.tasks.paper_early_divergence_snapshot_task")
+def paper_early_divergence_snapshot_task() -> dict[str, object]:
+    current_time = now_local()
+    today = current_time.date().isoformat()
+    return run_intraday_trade_session(
+        today,
+        stage="early_divergence_snapshot",
+        as_of=current_time,
+        force=True,
+    ).to_dict()
+
+
 @celery_app.task(name="services.jobs.tasks.paper_midday_snapshot_task")
 def paper_midday_snapshot_task() -> dict[str, object]:
     current_time = now_local()

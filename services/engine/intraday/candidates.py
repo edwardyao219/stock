@@ -74,6 +74,7 @@ INTRADAY_LABELS = {
 }
 
 REVIEW_WINDOW_LABELS = {
+    "early_divergence": "早盘分歧",
     "morning": "上午快照",
     "midday": "午间复盘",
     "afternoon": "下午跟踪",
@@ -504,6 +505,8 @@ def _review_window(quote: RealtimeQuote) -> str:
     clock = quote.quote_time.time()
     if clock.hour >= 15:
         return "after_close"
+    if clock.hour == 9 and 15 <= clock.minute <= 45:
+        return "early_divergence"
     if clock.hour < 11 or (clock.hour == 11 and clock.minute < 15):
         return "morning"
     if clock.hour < 13:
@@ -527,6 +530,8 @@ def _caution_reasons(
 
     if review_window == "midday" and state in {"balanced", "fresh", "pullback_repair"}:
         reasons.append("午间先看上午承接，下午放量站稳再加入正式列表")
+    if review_window == "early_divergence":
+        reasons.append("早盘分歧期只做观察确认，不追高，等9:45后承接稳定")
     if review_window == "late_session" and state in {"distribution", "fading", "downside"}:
         reasons.append("尾盘前不追回落，等盘后确认资金是否撤退")
     if state == "distribution":
@@ -644,6 +649,10 @@ def _selection_tier(
 
     if "market_risk_off" in risk_flags:
         reason = caution_reasons[0] if caution_reasons else "全市场压力大，停止扩散，只做观察"
+        return "watch", SELECTION_TIER_LABELS["watch"], reason
+
+    if review_window == "early_divergence":
+        reason = caution_reasons[0] if caution_reasons else "早盘分歧期先整体扫描，只做观察确认"
         return "watch", SELECTION_TIER_LABELS["watch"], reason
 
     volume_confirmed = "intraday_volume_confirmed" in support_flags
@@ -884,6 +893,13 @@ def discover_intraday_candidates(
             continue
         quote = latest_quotes.get(item.symbol)
         if quote is None:
+            continue
+        if (
+            quote.price is None
+            or quote.price <= 0
+            or quote.pre_close is None
+            or quote.pre_close <= 0
+        ):
             continue
         tags = [str(tag) for tag in (item.tags_json or {}).get("tags", [])]
         rank = _tag_number(tags, "rank:", int)

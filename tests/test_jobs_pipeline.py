@@ -207,12 +207,17 @@ def test_celery_intraday_schedule_matches_trading_windows() -> None:
     assert schedule.minute == {0, 5, 10, 15, 20, 25, 30, 40, 45, 55}
 
 
-def test_celery_has_midday_and_late_session_snapshot_jobs() -> None:
+def test_celery_has_early_midday_and_late_session_snapshot_jobs() -> None:
+    early_job = celery_app.conf.beat_schedule["paper-early-divergence-snapshot"]
     midday_job = celery_app.conf.beat_schedule["paper-midday-snapshot"]
     late_job = celery_app.conf.beat_schedule["paper-late-session-snapshot"]
+    early = early_job["schedule"]
     midday = midday_job["schedule"]
     late = late_job["schedule"]
 
+    assert early.hour == {9}
+    assert early.minute == {45}
+    assert early_job["task"] == "services.jobs.tasks.paper_early_divergence_snapshot_task"
     assert midday.hour == {11}
     assert midday.minute == {35}
     assert midday_job["task"] == "services.jobs.tasks.paper_midday_snapshot_task"
@@ -255,7 +260,7 @@ def test_intraday_session_passes_stage_and_as_of_to_monitor(monkeypatch) -> None
     assert captured["snapshot_stage"] == "midday_snapshot"
 
 
-def test_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> None:
+def test_early_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> None:
     from datetime import datetime
 
     captured = []
@@ -274,12 +279,20 @@ def test_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> None:
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 24, 14, 50))
     monkeypatch.setattr(tasks, "run_intraday_trade_session", fake_run)
 
+    early = tasks.paper_early_divergence_snapshot_task()
     midday = tasks.paper_midday_snapshot_task()
     late = tasks.paper_late_session_snapshot_task()
 
+    assert early["stage"] == "early_divergence_snapshot"
     assert midday["stage"] == "midday_snapshot"
     assert late["stage"] == "late_session_snapshot"
     assert captured == [
+        {
+            "trade_date": "2026-06-24",
+            "stage": "early_divergence_snapshot",
+            "as_of": datetime(2026, 6, 24, 14, 50),
+            "force": True,
+        },
         {
             "trade_date": "2026-06-24",
             "stage": "midday_snapshot",

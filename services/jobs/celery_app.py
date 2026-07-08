@@ -41,6 +41,10 @@ celery_app.conf.beat_schedule = {
         "task": "services.jobs.tasks.monitor_paper_positions_realtime_task",
         "schedule": crontab(minute="0,5,10,15,20,25,30,40,45,55", hour="9-11,13-14"),
     },
+    "paper-early-divergence-snapshot": {
+        "task": "services.jobs.tasks.paper_early_divergence_snapshot_task",
+        "schedule": crontab(minute=45, hour=9),
+    },
     "paper-midday-snapshot": {
         "task": "services.jobs.tasks.paper_midday_snapshot_task",
         "schedule": crontab(minute=35, hour=11),

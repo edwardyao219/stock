@@ -507,6 +507,11 @@ def _intraday_snapshot_points(current_time: datetime) -> list[tuple[str, str, da
 
     candidates = [
         (
+            "early_divergence",
+            "早盘分歧",
+            at_clock(time(9, 45)),
+        ),
+        (
             "midday",
             "午间复盘",
             at_clock(time(11, 35)),
@@ -530,6 +535,11 @@ def _intraday_snapshot_points(current_time: datetime) -> list[tuple[str, str, da
 
 def _fixed_intraday_snapshot_points_for_day(value: datetime) -> list[tuple[str, str, datetime]]:
     return [
+        (
+            "early_divergence",
+            "早盘分歧",
+            datetime.combine(value.date(), time(9, 45), tzinfo=value.tzinfo),
+        ),
         ("midday", "午间复盘", datetime.combine(value.date(), time(11, 35), tzinfo=value.tzinfo)),
         (
             "late_session",

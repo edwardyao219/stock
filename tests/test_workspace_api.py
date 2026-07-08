@@ -284,6 +284,11 @@ def test_workspace_plan_defers_when_intraday_candidate_is_deferred(monkeypatch) 
             "services.engine.workspace.repository.now_local",
             lambda: datetime(2026, 6, 30, 13, 30),
         )
+        monkeypatch.setattr(
+            "apps.api.app.routers.workspace._live_market_stress_snapshot",
+            lambda db: None,
+            raising=False,
+        )
         payload = list_workspace_stocks(db=db, pool_name="experiment")
 
     plan = payload[0].plans[0]
@@ -739,10 +744,12 @@ def test_list_intraday_candidate_snapshots_replays_without_future_quotes(monkeyp
             )
         )
         for quote_time, price, high, low in [
+            (datetime(2026, 1, 22, 9, 40), "10.45", "10.5", "9.9"),
             (datetime(2026, 1, 22, 10, 30), "10.0", "10.1", "9.9"),
             (datetime(2026, 1, 22, 11, 20), "10.2", "10.3", "9.9"),
             (datetime(2026, 1, 22, 14, 45), "9.8", "10.8", "9.8"),
             (datetime(2026, 1, 22, 15, 0), "10.6", "10.8", "9.8"),
+            (datetime(2026, 1, 21, 9, 40), "10.45", "10.5", "9.9"),
             (datetime(2026, 1, 21, 10, 30), "10.0", "10.1", "9.9"),
             (datetime(2026, 1, 21, 11, 20), "10.2", "10.3", "9.9"),
             (datetime(2026, 1, 21, 14, 45), "10.4", "10.5", "9.9"),
@@ -775,6 +782,8 @@ def test_list_intraday_candidate_snapshots_replays_without_future_quotes(monkeyp
 
     snapshots = {item["stage"]: item for item in payload["snapshots"]}
     assert payload["trade_date"] == "2026-01-22"
+    assert snapshots["early_divergence"]["as_of"] == "2026-01-22T09:45:00"
+    assert snapshots["early_divergence"]["candidates"][0]["quote_time"] == "2026-01-22T09:40:00"
     assert snapshots["midday"]["as_of"] == "2026-01-22T11:35:00"
     assert snapshots["midday"]["candidates"][0]["quote_time"] == "2026-01-22T11:20:00"
     assert snapshots["late_session"]["as_of"] == "2026-01-22T14:50:00"
@@ -782,15 +791,17 @@ def test_list_intraday_candidate_snapshots_replays_without_future_quotes(monkeyp
     assert snapshots["latest"]["as_of"] == "2026-01-22T15:05:00"
     assert snapshots["latest"]["candidates"][0]["quote_time"] == "2026-01-22T15:00:00"
     assert payload["learning"][0]["symbol"] == "600001"
-    assert payload["learning"][0]["from_stage"] == "midday"
-    assert payload["learning"][0]["to_stage"] == "late_session"
-    assert payload["learning"][0]["verdict"] == "weakened"
-    assert "午间到尾盘前转弱" in payload["learning"][0]["reason"]
+    assert payload["learning"][0]["from_stage"] == "early_divergence"
+    assert payload["learning"][0]["to_stage"] == "midday"
+    weakened = [item for item in payload["learning"] if item["verdict"] == "weakened"][0]
+    assert weakened["from_stage"] == "midday"
+    assert weakened["to_stage"] == "late_session"
+    assert "午间到尾盘前转弱" in weakened["reason"]
     assert payload["learning_summary"]["sample_days"] == 2
-    assert payload["learning_summary"]["transition_count"] == 4
+    assert payload["learning_summary"]["transition_count"] == 6
     assert payload["learning_summary"]["verdict_counts"]["weakened"] == 1
     assert payload["learning_summary"]["verdict_counts"]["repaired"] == 1
-    assert payload["learning_summary"]["verdict_counts"]["held_strength"] == 2
+    assert payload["learning_summary"]["verdict_counts"]["held_strength"] == 4
     assert payload["learning_summary"]["sector_verdicts"][0]["sector"] == "通信设备"
     assert "转弱" in payload["learning_summary"]["pattern_notes"][0]
 
@@ -808,7 +819,11 @@ def test_list_intraday_candidate_snapshots_does_not_emit_future_stages(monkeypat
         )
         payload = list_intraday_candidate_snapshots(db=db, pool_name="experiment")
 
-    assert [item["stage"] for item in payload["snapshots"]] == ["midday", "latest"]
+    assert [item["stage"] for item in payload["snapshots"]] == [
+        "early_divergence",
+        "midday",
+        "latest",
+    ]
     assert all(item["as_of"] <= "2026-01-22T12:00:00" for item in payload["snapshots"])
 
 
@@ -828,11 +843,12 @@ def test_list_intraday_candidate_snapshots_handles_timezone_aware_now(monkeypatc
         payload = list_intraday_candidate_snapshots(db=db, pool_name="experiment")
 
     assert [item["stage"] for item in payload["snapshots"]] == [
+        "early_divergence",
         "midday",
         "late_session",
         "latest",
     ]
-    assert payload["snapshots"][0]["as_of"] == "2026-01-22T11:35:00+00:00"
+    assert payload["snapshots"][0]["as_of"] == "2026-01-22T09:45:00+00:00"
 
 
 def test_workspace_stock_detail_and_manual_add() -> None:
