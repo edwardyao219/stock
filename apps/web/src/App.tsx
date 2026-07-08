@@ -124,6 +124,11 @@ function pct(value: number | null | undefined) {
   return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
 }
 
+function ratioPct(value: number | null | undefined) {
+  if (value === null || value === undefined) return "-";
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 function price(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return value.toFixed(2);
@@ -853,6 +858,25 @@ function intradayMarketStressText(stress: IntradayCandidateList["market_stress"]
   return `${scope} ${stress.stress_label}${action}`;
 }
 
+function intradayQuoteCoverageText(coverage: IntradayCandidateList["quote_coverage"] | undefined) {
+  if (!coverage) return "快照覆盖等待";
+  if (!coverage.target_symbol_count) return "热门板块待刷 0";
+  return `热门板块快照 ${coverage.valid_quote_count}/${coverage.target_symbol_count} / ${ratioPct(
+    coverage.coverage_ratio,
+  )}`;
+}
+
+function intradayQuoteCoverageGapText(coverage: IntradayCandidateList["quote_coverage"] | undefined) {
+  if (!coverage || !coverage.target_symbol_count) return "";
+  const missingCount = coverage.target_symbol_count - coverage.valid_quote_count;
+  if (missingCount <= 0) return "热门板块快照已覆盖";
+  const weakSector = coverage.sectors.find((item) => item.missing_symbols.length);
+  const sectorText = weakSector
+    ? `${weakSector.sector} ${weakSector.valid_quote_count}/${weakSector.target_symbol_count}`
+    : "板块明细等待";
+  return `缺 ${missingCount} 只 / ${sectorText}`;
+}
+
 function learningTone(verdict: string) {
   if (["repaired", "held_strength", "improved"].includes(verdict)) return "up";
   if (["weakened", "stayed_weak", "softened"].includes(verdict)) return "down";
@@ -1576,6 +1600,7 @@ export function App() {
                   {candidateBatchText(intradayCandidates?.candidate_batch)}
                 </small>
                 <small>{intradayMarketStressText(intradayCandidates?.market_stress)}</small>
+                <small>{intradayQuoteCoverageText(intradayCandidates?.quote_coverage)}</small>
               </div>
               <button
                 type="button"
@@ -1585,43 +1610,71 @@ export function App() {
                 <RefreshCw size={14} />
               </button>
             </div>
-            <div className="intraday-watch-list">
-              {intradayCandidates?.candidates.length ? (
-                intradayCandidates.candidates.slice(0, 8).map((item) => (
-                  <button
-                    className={`intraday-watch-item ${intradayItemTone(
-                      item.intraday_state,
-                      item.sector_signal,
-                    )}`}
-                    key={item.symbol}
-                    type="button"
-                    onClick={() => setSelectedSymbol(item.symbol)}
-                  >
-                    <span className="intraday-watch-main">
-                      <strong>
-                        {item.symbol}
-                        <i className={`tier-pill ${selectionTierTone(item.selection_tier)}`}>
-                          {item.selection_tier_label}
-                        </i>
-                      </strong>
-                      <small>{item.name ?? "-"} / {item.sector ?? "-"}</small>
-                      <em>{candidateExplanationText(item)}</em>
-                    </span>
-                    <span>
-                      <b>{item.intraday_label}</b>
+            <div className="intraday-watch-body">
+              {intradayCandidates?.quote_coverage ? (
+                <div className="intraday-coverage-strip">
+                  <div>
+                    <span>早盘覆盖</span>
+                    <strong
+                      className={
+                        intradayCandidates.quote_coverage.coverage_ratio >= 0.8 ? "up" : "down"
+                      }
+                    >
+                      {ratioPct(intradayCandidates.quote_coverage.coverage_ratio)}
+                    </strong>
+                    <small>{intradayQuoteCoverageGapText(intradayCandidates.quote_coverage)}</small>
+                  </div>
+                  {intradayCandidates.quote_coverage.sectors.slice(0, 3).map((item) => (
+                    <div key={item.sector}>
+                      <span>{item.sector}</span>
+                      <strong>{item.valid_quote_count}/{item.target_symbol_count}</strong>
                       <small>
-                        {pct(item.day_change_pct)} / {item.intraday_score.toFixed(1)}分
+                        {item.missing_symbols.length
+                          ? `缺 ${item.missing_symbols.slice(0, 3).join("、")}`
+                          : "已覆盖"}
                       </small>
-                      <small>
-                        {item.review_window_label} / {item.sector_quality_label}
-                        {item.sector_quality_score.toFixed(1)}分
-                      </small>
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <div className="intraday-empty">暂无盘中候选快照</div>
-              )}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="intraday-watch-list">
+                {intradayCandidates?.candidates.length ? (
+                  intradayCandidates.candidates.slice(0, 8).map((item) => (
+                    <button
+                      className={`intraday-watch-item ${intradayItemTone(
+                        item.intraday_state,
+                        item.sector_signal,
+                      )}`}
+                      key={item.symbol}
+                      type="button"
+                      onClick={() => setSelectedSymbol(item.symbol)}
+                    >
+                      <span className="intraday-watch-main">
+                        <strong>
+                          {item.symbol}
+                          <i className={`tier-pill ${selectionTierTone(item.selection_tier)}`}>
+                            {item.selection_tier_label}
+                          </i>
+                        </strong>
+                        <small>{item.name ?? "-"} / {item.sector ?? "-"}</small>
+                        <em>{candidateExplanationText(item)}</em>
+                      </span>
+                      <span>
+                        <b>{item.intraday_label}</b>
+                        <small>
+                          {pct(item.day_change_pct)} / {item.intraday_score.toFixed(1)}分
+                        </small>
+                        <small>
+                          {item.review_window_label} / {item.sector_quality_label}
+                          {item.sector_quality_score.toFixed(1)}分
+                        </small>
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="intraday-empty">暂无盘中候选快照</div>
+                )}
+              </div>
             </div>
           </section>
 

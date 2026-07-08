@@ -3,11 +3,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.collector.realtime import sync_realtime_quotes
-from services.engine.intraday.candidates import discover_intraday_candidates
+from services.engine.intraday.candidates import (
+    discover_intraday_candidates,
+    early_sector_scan_symbols,
+)
 from services.engine.research_pool.manual_research import (
     ManualResearchResult,
     refresh_manual_stock_research,
@@ -22,7 +25,7 @@ from services.engine.workspace.repository import (
     load_workspace_symbols,
 )
 from services.shared.database import get_db
-from services.shared.models import RealtimeQuote, ResearchPoolItem
+from services.shared.models import RealtimeQuote, ResearchPoolItem, Security
 from services.shared.symbols import is_growth_board_symbol
 from services.shared.time import now_local
 
@@ -151,6 +154,23 @@ class IntradayMarketStressResponse(BaseModel):
     stress_reasons: list[str] = Field(default_factory=list)
 
 
+class IntradayQuoteCoverageSectorResponse(BaseModel):
+    sector: str
+    target_symbol_count: int
+    valid_quote_count: int
+    coverage_ratio: float
+    missing_symbols: list[str] = Field(default_factory=list)
+
+
+class IntradayQuoteCoverageResponse(BaseModel):
+    target_symbol_count: int
+    valid_quote_count: int
+    coverage_ratio: float
+    latest_quote_time: str | None = None
+    missing_symbols: list[str] = Field(default_factory=list)
+    sectors: list[IntradayQuoteCoverageSectorResponse] = Field(default_factory=list)
+
+
 class CandidateBatchResponse(BaseModel):
     auto_feature_date: str | None = None
     auto_hold_until: str | None = None
@@ -169,6 +189,7 @@ class IntradayCandidateListResponse(BaseModel):
     candidate_count: int
     candidate_batch: CandidateBatchResponse
     market_stress: IntradayMarketStressResponse | None = None
+    quote_coverage: IntradayQuoteCoverageResponse | None = None
     candidates: list[IntradayCandidateResponse]
 
 
@@ -219,6 +240,88 @@ def _live_market_stress_snapshot(db: Session) -> dict[str, object] | None:
         "stress_score": overview.stress_score,
         "risk_action_label": overview.risk_action_label,
         "stress_reasons": overview.stress_reasons,
+    }
+
+
+def _early_hot_sector_quote_coverage(
+    db: Session,
+    *,
+    trade_date,
+    as_of: datetime,
+    include_growth_board: bool,
+) -> dict[str, object]:
+    symbols = early_sector_scan_symbols(
+        db,
+        trade_date=trade_date,
+        include_growth_board=include_growth_board,
+    )
+    if not symbols:
+        return {
+            "target_symbol_count": 0,
+            "valid_quote_count": 0,
+            "coverage_ratio": 0.0,
+            "latest_quote_time": None,
+            "missing_symbols": [],
+            "sectors": [],
+        }
+
+    securities = {
+        item.symbol: item
+        for item in db.execute(select(Security).where(Security.symbol.in_(symbols))).scalars()
+    }
+    rows = db.execute(
+        select(
+            RealtimeQuote.symbol,
+            func.max(RealtimeQuote.quote_time).label("quote_time"),
+        )
+        .where(RealtimeQuote.symbol.in_(symbols))
+        .where(RealtimeQuote.trade_date == trade_date)
+        .where(RealtimeQuote.quote_time <= as_of)
+        .where(RealtimeQuote.price > 0)
+        .where(RealtimeQuote.pre_close > 0)
+        .group_by(RealtimeQuote.symbol)
+    ).all()
+    quoted = {row.symbol: row.quote_time for row in rows}
+    missing = [symbol for symbol in symbols if symbol not in quoted]
+    latest_quote_time = max(quoted.values()).isoformat() if quoted else None
+
+    sector_buckets: dict[str, dict[str, object]] = {}
+    for symbol in symbols:
+        sector = (securities.get(symbol).industry if securities.get(symbol) else None) or "未分类"
+        bucket = sector_buckets.setdefault(
+            sector,
+            {"sector": sector, "symbols": [], "quoted": [], "missing": []},
+        )
+        bucket["symbols"].append(symbol)
+        if symbol in quoted:
+            bucket["quoted"].append(symbol)
+        else:
+            bucket["missing"].append(symbol)
+
+    sectors = []
+    for bucket in sector_buckets.values():
+        target_count = len(bucket["symbols"])
+        valid_count = len(bucket["quoted"])
+        sectors.append(
+            {
+                "sector": bucket["sector"],
+                "target_symbol_count": target_count,
+                "valid_quote_count": valid_count,
+                "coverage_ratio": round(valid_count / target_count, 4) if target_count else 0.0,
+                "missing_symbols": bucket["missing"][:8],
+            }
+        )
+
+    return {
+        "target_symbol_count": len(symbols),
+        "valid_quote_count": len(quoted),
+        "coverage_ratio": round(len(quoted) / len(symbols), 4),
+        "latest_quote_time": latest_quote_time,
+        "missing_symbols": missing[:12],
+        "sectors": sorted(
+            sectors,
+            key=lambda item: (-int(item["target_symbol_count"]), str(item["sector"])),
+        ),
     }
 
 
@@ -488,7 +591,7 @@ def list_intraday_candidates(
             sync_realtime_quotes(symbols=symbols, quote_time=parsed_as_of)
             db.expire_all()
     market_stress = None if as_of else _live_market_stress_snapshot(db)
-    return discover_intraday_candidates(
+    result = discover_intraday_candidates(
         db,
         trade_date=current_time.date(),
         pool_name=pool_name,
@@ -499,6 +602,13 @@ def list_intraday_candidates(
         as_of=parsed_as_of,
         market_stress=market_stress,
     )
+    result["quote_coverage"] = _early_hot_sector_quote_coverage(
+        db,
+        trade_date=current_time.date(),
+        as_of=parsed_as_of,
+        include_growth_board=include_growth_board,
+    )
+    return result
 
 
 def _intraday_snapshot_points(current_time: datetime) -> list[tuple[str, str, datetime]]:

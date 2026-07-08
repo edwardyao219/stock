@@ -360,6 +360,23 @@ export interface IntradayMarketStress {
   stress_reasons: string[];
 }
 
+export interface IntradayQuoteCoverageSector {
+  sector: string;
+  target_symbol_count: number;
+  valid_quote_count: number;
+  coverage_ratio: number;
+  missing_symbols: string[];
+}
+
+export interface IntradayQuoteCoverage {
+  target_symbol_count: number;
+  valid_quote_count: number;
+  coverage_ratio: number;
+  latest_quote_time: string | null;
+  missing_symbols: string[];
+  sectors: IntradayQuoteCoverageSector[];
+}
+
 export interface IntradayCandidateList {
   trade_date: string;
   as_of: string | null;
@@ -367,6 +384,7 @@ export interface IntradayCandidateList {
   candidate_count: number;
   candidate_batch: CandidateBatch;
   market_stress: IntradayMarketStress | null;
+  quote_coverage: IntradayQuoteCoverage | null;
   candidates: IntradayCandidate[];
 }
 

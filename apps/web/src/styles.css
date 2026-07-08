@@ -279,6 +279,56 @@ button {
   flex: 0 0 auto;
 }
 
+.intraday-watch-body {
+  min-width: 0;
+}
+
+.intraday-coverage-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+
+.intraday-coverage-strip div {
+  border: 1px solid #e1e8ef;
+  border-radius: 7px;
+  background: #ffffff;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.intraday-coverage-strip span,
+.intraday-coverage-strip strong,
+.intraday-coverage-strip small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.intraday-coverage-strip span,
+.intraday-coverage-strip small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.intraday-coverage-strip strong {
+  color: #17202b;
+  font-size: 16px;
+  margin: 2px 0;
+}
+
+.intraday-coverage-strip strong.up {
+  color: #1f7a3b;
+}
+
+.intraday-coverage-strip strong.down {
+  color: #a23d2e;
+}
+
 .intraday-watch-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));

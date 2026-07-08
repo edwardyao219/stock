@@ -728,6 +728,90 @@ def test_list_intraday_candidates_refreshes_research_pool_quotes_when_requested(
     assert payload["candidates"][0]["quote_time"] == "2026-01-22T10:08:00"
 
 
+def test_list_intraday_candidates_reports_early_hot_sector_quote_coverage(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(symbol="600216", name="已刷快照", exchange="SH", industry="机器人"),
+                Security(symbol="600217", name="未刷快照", exchange="SH", industry="机器人"),
+                Security(symbol="688216", name="科创默认不看", exchange="SH", industry="机器人"),
+                SectorFeatureDaily(
+                    sector_code="机器人",
+                    trade_date=date(2026, 1, 22),
+                    features={
+                        "sector_strength_score": 82,
+                        "sector_trend_continuity_score": 78,
+                        "sector_momentum_score": 75,
+                        "sector_breadth_score": 68,
+                        "sector_avg_return_20d": 0.12,
+                        "sector_positive_20d_rate": 70,
+                        "sector_stock_count": 12,
+                    },
+                ),
+                RealtimeQuote(
+                    symbol="600216",
+                    trade_date=date(2026, 1, 22),
+                    quote_time=datetime(2026, 1, 22, 9, 44),
+                    price=Decimal("10.6"),
+                    open=Decimal("10"),
+                    high=Decimal("10.8"),
+                    low=Decimal("9.9"),
+                    pre_close=Decimal("10"),
+                    pct_change=None,
+                    volume=Decimal("100000"),
+                    amount=Decimal("1000000"),
+                    turnover_rate=Decimal("1.2"),
+                ),
+                RealtimeQuote(
+                    symbol="600217",
+                    trade_date=date(2026, 1, 22),
+                    quote_time=datetime(2026, 1, 22, 9, 50),
+                    price=Decimal("10.5"),
+                    open=Decimal("10"),
+                    high=Decimal("10.8"),
+                    low=Decimal("9.9"),
+                    pre_close=Decimal("10"),
+                    pct_change=None,
+                    volume=Decimal("100000"),
+                    amount=Decimal("1000000"),
+                    turnover_rate=Decimal("1.2"),
+                ),
+            ]
+        )
+        db.commit()
+
+        monkeypatch.setattr(
+            "apps.api.app.routers.workspace.now_local",
+            lambda: datetime(2026, 1, 22, 9, 45),
+            raising=False,
+        )
+        payload = list_intraday_candidates(
+            db=db,
+            pool_name="experiment",
+            as_of="2026-01-22T09:45:00",
+        )
+
+    coverage = payload["quote_coverage"]
+    assert coverage["target_symbol_count"] == 2
+    assert coverage["valid_quote_count"] == 1
+    assert coverage["coverage_ratio"] == 0.5
+    assert coverage["latest_quote_time"] == "2026-01-22T09:44:00"
+    assert coverage["missing_symbols"] == ["600217"]
+    assert coverage["sectors"] == [
+        {
+            "sector": "机器人",
+            "target_symbol_count": 2,
+            "valid_quote_count": 1,
+            "coverage_ratio": 0.5,
+            "missing_symbols": ["600217"],
+        }
+    ]
+
+
 def test_list_intraday_candidate_snapshots_replays_without_future_quotes(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
