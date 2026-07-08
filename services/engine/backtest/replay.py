@@ -15,8 +15,7 @@ from services.engine.features.sync import (
 from services.engine.paper.learning import generate_paper_learning_report
 from services.engine.paper.review import generate_paper_trade_reviews
 from services.engine.paper.simulator import run_daily_paper_simulation
-from services.engine.plans.sync import MAIN_TRADE_STRATEGY_TYPES
-from services.engine.plans.sync import generate_and_store_trade_plans
+from services.engine.plans.sync import MAIN_TRADE_STRATEGY_TYPES, generate_and_store_trade_plans
 from services.engine.research_pool.candidates import discover_next_session_candidates
 from services.shared.database import SessionLocal
 from services.shared.models import (
@@ -283,22 +282,14 @@ def _discover_candidates_and_generate_plans(
         for item in discovery.get("candidates", [])
         if item.get("selection_mode") == "formal_strategy"
     ]
-    plan_result: dict[str, int | str] = {
-        "contexts": 0,
-        "plans": 0,
-        "written": 0,
-        "feature_date": discovery.get("feature_date") or trade_date,
-        "symbols": 0,
-    }
-    if formal_symbols:
-        plan_result = generate_and_store_trade_plans(
-            plan_date=trade_date,
-            trade_date=next_trade_date,
-            feature_date=discovery.get("feature_date") or trade_date,
-            symbols=formal_symbols,
-            limit=len(formal_symbols),
-            use_learning_adjustments=use_learning_adjustments,
-        )
+    plan_result = generate_and_store_trade_plans(
+        plan_date=trade_date,
+        trade_date=next_trade_date,
+        feature_date=discovery.get("feature_date") or trade_date,
+        symbols=formal_symbols,
+        limit=len(formal_symbols),
+        use_learning_adjustments=use_learning_adjustments,
+    )
     return discovery, plan_result
 
 

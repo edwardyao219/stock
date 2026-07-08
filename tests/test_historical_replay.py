@@ -256,3 +256,50 @@ def test_replay_candidate_step_generates_plans_only_for_formal_candidates(monkey
     assert captured["plans"]["trade_date"] == "2026-01-03"
     assert discovery["candidates"][1]["selection_mode"] == "observation"
     assert plan_result["written"] == 1
+
+
+def test_replay_candidate_step_retires_plans_when_no_formal_candidates(monkeypatch) -> None:
+    captured = {"plans": None, "committed": False}
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def commit(self):
+            captured["committed"] = True
+
+    def fake_discover(db, **kwargs):
+        return {
+            "feature_date": "2026-01-02",
+            "universe_size": 2,
+            "candidates": [
+                {"symbol": "002837", "selection_mode": "observation"},
+                {"symbol": "603083", "selection_mode": "potential_watch"},
+            ],
+        }
+
+    def fake_generate(**kwargs):
+        captured["plans"] = kwargs
+        return {"contexts": 0, "plans": 0, "written": 0}
+
+    monkeypatch.setattr(replay, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(replay, "discover_next_session_candidates", fake_discover)
+    monkeypatch.setattr(replay, "generate_and_store_trade_plans", fake_generate)
+
+    discovery, plan_result = replay._discover_candidates_and_generate_plans(
+        trade_date="2026-01-02",
+        next_trade_date="2026-01-03",
+        symbols=["002837", "603083"],
+        limit=2,
+        use_learning_adjustments=True,
+    )
+
+    assert captured["committed"] is True
+    assert captured["plans"]["symbols"] == []
+    assert captured["plans"]["plan_date"] == "2026-01-02"
+    assert captured["plans"]["trade_date"] == "2026-01-03"
+    assert len(discovery["candidates"]) == 2
+    assert plan_result["written"] == 0
