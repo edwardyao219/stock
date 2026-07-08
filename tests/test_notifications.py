@@ -1036,6 +1036,46 @@ def test_build_candidate_tiers_limits_core_to_one_when_market_stress_is_caution(
     assert "只保留最强一只" in tiers["watch_wait"][0]["tier_reason"]
 
 
+def test_build_candidate_tiers_limits_core_with_replay_dual_line_policy() -> None:
+    first = {
+        "symbol": "603061",
+        "name": "金海通",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "selection_mode": "formal_strategy",
+        "score": 88.0,
+        "selected_strategy_type": "long_term",
+        "reasons": ["低维主线：板块趋势和个股强度共振"],
+        "risk_flags": [],
+    }
+    second = {
+        "symbol": "600360",
+        "name": "华微电子",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "selection_mode": "formal_strategy",
+        "score": 84.0,
+        "selected_strategy_type": "swing",
+        "reasons": ["中期强者：相对强度或板块扩散足够强"],
+        "risk_flags": [],
+    }
+    discovery = {
+        "candidates": [first, second],
+        "long_action_candidates": [first, second],
+        "dual_line_policy": {
+            "max_core_positions": 1,
+            "summary": "主线可小仓精选，但阶段连续性不足，不扩大行动池。",
+        },
+    }
+
+    tiers = build_candidate_tiers(discovery, max_core_items=3)
+
+    assert [item["symbol"] for item in tiers["core_action"]] == ["603061"]
+    assert [item["symbol"] for item in tiers["watch_wait"]] == ["600360"]
+    assert "回放门控" in tiers["watch_wait"][0]["tier_reason"]
+    assert "阶段连续性不足" in tiers["watch_wait"][0]["tier_reason"]
+
+
 def test_build_candidate_tiers_keeps_startup_preheat_as_watch_wait() -> None:
     candidates = [
         {

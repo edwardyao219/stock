@@ -644,6 +644,7 @@ def test_discover_next_session_candidates_step_dispatches_screening_summary(monk
         return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,
@@ -727,6 +728,7 @@ def test_discover_next_session_candidates_step_plans_action_candidates_only(monk
         return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,
@@ -781,6 +783,7 @@ def test_discover_next_session_candidates_step_reports_empty_core_reason(monkeyp
         return {"written": 0}
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,
@@ -863,6 +866,7 @@ def test_discover_next_session_candidates_step_plans_long_action_candidates_firs
         return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,
@@ -957,6 +961,7 @@ def test_discover_next_session_candidates_step_does_not_plan_blocked_core(
         return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,
@@ -1212,6 +1217,121 @@ def test_discover_next_session_candidates_step_uses_live_market_stress_for_today
     assert result.summary is not None
     assert "压力大" in result.summary
     assert "生成 0 条交易计划" in result.summary
+
+
+def test_load_candidate_gate_policies_adds_replay_phase_policy(monkeypatch) -> None:
+    captured = {}
+
+    def fake_compare(**kwargs):
+        captured["compare"] = kwargs
+        return {"scopes": {}}
+
+    def fake_style_gate(comparison, **kwargs):
+        return {
+            "scope": kwargs["scope"],
+            "horizon": kwargs["horizon"],
+            "rows": [],
+        }
+
+    def fake_diagnosis(comparison, **kwargs):
+        captured["diagnosis"] = kwargs
+        return {
+            "market_phase_policy": {
+                "status": "risk_off",
+                "max_core_positions": 1,
+            },
+            "dual_line_policy": {
+                "active_line": "cash_defense",
+                "max_core_positions": 0,
+                "summary": "两条线都没有足够确认，优先防守和复盘。",
+            },
+            "strategy_pk": {
+                "return_mode": "simple_sum_no_compounding",
+                "rows": [],
+            },
+        }
+
+    monkeypatch.setattr(
+        "services.engine.backtest.walk_forward.compare_candidate_walk_forward_scopes",
+        fake_compare,
+    )
+    monkeypatch.setattr(
+        "apps.api.app.routers.rules.diagnose_style_gate_policy",
+        fake_style_gate,
+    )
+    monkeypatch.setattr(
+        "apps.api.app.routers.rules.diagnose_candidate_replay_effect",
+        fake_diagnosis,
+    )
+
+    policies = pipeline._load_candidate_gate_policies("2026-07-08")
+
+    assert captured["compare"]["scopes"] == (
+        "all",
+        "action",
+        "action_long",
+        "potential_watch",
+        "startup_preheat",
+        "sector_watch",
+    )
+    assert captured["compare"]["horizons"] == (5, 10, 20)
+    assert captured["diagnosis"]["horizon"] == 20
+    assert policies["style_gate_policy"]["scope"] == "potential_watch"
+    assert policies["startup_preheat_policy"]["scope"] == "startup_preheat"
+    assert policies["dual_line_policy"]["max_core_positions"] == 0
+    assert policies["market_phase_policy"]["status"] == "risk_off"
+    assert policies["strategy_pk"]["return_mode"] == "simple_sum_no_compounding"
+
+
+def test_load_candidate_gate_policies_does_not_block_when_replay_data_is_insufficient(
+    monkeypatch,
+) -> None:
+    def fake_compare(**kwargs):
+        return {"scopes": {}}
+
+    def fake_style_gate(comparison, **kwargs):
+        return {
+            "scope": kwargs["scope"],
+            "horizon": kwargs["horizon"],
+            "rows": [],
+        }
+
+    def fake_diagnosis(comparison, **kwargs):
+        return {
+            "market_phase_policy": {
+                "status": "insufficient_data",
+                "max_core_positions": 1,
+            },
+            "dual_line_policy": {
+                "active_line": "cash_defense",
+                "max_core_positions": 0,
+                "summary": "两条线都没有足够确认，优先防守和复盘。",
+            },
+            "strategy_pk": {
+                "return_mode": "simple_sum_no_compounding",
+                "rows": [],
+            },
+        }
+
+    monkeypatch.setattr(
+        "services.engine.backtest.walk_forward.compare_candidate_walk_forward_scopes",
+        fake_compare,
+    )
+    monkeypatch.setattr(
+        "apps.api.app.routers.rules.diagnose_style_gate_policy",
+        fake_style_gate,
+    )
+    monkeypatch.setattr(
+        "apps.api.app.routers.rules.diagnose_candidate_replay_effect",
+        fake_diagnosis,
+    )
+
+    policies = pipeline._load_candidate_gate_policies("2026-07-08")
+
+    assert "dual_line_policy" not in policies
+    assert "market_phase_policy" not in policies
+    assert "strategy_pk" not in policies
+    assert policies["style_gate_policy"]["rows"] == []
 
 
 def test_candidate_live_market_stress_falls_back_to_sina_symbol_snapshot(
@@ -1470,6 +1590,7 @@ def test_discover_next_session_candidates_step_keeps_long_term_notifications(mon
         return [type("R", (), {"channel": "dingtalk", "status": "ok"})()]
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,
@@ -1779,6 +1900,7 @@ def test_discover_next_session_candidates_step_filters_star_candidates_with_star
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(pipeline, "_load_star_symbols", lambda db: ["688001", "688002"])
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,
@@ -1870,6 +1992,7 @@ def test_discover_next_session_candidates_step_scans_growth_board_without_star_f
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(pipeline, "_load_star_symbols", lambda db: [])
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,

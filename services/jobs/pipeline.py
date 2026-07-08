@@ -515,7 +515,10 @@ def _is_startup_preheat_candidate(item: dict[str, Any]) -> bool:
 
 def _load_candidate_gate_policies(trade_date: str) -> dict[str, Any]:
     try:
-        from apps.api.app.routers.rules import diagnose_style_gate_policy
+        from apps.api.app.routers.rules import (
+            diagnose_candidate_replay_effect,
+            diagnose_style_gate_policy,
+        )
         from services.engine.backtest.walk_forward import compare_candidate_walk_forward_scopes
 
         end_date = date.fromisoformat(trade_date)
@@ -523,13 +526,21 @@ def _load_candidate_gate_policies(trade_date: str) -> dict[str, Any]:
         comparison = compare_candidate_walk_forward_scopes(
             start_date=start_date,
             end_date=trade_date,
-            scopes=("potential_watch", "startup_preheat"),
+            scopes=(
+                "all",
+                "action",
+                "action_long",
+                "potential_watch",
+                "startup_preheat",
+                "sector_watch",
+            ),
             limit=15,
-            horizons=(5, 10),
+            horizons=(5, 10, 20),
             min_coverage_ratio=0.70,
             include_fundamentals=False,
         )
-        return {
+        diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
+        policies = {
             "style_gate_policy": diagnose_style_gate_policy(
                 comparison,
                 scope="potential_watch",
@@ -544,6 +555,16 @@ def _load_candidate_gate_policies(trade_date: str) -> dict[str, Any]:
                 min_upgrade_avg_return=0.02,
             ),
         }
+        market_phase = diagnosis.get("market_phase_policy") if isinstance(diagnosis, dict) else None
+        phase_status = (
+            str(market_phase.get("status") or "") if isinstance(market_phase, dict) else ""
+        )
+        if phase_status and phase_status != "insufficient_data":
+            for key in ("market_phase_policy", "dual_line_policy", "strategy_pk"):
+                value = diagnosis.get(key) if isinstance(diagnosis, dict) else None
+                if isinstance(value, dict):
+                    policies[key] = value
+        return policies
     except Exception:
         return {}
 

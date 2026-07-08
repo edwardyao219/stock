@@ -557,6 +557,40 @@ def _market_stress_core_limit(discovery: dict[str, Any], max_core_items: int) ->
     return max_core_items
 
 
+def _replay_core_policy(discovery: dict[str, Any]) -> dict[str, Any] | None:
+    for key in ("dual_line_policy", "market_phase_policy"):
+        policy = discovery.get(key)
+        if isinstance(policy, dict) and policy.get("max_core_positions") is not None:
+            return policy
+    return None
+
+
+def _replay_core_limit(discovery: dict[str, Any], max_core_items: int) -> int:
+    policy = _replay_core_policy(discovery)
+    if not policy:
+        return max_core_items
+    try:
+        limit = int(policy.get("max_core_positions") or 0)
+    except (TypeError, ValueError):
+        return max_core_items
+    return max(0, min(max_core_items, limit))
+
+
+def _replay_core_block_reason(
+    discovery: dict[str, Any],
+    *,
+    selected_core_count: int,
+    max_core_items: int,
+) -> str | None:
+    policy = _replay_core_policy(discovery)
+    if not policy or selected_core_count < max_core_items:
+        return None
+    summary = str(policy.get("summary") or "").strip()
+    if summary:
+        return f"回放门控：最近策略PK只允许{max_core_items}只核心；{summary}"
+    return f"回放门控：最近策略PK只允许{max_core_items}只核心，剩余候选先降为观察。"
+
+
 def _market_stress_core_block_reason(
     discovery: dict[str, Any],
     *,
@@ -993,6 +1027,8 @@ def build_candidate_tiers(
     )
     core_source_items = _merge_candidate_items_by_symbol(list(core_source))
     market_core_limit = _market_stress_core_limit(discovery, max_core_items)
+    replay_core_limit = _replay_core_limit(discovery, max_core_items)
+    effective_core_limit = min(market_core_limit, replay_core_limit)
     blocked_core_items: list[dict[str, Any]] = []
     blocked_core_reasons: list[str] = []
     filtered_core_source: list[dict[str, Any]] = []
@@ -1001,6 +1037,22 @@ def build_candidate_tiers(
             discovery,
             selected_core_count=len(filtered_core_source),
             max_core_items=market_core_limit,
+        )
+        if block_reason:
+            blocked_core_items.append(
+                _tiered_candidate(
+                    item,
+                    tier="watch_wait",
+                    label="观察等待",
+                    reason=_append_horizon_reason(item, block_reason),
+                )
+            )
+            blocked_core_reasons.append(block_reason)
+            continue
+        block_reason = _replay_core_block_reason(
+            discovery,
+            selected_core_count=len(filtered_core_source),
+            max_core_items=effective_core_limit,
         )
         if block_reason:
             blocked_core_items.append(
@@ -1036,7 +1088,7 @@ def build_candidate_tiers(
                 "板块和个股趋势同时在线，作为核心行动候选；盘中仍看承接。",
             ),
         )
-        for item in filtered_core_source[:market_core_limit]
+        for item in filtered_core_source[:effective_core_limit]
     ]
     core_symbols = _candidate_symbols(core_action)
     blocked_core_symbols = _candidate_symbols(blocked_core_items)
