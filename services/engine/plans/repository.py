@@ -191,7 +191,12 @@ def load_feature_contexts(
     return contexts
 
 
-def upsert_trade_plans(db: Session, plans: list[TradePlanCandidate]) -> int:
+def upsert_trade_plans(
+    db: Session,
+    plans: list[TradePlanCandidate],
+    *,
+    reactivate_cancelled: bool = False,
+) -> int:
     plan_dates = [
         (
             _date(plan.plan_date),
@@ -224,7 +229,8 @@ def upsert_trade_plans(db: Session, plans: list[TradePlanCandidate]) -> int:
             "status": _next_status(
                 existing_statuses.get(
                     (_date(plan.plan_date), _date(plan.trade_date), plan.symbol, plan.rule_id)
-                )
+                ),
+                reactivate_cancelled=reactivate_cancelled,
             ),
         }
         for plan in plans
@@ -304,7 +310,9 @@ def _existing_plan_statuses(
     }
 
 
-def _next_status(existing_status: str | None) -> str:
+def _next_status(existing_status: str | None, *, reactivate_cancelled: bool = False) -> str:
+    if existing_status == "cancelled" and reactivate_cancelled:
+        return "planned"
     if existing_status in {"executed", "skipped", "cancelled"}:
         return existing_status
     return "planned"

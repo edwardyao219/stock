@@ -22,6 +22,25 @@ from services.shared.database import SessionLocal
 MAIN_TRADE_STRATEGY_TYPES = {"long_term", "swing"}
 
 
+def _strategy_priority(strategy_type: str | None) -> int:
+    return {
+        "long_term": 3,
+        "swing": 2,
+        "watch_breakout": 1,
+        "short_term": 0,
+    }.get(str(strategy_type or ""), 0)
+
+
+def _best_plan_keys_by_symbol(plans) -> set[tuple[str, str]]:
+    selected = {}
+    for plan in plans:
+        current = selected.get(plan.symbol)
+        rank = (_strategy_priority(plan.strategy_type), float(plan.confidence_score or 0))
+        if current is None or rank > current[0]:
+            selected[plan.symbol] = (rank, plan.rule_id)
+    return {(symbol, rule_id) for symbol, (_rank, rule_id) in selected.items()}
+
+
 def generate_and_store_trade_plans(
     plan_date: str,
     trade_date: str,
@@ -98,13 +117,17 @@ def generate_and_store_trade_plans(
             learning_adjustment_loader=learning_loader if use_learning_adjustments else None,
             allowed_strategy_types=MAIN_TRADE_STRATEGY_TYPES,
         )
-        written = upsert_trade_plans(db, plans)
+        written = upsert_trade_plans(
+            db,
+            plans,
+            reactivate_cancelled=should_retire_unselected,
+        )
         if should_retire_unselected:
             retire_unselected_trade_plans(
                 db,
                 plan_date=plan_date,
                 trade_date=trade_date,
-                active_keys={(plan.symbol, plan.rule_id) for plan in plans},
+                active_keys=_best_plan_keys_by_symbol(plans),
                 include_all_plan_dates=True,
             )
         db.commit()

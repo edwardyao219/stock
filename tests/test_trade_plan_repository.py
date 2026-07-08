@@ -62,6 +62,58 @@ def test_upsert_trade_plans_preserves_executed_status(monkeypatch) -> None:
     assert captured_rows[0]["status"] == "executed"
 
 
+def test_upsert_trade_plans_can_reactivate_cancelled_status(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    captured_rows = []
+
+    def fake_upsert_rows(db, model, rows, update_columns, constraint=None, index_elements=None):
+        captured_rows.extend(rows)
+        return len(rows)
+
+    monkeypatch.setattr(repository, "upsert_rows", fake_upsert_rows)
+
+    with session() as db:
+        db.add(
+            TradePlan(
+                plan_date=date(2026, 7, 8),
+                trade_date=date(2026, 7, 8),
+                symbol="603893",
+                rule_id="R005",
+                strategy_type="swing",
+                sector_code=None,
+                entry_condition_json={},
+                position_size=Decimal("0.10"),
+                status="cancelled",
+            )
+        )
+        db.commit()
+
+        written = repository.upsert_trade_plans(
+            db,
+            [
+                TradePlanCandidate(
+                    plan_date="2026-07-08",
+                    trade_date="2026-07-08",
+                    symbol="603893",
+                    rule_id="R005",
+                    strategy_type="swing",
+                    entry_summary="test",
+                    initial_stop=9.5,
+                    take_profit_1=10.8,
+                    take_profit_2=None,
+                    position_size=0.1,
+                    confidence_score=80,
+                )
+            ],
+            reactivate_cancelled=True,
+        )
+
+    assert written == 1
+    assert captured_rows[0]["status"] == "planned"
+
+
 def test_retire_unselected_trade_plans_keeps_terminal_statuses() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
