@@ -60,6 +60,20 @@ def _run_step(name: str, fn: Callable[[], str | PipelineStepResult]) -> Pipeline
         )
 
 
+def _candidate_diagnostic_detail(discovery: dict[str, Any]) -> str | None:
+    diagnostics = discovery.get("candidate_diagnostics")
+    if not isinstance(diagnostics, dict):
+        return None
+    summary = str(diagnostics.get("summary") or "").strip()
+    reasons = [str(item).strip() for item in diagnostics.get("reasons") or [] if str(item).strip()]
+    if not summary and not reasons:
+        return None
+    detail = f"候选诊断：{summary}" if summary else "候选诊断："
+    if reasons:
+        detail += f" 原因：{'；'.join(reasons[:2])}"
+    return detail
+
+
 def _is_open_trade_date(db: Session, trade_date: str) -> bool:
     row = db.execute(
         select(TradingCalendar).where(TradingCalendar.trade_date == date.fromisoformat(trade_date))
@@ -860,6 +874,9 @@ def _discover_next_session_candidates_step(
         f"趋势 {float(market_snapshot.get('trend_score') or 0):.1f} / "
         f"上升信号 {float(market_snapshot.get('up_signal_rate') or 0):.1f}%",
     )
+    candidate_diagnostic_detail = _candidate_diagnostic_detail(discovery)
+    if candidate_diagnostic_detail:
+        details.insert(1, candidate_diagnostic_detail)
     tier_summary = (
         candidate_tiers.get("summary") if isinstance(candidate_tiers, dict) else {}
     ) or {}

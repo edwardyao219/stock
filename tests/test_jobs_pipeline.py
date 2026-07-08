@@ -605,6 +605,10 @@ def test_discover_next_session_candidates_step_dispatches_screening_summary(monk
             "feature_date": "2026-06-24",
             "universe_size": 100,
             "universe_warning": "",
+            "candidate_diagnostics": {
+                "summary": "候选偏少：3只，先解释原因再考虑调参。",
+                "reasons": ["市场状态把候选上限从15只收缩到3只。"],
+            },
             "sector_focus": [
                 {
                     "sector": "通信设备",
@@ -664,6 +668,7 @@ def test_discover_next_session_candidates_step_dispatches_screening_summary(monk
     assert captured["discovery"]["candidates"][0]["symbol"] == "603083"
     assert captured["plan_args"]["symbols"] == ["603083"]
     assert result.details[0] == "钉钉提醒：dingtalk:ok"
+    assert any("候选诊断：候选偏少" in item for item in result.details)
 
 
 def test_discover_next_session_candidates_step_plans_action_candidates_only(monkeypatch) -> None:
