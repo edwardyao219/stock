@@ -826,16 +826,14 @@ def _discover_next_session_candidates_step(
         for item in plan_candidates
         if item.get("selection_mode") == "formal_strategy"
     ]
-    plan_result = {"written": 0}
-    if formal_symbols:
-        plan_result = generate_and_store_trade_plans(
-            plan_date=trade_date,
-            trade_date=next_trade_date,
-            feature_date=discovery["feature_date"] or None,
-            symbols=formal_symbols,
-            limit=len(formal_symbols),
-            use_learning_adjustments=use_learning_adjustments,
-        )
+    plan_result = generate_and_store_trade_plans(
+        plan_date=trade_date,
+        trade_date=next_trade_date,
+        feature_date=discovery["feature_date"] or None,
+        symbols=formal_symbols,
+        limit=len(formal_symbols),
+        use_learning_adjustments=use_learning_adjustments,
+    )
 
     details = [
         f"{item['symbol']} {item.get('name') or ''} / {item.get('sector') or '-'} / "

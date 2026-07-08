@@ -83,6 +83,22 @@ def generate_and_store_trade_plans(
                     "symbols": 0,
                 }
             limit = None
+        if target_symbols == []:
+            retire_unselected_trade_plans(
+                db,
+                plan_date=plan_date,
+                trade_date=trade_date,
+                active_keys=set(),
+                include_all_plan_dates=True,
+            )
+            db.commit()
+            return {
+                "contexts": 0,
+                "plans": 0,
+                "written": 0,
+                "feature_date": effective_feature_date,
+                "symbols": 0,
+            }
         contexts = load_feature_contexts(
             db,
             feature_date=effective_feature_date,

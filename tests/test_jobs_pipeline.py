@@ -752,6 +752,8 @@ def test_discover_next_session_candidates_step_plans_action_candidates_only(monk
 
 
 def test_discover_next_session_candidates_step_reports_empty_core_reason(monkeypatch) -> None:
+    captured = {}
+
     def fake_discovery(db, **kwargs):
         return {
             "feature_date": "2026-06-24",
@@ -774,10 +776,18 @@ def test_discover_next_session_candidates_step_reports_empty_core_reason(monkeyp
             "retired": 0,
         }
 
+    def fake_generate_and_store_trade_plans(**kwargs):
+        captured["plan_args"] = kwargs
+        return {"written": 0}
+
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
     )
     monkeypatch.setattr(
         "services.notifications.dispatcher.dispatch_candidate_screening",
@@ -792,6 +802,7 @@ def test_discover_next_session_candidates_step_reports_empty_core_reason(monkeyp
     )
 
     assert any("没有核心行动：当前候选都是潜力观察" in item for item in result.details)
+    assert captured["plan_args"]["symbols"] == []
 
 
 def test_discover_next_session_candidates_step_plans_long_action_candidates_first(
@@ -970,7 +981,7 @@ def test_discover_next_session_candidates_step_does_not_plan_blocked_core(
     assert [item["symbol"] for item in captured["discovery"]["candidate_tiers"]["watch_wait"]] == [
         "601336"
     ]
-    assert "plan_args" not in captured
+    assert captured["plan_args"]["symbols"] == []
     assert "生成 0 条交易计划" in result.summary
     assert any("大盘压力大" in item for item in result.details)
 
@@ -1068,7 +1079,7 @@ def test_discover_next_session_candidates_step_blocks_growth_core_on_market_stre
     assert [item["symbol"] for item in captured["discovery"]["candidate_tiers"]["watch_wait"]] == [
         "603061"
     ]
-    assert "plan_args" not in captured
+    assert captured["plan_args"]["symbols"] == []
     assert "生成 0 条交易计划" in result.summary
     assert any("大盘压力大" in item for item in result.details)
 
@@ -1197,7 +1208,7 @@ def test_discover_next_session_candidates_step_uses_live_market_stress_for_today
     assert captured["discovery"]["market_stress"]["stress_status"] == "risk_off"
     assert tiers["core_action"] == []
     assert [item["symbol"] for item in tiers["sector_watch"]] == ["002558"]
-    assert "plan_args" not in captured
+    assert captured["plan_args"]["symbols"] == []
     assert result.summary is not None
     assert "压力大" in result.summary
     assert "生成 0 条交易计划" in result.summary
