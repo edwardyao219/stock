@@ -125,6 +125,47 @@ def test_monthly_trend_rule_accepts_sector_trend_context_without_dividend_filter
     assert plans[0].max_holding_days == 60
 
 
+def test_monthly_trend_rule_accepts_top_ranked_sector_when_absolute_score_is_moderate() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R004")
+    plans = generate_trade_plans(
+        plan_date="2026-07-07",
+        trade_date="2026-07-08",
+        rules=[rule],
+        feature_contexts=[
+            {
+                "symbol": "688130",
+                "trade_date": "2026-07-07",
+                "close": 87.0,
+                "ma20": 83.0,
+                "atr_14": 3.0,
+                "support_level": 78.0,
+                "sector_strength_score": 58.1,
+                "sector_strength_rank_score": 100.0,
+                "sector_breadth_score": 54.0,
+                "sector_momentum_score": 45.0,
+                "relative_strength_score": 95,
+                "trend_score": 100,
+                "ma_alignment_score": 100,
+                "trend_quality_score": 76,
+                "volume_confirmation_score": 62,
+                "risk_score": 20,
+                "overheat_score": 35,
+                "volume_trap_risk_score": 40,
+                "return_20d": 0.276,
+                "distance_to_ma20": 0.048,
+                "max_drawdown_20d": -0.08,
+                "analysis_framework": "tech_growth_cycle",
+                "fundamental_verdict": "neutral",
+                "is_st": False,
+                "is_suspended": False,
+            }
+        ],
+    )
+
+    assert len(plans) == 1
+    assert plans[0].rule_id == "R004"
+
+
 def test_monthly_trend_rule_requires_sector_breadth_confirmation() -> None:
     rule = next(item for item in MVP_RULES if item.id == "R004")
     plans = generate_trade_plans(

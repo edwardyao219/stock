@@ -46,6 +46,7 @@ def generate_and_store_trade_plans(
             feature_date=effective_feature_date,
             symbols=target_symbols,
             limit=limit,
+            prefer_strategy_candidates=target_symbols is None,
         )
         feature_date_obj = date.fromisoformat(effective_feature_date)
 

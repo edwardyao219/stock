@@ -24,12 +24,27 @@ from services.shared.models import (
 
 
 def load_sector_feature_map(db: Session, trade_date: date) -> dict[str, dict[str, Any]]:
-    return {
-        row.sector_code: row.features or {}
-        for row in db.execute(
+    rows = list(
+        db.execute(
             select(SectorFeatureDaily).where(SectorFeatureDaily.trade_date == trade_date)
         ).scalars()
+    )
+    ranked = sorted(
+        rows,
+        key=lambda row: float((row.features or {}).get("sector_strength_score") or 0.0),
+        reverse=True,
+    )
+    denominator = max(1, len(ranked) - 1)
+    rank_by_sector = {
+        row.sector_code: round(100.0 * (1 - index / denominator), 4)
+        for index, row in enumerate(ranked)
     }
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        features = dict(row.features or {})
+        features["sector_strength_rank_score"] = rank_by_sector.get(row.sector_code, 0.0)
+        result[row.sector_code] = features
+    return result
 
 
 def _ts_code_for_symbol(security: Security) -> str:
@@ -306,9 +321,12 @@ def build_strategy_context(
     else:
         sector_profile = sector_profile_map.get(security.industry or "")
     if sector_profile is not None:
-        context.setdefault("sector_style", sector_profile.sector_style)
-        context.setdefault("analysis_framework", sector_profile.analysis_framework)
-        context.setdefault("holding_style", sector_profile.preferred_holding_style)
+        if not context.get("sector_style"):
+            context["sector_style"] = sector_profile.sector_style
+        if not context.get("analysis_framework"):
+            context["analysis_framework"] = sector_profile.analysis_framework
+        if not context.get("holding_style"):
+            context["holding_style"] = sector_profile.preferred_holding_style
         context.setdefault(
             "sector_key_drivers",
             (sector_profile.key_drivers_json or {}).get("drivers", []),

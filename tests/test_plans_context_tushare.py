@@ -4,12 +4,13 @@ from decimal import Decimal
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
-from services.engine.plans.context import build_strategy_context
+from services.engine.plans.context import build_strategy_context, load_sector_feature_map
 from services.engine.plans.repository import load_feature_contexts
 from services.shared.database import Base
 from services.shared.models import (
     DailyBar,
     FundamentalSnapshot,
+    SectorFeatureDaily,
     SectorProfile,
     Security,
     StockFeatureDaily,
@@ -123,6 +124,90 @@ def test_load_feature_contexts_batches_tushare_daily_basic_without_future_rows()
     assert len(statements) == 1
 
 
+def test_load_feature_contexts_can_prioritize_strategy_candidates_before_limit() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 7)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("000001", exchange="SZ", industry="银行"),
+                _security("688256", exchange="SH", industry="半导体"),
+                StockFeatureDaily(
+                    symbol="000001",
+                    trade_date=signal_date,
+                    features={
+                        "sector_strength_score": 50,
+                        "trend_score": 45,
+                        "relative_strength_score": 42,
+                        "volume_confirmation_score": 30,
+                        "volume_trap_risk_score": 70,
+                    },
+                ),
+                StockFeatureDaily(
+                    symbol="688256",
+                    trade_date=signal_date,
+                    features={
+                        "sector_strength_score": 88,
+                        "trend_score": 91,
+                        "relative_strength_score": 82,
+                        "volume_confirmation_score": 76,
+                        "volume_trap_risk_score": 25,
+                    },
+                ),
+                _bar("000001", signal_date),
+                _bar("688256", signal_date),
+            ]
+        )
+        db.commit()
+
+        default_contexts = load_feature_contexts(db, signal_date.isoformat(), limit=1)
+        prioritized_contexts = load_feature_contexts(
+            db,
+            signal_date.isoformat(),
+            limit=1,
+            prefer_strategy_candidates=True,
+        )
+
+    assert [item["symbol"] for item in default_contexts] == ["000001"]
+    assert [item["symbol"] for item in prioritized_contexts] == ["688256"]
+
+
+def test_load_sector_feature_map_adds_relative_rank_score() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 7)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                SectorFeatureDaily(
+                    sector_code="半导体",
+                    trade_date=signal_date,
+                    features={"sector_strength_score": 58.1},
+                ),
+                SectorFeatureDaily(
+                    sector_code="证券",
+                    trade_date=signal_date,
+                    features={"sector_strength_score": 40.5},
+                ),
+                SectorFeatureDaily(
+                    sector_code="银行",
+                    trade_date=signal_date,
+                    features={"sector_strength_score": 35.0},
+                ),
+            ]
+        )
+        db.commit()
+
+        sector_map = load_sector_feature_map(db, signal_date)
+
+    assert sector_map["半导体"]["sector_strength_rank_score"] == 100.0
+    assert sector_map["证券"]["sector_strength_rank_score"] == 50.0
+    assert sector_map["银行"]["sector_strength_rank_score"] == 0.0
+
+
 def test_load_feature_contexts_batches_optional_context_sources_without_future_rows() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -231,6 +316,9 @@ def test_load_feature_contexts_batches_optional_context_sources_without_future_r
 
     assert context_by_symbol["002156"]["net_mf_amount"] == 9.0
     assert context_by_symbol["600001"]["sector_fund_flow_rate"] == 3.5
+    assert context_by_symbol["600001"]["sector_style"] == "growth_cycle"
+    assert context_by_symbol["600001"]["analysis_framework"] == "tech_growth_cycle"
+    assert context_by_symbol["600001"]["holding_style"] == "monthly_trend"
     assert context_by_symbol["600001"]["sector_key_drivers"] == ["国产替代"]
     assert context_by_symbol["002156"]["revenue_growth"] == 12.5
     assert context_by_symbol["002156"]["pe_ttm"] == 35.5

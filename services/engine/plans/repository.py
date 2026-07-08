@@ -18,7 +18,13 @@ from services.engine.plans.context import (
 )
 from services.engine.plans.generator import TradePlanCandidate
 from services.engine.sector.repository import load_sector_profile_map
-from services.shared.models import DailyBar, Security, StockFeatureDaily, TradePlan
+from services.shared.models import (
+    DailyBar,
+    SectorFeatureDaily,
+    Security,
+    StockFeatureDaily,
+    TradePlan,
+)
 from services.shared.upsert import upsert_rows
 
 
@@ -39,14 +45,95 @@ def latest_feature_date(db: Session, before: date | None = None) -> date | None:
     return db.execute(stmt).scalar_one_or_none()
 
 
+def _feature_float(features: dict[str, Any] | None, key: str, default: float = 0.0) -> float:
+    if not features:
+        return default
+    value = features.get(key)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coalesced_feature_float(
+    sector_features: dict[str, Any] | None,
+    stock_features: dict[str, Any] | None,
+    key: str,
+    default: float = 0.0,
+) -> float:
+    sector_value = _feature_float(sector_features, key, default)
+    if sector_value != default:
+        return sector_value
+    return _feature_float(stock_features, key, default)
+
+
+def _strategy_candidate_rank_key(
+    symbol: str,
+    stock_features: dict[str, Any] | None,
+    sector_features: dict[str, Any] | None,
+) -> tuple[float, float, float, float, float, float, float, float, str]:
+    return (
+        -_coalesced_feature_float(sector_features, stock_features, "sector_strength_score"),
+        -_coalesced_feature_float(
+            sector_features,
+            stock_features,
+            "sector_trend_continuity_score",
+        ),
+        -_coalesced_feature_float(sector_features, stock_features, "sector_breadth_score"),
+        -_feature_float(stock_features, "trend_score"),
+        -_feature_float(stock_features, "relative_strength_score"),
+        -_feature_float(stock_features, "volume_confirmation_score"),
+        -_feature_float(stock_features, "return_20d"),
+        _feature_float(stock_features, "volume_trap_risk_score", 100.0),
+        symbol,
+    )
+
+
+def _ranked_strategy_symbols(db: Session, target_date: date, limit: int) -> list[str]:
+    rows = db.execute(
+        select(
+            StockFeatureDaily.symbol,
+            StockFeatureDaily.features,
+            SectorFeatureDaily.features,
+        )
+        .join(Security, Security.symbol == StockFeatureDaily.symbol)
+        .outerjoin(
+            SectorFeatureDaily,
+            (SectorFeatureDaily.sector_code == Security.industry)
+            & (SectorFeatureDaily.trade_date == StockFeatureDaily.trade_date),
+        )
+        .where(StockFeatureDaily.trade_date == target_date)
+        .where(Security.is_active.is_(True))
+        .order_by(StockFeatureDaily.symbol)
+    )
+    ranked = [
+        (
+            _strategy_candidate_rank_key(symbol, stock_features, sector_features),
+            symbol,
+        )
+        for symbol, stock_features, sector_features in rows
+    ]
+    ranked.sort(key=lambda item: item[0])
+    return [symbol for _rank, symbol in ranked[:limit]]
+
+
 def load_feature_contexts(
     db: Session,
     feature_date: str,
     symbols: list[str] | None = None,
     limit: int | None = None,
     include_fundamentals: bool = True,
+    prefer_strategy_candidates: bool = False,
 ) -> list[dict[str, Any]]:
     target_date = _date(feature_date)
+    rank_by_symbol: dict[str, int] = {}
+    if prefer_strategy_candidates and symbols is None and limit:
+        symbols = _ranked_strategy_symbols(db, target_date, limit)
+        rank_by_symbol = {symbol: index for index, symbol in enumerate(symbols)}
+        limit = None
+
     stmt = (
         select(StockFeatureDaily, Security, DailyBar)
         .join(Security, Security.symbol == StockFeatureDaily.symbol)
@@ -99,6 +186,8 @@ def load_feature_contexts(
                 sector_profile_map=sector_profile_map,
             )
         )
+    if rank_by_symbol:
+        contexts.sort(key=lambda item: rank_by_symbol.get(str(item["symbol"]), len(rank_by_symbol)))
     return contexts
 
 

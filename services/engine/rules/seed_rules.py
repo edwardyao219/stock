@@ -51,7 +51,12 @@ MVP_RULES: list[StrategyRule] = [
         description="在强势板块中寻找趋势向上、回踩均线且缩量的个股。",
         entry=ConditionGroup(
             all=[
-                Condition(feature="sector_strength_score", op=">=", value=70),
+                ConditionGroup(
+                    any=[
+                        Condition(feature="sector_strength_score", op=">=", value=70),
+                        Condition(feature="sector_strength_rank_score", op=">=", value=80),
+                    ]
+                ),
                 Condition(feature="trend_score", op=">=", value=65),
                 Condition(feature="distance_to_ma20", op=">=", value=-0.04),
                 Condition(feature="distance_to_ma20", op="<=", value=0.08),
@@ -84,7 +89,12 @@ MVP_RULES: list[StrategyRule] = [
         description="先观察强趋势里的缩量蓄势，避免追当天疯狂放量；次日突破信号日高点才进入。",
         entry=ConditionGroup(
             all=[
-                Condition(feature="sector_strength_score", op=">=", value=70),
+                ConditionGroup(
+                    any=[
+                        Condition(feature="sector_strength_score", op=">=", value=70),
+                        Condition(feature="sector_strength_rank_score", op=">=", value=80),
+                    ]
+                ),
                 Condition(feature="trend_score", op=">=", value=75),
                 Condition(feature="relative_strength_score", op=">=", value=55),
                 Condition(feature="sector_style", op="in", value=["theme", "growth_cycle"]),
@@ -122,7 +132,12 @@ MVP_RULES: list[StrategyRule] = [
         entry=ConditionGroup(
             all=[
                 Condition(feature="sector_style", op="in", value=["theme", "growth_cycle"]),
-                Condition(feature="sector_strength_score", op=">=", value=65),
+                ConditionGroup(
+                    any=[
+                        Condition(feature="sector_strength_score", op=">=", value=65),
+                        Condition(feature="sector_strength_rank_score", op=">=", value=80),
+                    ]
+                ),
                 Condition(feature="trend_score", op=">=", value=95),
                 Condition(feature="relative_strength_score", op=">=", value=55),
                 Condition(feature="return_20d", op=">=", value=0.08),
@@ -161,7 +176,12 @@ MVP_RULES: list[StrategyRule] = [
         description="把上升趋势和量能确认做成基准策略：要求均线结构、斜率、量能温和确认，同时过滤高位诱多。",
         entry=ConditionGroup(
             all=[
-                Condition(feature="sector_strength_score", op=">=", value=60),
+                ConditionGroup(
+                    any=[
+                        Condition(feature="sector_strength_score", op=">=", value=60),
+                        Condition(feature="sector_strength_rank_score", op=">=", value=80),
+                    ]
+                ),
                 Condition(feature="ma_alignment_score", op=">=", value=75),
                 Condition(feature="trend_quality_score", op=">=", value=68),
                 Condition(feature="volume_confirmation_score", op=">=", value=58),
@@ -220,13 +240,21 @@ MVP_RULES: list[StrategyRule] = [
         name="板块中期趋势跟随",
         strategy_type=StrategyType.LONG_TERM,
         status=RuleStatus.TESTING,
-        description="先看板块主线，再找个股趋势结构。按 1 个月以上的中期持有来设计，吃板块主升和趋势延续，不做银行红利防守逻辑。",
+        description=(
+            "先看板块主线，再找个股趋势结构。按 1 个月以上的中期持有来设计，"
+            "吃板块主升和趋势延续，不做银行红利防守逻辑。"
+        ),
         entry=ConditionGroup(
             all=[
                 Condition(feature="fundamental_verdict", op="!=", value="weak"),
-                Condition(feature="sector_strength_score", op=">=", value=68),
-                Condition(feature="sector_breadth_score", op=">=", value=54),
-                Condition(feature="sector_momentum_score", op=">=", value=56),
+                ConditionGroup(
+                    any=[
+                        Condition(feature="sector_strength_score", op=">=", value=68),
+                        Condition(feature="sector_strength_rank_score", op=">=", value=80),
+                    ]
+                ),
+                Condition(feature="sector_breadth_score", op=">=", value=50),
+                Condition(feature="sector_momentum_score", op=">=", value=45),
                 Condition(feature="relative_strength_score", op=">=", value=62),
                 Condition(feature="trend_score", op=">=", value=72),
                 Condition(feature="ma_alignment_score", op=">=", value=68),
