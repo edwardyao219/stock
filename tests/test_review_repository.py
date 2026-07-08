@@ -617,6 +617,79 @@ def test_load_market_cross_section_aggregates_mapped_sector_moneyflow() -> None:
     assert strong["fund_flow_source_count"] == 2
 
 
+def test_load_market_cross_section_prefers_exact_sector_moneyflow_over_alias_sum() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+
+    with session() as db:
+        db.add(
+            Security(
+                symbol="688101",
+                name="样本",
+                exchange="SH",
+                industry="半导体",
+                is_active=True,
+                is_st=False,
+            )
+        )
+        db.add(
+            DailyBar(
+                symbol="688101",
+                trade_date=date(2026, 7, 7),
+                open=Decimal("10"),
+                high=Decimal("11"),
+                low=Decimal("9"),
+                close=Decimal("11"),
+                pre_close=Decimal("10"),
+                volume=Decimal("100"),
+                amount=Decimal("1000"),
+                turnover_rate=None,
+                limit_up=Decimal("11"),
+                limit_down=Decimal("9"),
+                is_suspended=False,
+            )
+        )
+        db.add_all(
+            [
+                TushareMoneyflowIndDc(
+                    trade_date=date(2026, 7, 7),
+                    content_type="行业",
+                    ts_code="BK0001",
+                    name="半导体",
+                    pct_change=Decimal("1.2"),
+                    close=Decimal("1234"),
+                    net_amount=Decimal("30000000"),
+                    net_amount_rate=Decimal("0.6"),
+                ),
+                TushareMoneyflowIndDc(
+                    trade_date=date(2026, 7, 7),
+                    content_type="行业",
+                    ts_code="BK1001",
+                    name="半导体设备",
+                    pct_change=Decimal("3.2"),
+                    close=Decimal("1234"),
+                    net_amount=Decimal("100000000"),
+                    net_amount_rate=Decimal("4.5"),
+                ),
+            ]
+        )
+        db.commit()
+
+        cross_section = load_market_cross_section_for_report_date(
+            db,
+            "2026-07-07",
+            min_sector_count=1,
+        )
+
+    strong = cross_section["strong_sectors"][0]
+    assert strong["sector"] == "半导体"
+    assert strong["fund_flow_net_amount"] == 30000000.0
+    assert strong["fund_flow_rate"] == 0.6
+    assert strong["fund_flow_source_count"] == 1
+    assert strong["fund_flow_source_names"] == ["半导体"]
+
+
 def test_insert_review_report_updates_same_day_type_without_duplicates() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

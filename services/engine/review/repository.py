@@ -338,7 +338,8 @@ def load_market_cross_section_for_report_date(
         .where(TushareMoneyflowIndDc.trade_date <= latest_date)
         .where(TushareMoneyflowIndDc.content_type == "行业")
     ).scalar_one_or_none()
-    moneyflow_by_name: dict[str, dict[str, object]] = {}
+    moneyflow_exact_by_name: dict[str, dict[str, object]] = {}
+    moneyflow_alias_by_name: dict[str, dict[str, object]] = {}
     if moneyflow_date is not None:
         moneyflow_rows = db.execute(
             select(TushareMoneyflowIndDc)
@@ -355,8 +356,10 @@ def load_market_cross_section_for_report_date(
             if not row.name:
                 continue
             raw_name = str(row.name)
-            for sector_name in {raw_name, canonical_sector_name(raw_name)}:
-                _add_moneyflow_snapshot(moneyflow_by_name, sector_name, row)
+            _add_moneyflow_snapshot(moneyflow_exact_by_name, raw_name, row)
+            alias_name = canonical_sector_name(raw_name)
+            if alias_name != raw_name:
+                _add_moneyflow_snapshot(moneyflow_alias_by_name, alias_name, row)
 
     rows = db.execute(
         select(DailyBar, Security)
@@ -405,7 +408,9 @@ def load_market_cross_section_for_report_date(
         if stock_count <= 0:
             continue
         sector_name = str(item["sector"])
-        moneyflow = moneyflow_by_name.get(sector_name)
+        moneyflow = moneyflow_exact_by_name.get(sector_name) or moneyflow_alias_by_name.get(
+            sector_name
+        )
         source_names = (
             moneyflow.get("source_names") if moneyflow is not None else set()
         )
