@@ -229,7 +229,12 @@ def list_pool_symbols(
         if active_only:
             item_stmt = item_stmt.where(ResearchPoolItem.status == "active")
         items = filter_latest_candidate_batch_items(list(db.execute(item_stmt).scalars()))
-        return sorted(item.symbol for item in items)
+        return sorted(
+            item.symbol
+            for item in items
+            for tags in [[str(tag) for tag in (item.tags_json or {}).get("tags", [])]]
+            if candidate_tags(tags) and not manual_focus_tags(tags)
+        )
 
     stmt = select(ResearchPoolItem.symbol).where(ResearchPoolItem.pool_name == pool_name)
     if active_only:
