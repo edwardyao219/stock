@@ -162,6 +162,12 @@ export interface SectorOverview {
   moneyflow_missing_count: number;
   moneyflow_coverage_ratio: number | null;
   moneyflow_reliability_label: string;
+  sector_gate_summary: {
+    main_allowed_count: number;
+    observe_count: number;
+    cooldown_count: number;
+    unknown_count: number;
+  };
   sectors: SectorOverviewItem[];
   monthly_rank: SectorOverviewItem[];
   activity_rank: SectorOverviewItem[];

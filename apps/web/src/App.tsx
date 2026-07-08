@@ -2069,6 +2069,9 @@ export function App() {
               {sectorOverview?.moneyflow_trade_date ? ` / 资金 ${sectorOverview.moneyflow_trade_date}` : ""}
               {sectorOverview?.moneyflow_coverage_ratio != null ? ` / 资金覆盖 ${pct(sectorOverview.moneyflow_coverage_ratio)}` : ""}
               {sectorOverview?.moneyflow_reliability_label ? ` / ${sectorOverview.moneyflow_reliability_label}` : ""}
+              {sectorOverview?.sector_gate_summary ? ` / 主线 ${sectorOverview.sector_gate_summary.main_allowed_count}` : ""}
+              {sectorOverview?.sector_gate_summary ? ` / 观察 ${sectorOverview.sector_gate_summary.observe_count}` : ""}
+              {sectorOverview?.sector_gate_summary ? ` / 降温 ${sectorOverview.sector_gate_summary.cooldown_count}` : ""}
             </span>
           </div>
           {monthlySummary ? (

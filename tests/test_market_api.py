@@ -679,6 +679,10 @@ def test_get_sector_overview_returns_month_rank_and_fund_flow() -> None:
     assert payload.moneyflow_missing_count == 0
     assert payload.moneyflow_coverage_ratio == 1
     assert payload.moneyflow_reliability_label == "资金覆盖正常"
+    assert payload.sector_gate_summary.main_allowed_count == 1
+    assert payload.sector_gate_summary.observe_count == 1
+    assert payload.sector_gate_summary.cooldown_count == 0
+    assert payload.sector_gate_summary.unknown_count == 0
     assert payload.sectors[0].month_rank == 1
     assert round(payload.sectors[0].monthly_return_pct or 0, 4) == 0.18
     assert payload.sectors[0].fund_flow_net_amount == 350000000.0

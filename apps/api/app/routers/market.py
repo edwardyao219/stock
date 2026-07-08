@@ -264,6 +264,13 @@ class SectorOverviewItem(BaseModel):
     sector_gate_reasons: list[str] = Field(default_factory=list)
 
 
+class SectorGateSummaryResponse(BaseModel):
+    main_allowed_count: int = 0
+    observe_count: int = 0
+    cooldown_count: int = 0
+    unknown_count: int = 0
+
+
 class SectorOverviewResponse(BaseModel):
     trade_date: date | None
     month_start_date: date | None
@@ -276,6 +283,9 @@ class SectorOverviewResponse(BaseModel):
     moneyflow_missing_count: int = 0
     moneyflow_coverage_ratio: float | None = None
     moneyflow_reliability_label: str = "资金流缺失"
+    sector_gate_summary: SectorGateSummaryResponse = Field(
+        default_factory=SectorGateSummaryResponse
+    )
     sectors: list[SectorOverviewItem] = Field(default_factory=list)
     monthly_rank: list[SectorOverviewItem] = Field(default_factory=list)
     activity_rank: list[SectorOverviewItem] = Field(default_factory=list)
@@ -1057,6 +1067,15 @@ def _moneyflow_reliability_label(coverage_ratio: float | None) -> str:
     return "资金覆盖不足"
 
 
+def _sector_gate_summary(items: list[SectorOverviewItem]) -> SectorGateSummaryResponse:
+    return SectorGateSummaryResponse(
+        main_allowed_count=sum(1 for item in items if item.sector_gate_label == "主线允许"),
+        observe_count=sum(1 for item in items if item.sector_gate_label == "观察确认"),
+        cooldown_count=sum(1 for item in items if item.sector_gate_label == "降温等待"),
+        unknown_count=sum(1 for item in items if not item.sector_gate_label),
+    )
+
+
 def _stored_sector_overview(db: Session) -> SectorOverviewResponse:
     latest_sector_daily_date = db.execute(
         select(func.max(SectorDaily.trade_date))
@@ -1219,6 +1238,7 @@ def _stored_sector_overview(db: Session) -> SectorOverviewResponse:
         moneyflow_missing_count=max(0, overview_sector_count - moneyflow_sector_count),
         moneyflow_coverage_ratio=moneyflow_coverage_ratio,
         moneyflow_reliability_label=_moneyflow_reliability_label(moneyflow_coverage_ratio),
+        sector_gate_summary=_sector_gate_summary(ranked_items),
         sectors=ranked_items,
         monthly_rank=ranked_items[:10],
         activity_rank=sorted(
