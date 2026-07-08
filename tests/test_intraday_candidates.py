@@ -432,6 +432,212 @@ def test_discover_intraday_candidates_marks_early_divergence_as_watch_only() -> 
     assert "早盘分歧" in "；".join(candidate["caution_reasons"])
 
 
+def test_discover_intraday_candidates_expands_early_scan_to_hot_sector_quotes() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600212", "板块内新启动", industry="机器人"),
+                _sector_features(
+                    "机器人",
+                    date(2026, 6, 30),
+                    strength=82,
+                    continuity=78,
+                    momentum=75,
+                    breadth=68,
+                    avg_return_20d=0.12,
+                    positive_20d_rate=70,
+                ),
+                _quote(
+                    "600212",
+                    datetime(2026, 6, 30, 9, 35),
+                    price="10.10",
+                    open_price="10.00",
+                    high="10.15",
+                    low="9.95",
+                    volume="100000",
+                ),
+                _quote(
+                    "600212",
+                    datetime(2026, 6, 30, 9, 45),
+                    price="10.55",
+                    open_price="10.00",
+                    high="10.60",
+                    low="9.95",
+                    volume="240000",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 9, 45),
+        )
+
+    candidate = result["candidates"][0]
+    assert candidate["symbol"] == "600212"
+    assert candidate["review_window"] == "early_divergence"
+    assert candidate["selection_tier"] == "watch"
+    assert "sector_hot_pool_scan" in candidate["support_flags"]
+    assert "热门板块" in candidate["selection_reason"]
+
+
+def test_discover_intraday_candidates_expands_early_scan_to_observe_sector() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600214", "观察板块启动", industry="消费电子"),
+                _sector_features(
+                    "消费电子",
+                    date(2026, 6, 30),
+                    strength=64,
+                    continuity=62,
+                    momentum=60,
+                    breadth=56,
+                    avg_return_20d=0.05,
+                    positive_20d_rate=55,
+                ),
+                _quote(
+                    "600214",
+                    datetime(2026, 6, 30, 9, 35),
+                    price="10.10",
+                    open_price="10.00",
+                    high="10.15",
+                    low="9.95",
+                    volume="100000",
+                ),
+                _quote(
+                    "600214",
+                    datetime(2026, 6, 30, 9, 45),
+                    price="10.45",
+                    open_price="10.00",
+                    high="10.50",
+                    low="9.95",
+                    volume="230000",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 9, 45),
+        )
+
+    candidate = result["candidates"][0]
+    assert candidate["symbol"] == "600214"
+    assert candidate["selection_tier"] == "watch"
+    assert "sector_hot_pool_scan" in candidate["support_flags"]
+
+
+def test_discover_intraday_candidates_expands_early_scan_to_durable_month_hot_sector() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600215", "月线热门回调", industry="半导体"),
+                _sector_features(
+                    "半导体",
+                    date(2026, 6, 30),
+                    strength=58,
+                    continuity=58,
+                    momentum=45,
+                    breadth=54,
+                    avg_return_20d=0.10,
+                    positive_20d_rate=70,
+                ),
+                _quote(
+                    "600215",
+                    datetime(2026, 6, 30, 9, 35),
+                    price="10.10",
+                    open_price="10.00",
+                    high="10.15",
+                    low="9.95",
+                    volume="100000",
+                ),
+                _quote(
+                    "600215",
+                    datetime(2026, 6, 30, 9, 45),
+                    price="10.35",
+                    open_price="10.00",
+                    high="10.45",
+                    low="9.95",
+                    volume="220000",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 9, 45),
+        )
+
+    candidate = result["candidates"][0]
+    assert candidate["symbol"] == "600215"
+    assert candidate["selection_tier"] == "watch"
+    assert "sector_hot_pool_scan" in candidate["support_flags"]
+
+
+def test_discover_intraday_candidates_does_not_expand_hot_sector_after_early_window() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600213", "午间不扩展", industry="机器人"),
+                _sector_features(
+                    "机器人",
+                    date(2026, 6, 30),
+                    strength=82,
+                    continuity=78,
+                    momentum=75,
+                    breadth=68,
+                    avg_return_20d=0.12,
+                    positive_20d_rate=70,
+                ),
+                _quote(
+                    "600213",
+                    datetime(2026, 6, 30, 11, 20),
+                    price="10.55",
+                    open_price="10.00",
+                    high="10.60",
+                    low="9.95",
+                    volume="240000",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 11, 35),
+        )
+
+    assert result["candidates"] == []
+
+
 def test_discover_intraday_candidates_marks_after_close_snapshots() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

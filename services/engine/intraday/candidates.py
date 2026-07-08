@@ -111,6 +111,9 @@ SELECTION_TIER_PRIORITY = {
 
 DEFAULT_FORMAL_LIMIT = 3
 DEFAULT_FORMAL_PER_SECTOR_LIMIT = 2
+EARLY_SECTOR_SCAN_MAX_SECTORS = 3
+EARLY_SECTOR_SCAN_MAX_SYMBOLS = 40
+EARLY_SECTOR_SCAN_SCORE = 58.0
 
 
 def _to_float(value: Decimal | None) -> float | None:
@@ -294,6 +297,67 @@ def _sector_signal(features: dict[str, Any] | None) -> SectorSignal:
         return "weak_sector", -7.0, support_flags, risk_flags, caution_reasons
 
     return "neutral_sector", 0.0, support_flags, risk_flags, caution_reasons
+
+
+def _hot_sector_codes(
+    db: Session,
+    *,
+    trade_date: date,
+    limit: int = EARLY_SECTOR_SCAN_MAX_SECTORS,
+) -> list[str]:
+    latest_dates = (
+        select(
+            SectorFeatureDaily.sector_code.label("sector_code"),
+            func.max(SectorFeatureDaily.trade_date).label("trade_date"),
+        )
+        .where(SectorFeatureDaily.trade_date <= trade_date)
+        .group_by(SectorFeatureDaily.sector_code)
+        .subquery()
+    )
+    stmt = select(SectorFeatureDaily).join(
+        latest_dates,
+        (SectorFeatureDaily.sector_code == latest_dates.c.sector_code)
+        & (SectorFeatureDaily.trade_date == latest_dates.c.trade_date),
+    )
+    strong: list[tuple[float, str]] = []
+    observe: list[tuple[float, str]] = []
+    for row in db.execute(stmt).scalars():
+        features = row.features or {}
+        signal, _, _, _, _ = _sector_signal(features)
+        strength = _feature_float(features, "sector_strength_score", 50.0)
+        continuity = _feature_float(features, "sector_trend_continuity_score", 50.0)
+        momentum = _feature_float(features, "sector_momentum_score", 50.0)
+        breadth = _feature_float(features, "sector_breadth_score", 50.0)
+        avg_return_20d = _feature_float(features, "sector_avg_return_20d", 0.0)
+        positive_20d_rate = _feature_float(features, "sector_positive_20d_rate", 50.0)
+        score = (
+            strength * 0.35
+            + continuity * 0.25
+            + momentum * 0.20
+            + breadth * 0.10
+            + positive_20d_rate * 0.10
+        )
+        if signal == "strong_sector":
+            strong.append((score, row.sector_code))
+            continue
+        observe_trend = (
+            strength >= 60
+            and continuity >= 55
+            and momentum >= 55
+            and breadth >= 50
+            and avg_return_20d >= 0.03
+            and positive_20d_rate >= 50
+        )
+        durable_month_hot = (
+            strength >= 56
+            and continuity >= 55
+            and avg_return_20d >= 0.08
+            and positive_20d_rate >= 60
+        )
+        if observe_trend or durable_month_hot:
+            observe.append((score, row.sector_code))
+    scored = strong or observe
+    return [sector for _, sector in sorted(scored, reverse=True)[:limit]]
 
 
 def _sector_quality(features: dict[str, Any] | None, signal: str) -> tuple[float, str]:
@@ -516,6 +580,81 @@ def _review_window(quote: RealtimeQuote) -> str:
     return "afternoon"
 
 
+def _is_early_divergence_time(value: datetime | None) -> bool:
+    if value is None:
+        return False
+    clock = value.time()
+    return clock.hour == 9 and 15 <= clock.minute <= 45
+
+
+def _early_sector_scan_items(
+    db: Session,
+    *,
+    trade_date: date,
+    pool_name: str,
+    as_of: datetime | None,
+    existing_symbols: set[str],
+    include_growth_board: bool,
+) -> list[ResearchPoolItem]:
+    if not _is_early_divergence_time(as_of):
+        return []
+
+    hot_sectors = _hot_sector_codes(db, trade_date=trade_date)
+    if not hot_sectors:
+        return []
+
+    latest_times = (
+        select(
+            RealtimeQuote.symbol.label("symbol"),
+            func.max(RealtimeQuote.quote_time).label("quote_time"),
+        )
+        .where(RealtimeQuote.trade_date == trade_date)
+        .where(RealtimeQuote.quote_time <= as_of)
+        .group_by(RealtimeQuote.symbol)
+        .subquery()
+    )
+    stmt = (
+        select(Security)
+        .join(latest_times, Security.symbol == latest_times.c.symbol)
+        .join(
+            RealtimeQuote,
+            (RealtimeQuote.symbol == latest_times.c.symbol)
+            & (RealtimeQuote.quote_time == latest_times.c.quote_time),
+        )
+        .where(Security.industry.in_(hot_sectors))
+        .where(Security.is_active.is_(True))
+        .where(Security.is_st.is_(False))
+        .where(RealtimeQuote.price > 0)
+        .where(RealtimeQuote.pre_close > 0)
+        .order_by(RealtimeQuote.amount.desc())
+        .limit(EARLY_SECTOR_SCAN_MAX_SYMBOLS)
+    )
+
+    items: list[ResearchPoolItem] = []
+    for security in db.execute(stmt).scalars():
+        if security.symbol in existing_symbols:
+            continue
+        if not include_growth_board and is_growth_board_symbol(security.symbol):
+            continue
+        items.append(
+            ResearchPoolItem(
+                pool_name=pool_name,
+                symbol=security.symbol,
+                note=f"早盘热门板块扩展扫描：{security.industry}",
+                tags_json={
+                    "tags": [
+                        "early_sector_scan",
+                        "mode:potential_watch",
+                        "rank:99",
+                        f"score:{EARLY_SECTOR_SCAN_SCORE}",
+                    ]
+                },
+                status="active",
+            )
+        )
+    return items
+
+
 def _caution_reasons(
     *,
     quote: RealtimeQuote,
@@ -652,6 +791,12 @@ def _selection_tier(
         return "watch", SELECTION_TIER_LABELS["watch"], reason
 
     if review_window == "early_divergence":
+        if "sector_hot_pool_scan" in support_flags:
+            return (
+                "watch",
+                SELECTION_TIER_LABELS["watch"],
+                "热门板块早盘扩展扫描，只做观察确认不追高",
+            )
         reason = caution_reasons[0] if caution_reasons else "早盘分歧期先整体扫描，只做观察确认"
         return "watch", SELECTION_TIER_LABELS["watch"], reason
 
@@ -868,6 +1013,17 @@ def discover_intraday_candidates(
     source_pool_items = _candidate_items_source(db, pool_name=pool_name)
     candidate_batch = candidate_batch_summary(source_pool_items)
     pool_items = filter_latest_candidate_batch_items(source_pool_items)
+    pool_items = [
+        *pool_items,
+        *_early_sector_scan_items(
+            db,
+            trade_date=trade_date,
+            pool_name=pool_name,
+            as_of=as_of,
+            existing_symbols={item.symbol for item in pool_items},
+            include_growth_board=include_growth_board,
+        ),
+    ]
     symbols = [item.symbol for item in pool_items]
     securities = {
         item.symbol: item
@@ -910,6 +1066,8 @@ def discover_intraday_candidates(
             support_flags.append("candidate_manual_focus")
         if "mode:potential_watch" in tags:
             support_flags.append("candidate_potential_watch")
+        if "early_sector_scan" in tags:
+            support_flags.append("sector_hot_pool_scan")
         day_change_pct = _pct(quote.price, quote.pre_close)
         security = securities.get(item.symbol)
         sector_signal, sector_delta, sector_support, sector_risks, sector_cautions = _sector_signal(
