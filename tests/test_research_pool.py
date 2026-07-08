@@ -31,6 +31,36 @@ def test_add_symbols_to_research_pool_upserts_items() -> None:
     assert by_symbol["000001"]["tags"] == ["manual", "bank"]
 
 
+def test_list_pool_symbols_can_keep_latest_auto_candidate_batch() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        add_symbols_to_pool(
+            db,
+            ["600171"],
+            pool_name="experiment",
+            tags=["after_close_candidate", "next_session", "batch:2026-06-30T09:00:00"],
+        )
+        add_symbols_to_pool(
+            db,
+            ["002156"],
+            pool_name="experiment",
+            tags=["after_close_candidate", "next_session", "batch:2026-06-30T10:00:00"],
+        )
+        db.commit()
+
+        all_symbols = list_pool_symbols(db, pool_name="experiment")
+        latest_symbols = list_pool_symbols(
+            db,
+            pool_name="experiment",
+            latest_candidate_batch_only=True,
+        )
+
+    assert all_symbols == ["002156", "600171"]
+    assert latest_symbols == ["002156"]
+
+
 def test_add_symbols_to_research_pool_preserves_manual_focus_note() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

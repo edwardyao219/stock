@@ -7,6 +7,7 @@ from services.engine.plans.learning_adjustments import load_plan_learning_adjust
 from services.engine.plans.repository import (
     latest_feature_date,
     load_feature_contexts,
+    retire_unselected_trade_plans,
     upsert_trade_plans,
 )
 from services.engine.research_pool.repository import list_pool_symbols
@@ -39,8 +40,30 @@ def generate_and_store_trade_plans(
             latest_date = latest_feature_date(db, before=date.fromisoformat(trade_date))
             effective_feature_date = latest_date.isoformat() if latest_date else plan_date
         target_symbols = symbols
+        should_retire_unselected = pool_name is not None and symbols is None
         if target_symbols is None and pool_name:
-            target_symbols = list_pool_symbols(db, pool_name=pool_name)
+            target_symbols = list_pool_symbols(
+                db,
+                pool_name=pool_name,
+                latest_candidate_batch_only=True,
+            )
+            if not target_symbols:
+                retire_unselected_trade_plans(
+                    db,
+                    plan_date=plan_date,
+                    trade_date=trade_date,
+                    active_keys=set(),
+                    include_all_plan_dates=True,
+                )
+                db.commit()
+                return {
+                    "contexts": 0,
+                    "plans": 0,
+                    "written": 0,
+                    "feature_date": effective_feature_date,
+                    "symbols": 0,
+                }
+            limit = None
         contexts = load_feature_contexts(
             db,
             feature_date=effective_feature_date,
@@ -76,6 +99,14 @@ def generate_and_store_trade_plans(
             allowed_strategy_types=MAIN_TRADE_STRATEGY_TYPES,
         )
         written = upsert_trade_plans(db, plans)
+        if should_retire_unselected:
+            retire_unselected_trade_plans(
+                db,
+                plan_date=plan_date,
+                trade_date=trade_date,
+                active_keys={(plan.symbol, plan.rule_id) for plan in plans},
+                include_all_plan_dates=True,
+            )
         db.commit()
     return {
         "contexts": len(contexts),

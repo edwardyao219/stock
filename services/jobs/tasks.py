@@ -55,7 +55,12 @@ def generate_trade_plans_task() -> dict[str, str]:
     from services.engine.plans.sync import generate_and_store_trade_plans
 
     today = now_local().date().isoformat()
-    result = generate_and_store_trade_plans(plan_date=today, trade_date=today, limit=500)
+    result = generate_and_store_trade_plans(
+        plan_date=today,
+        trade_date=today,
+        pool_name="experiment",
+        limit=200,
+    )
     return {
         "trade_date": today,
         "status": "ok",

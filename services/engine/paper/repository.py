@@ -42,7 +42,29 @@ def load_trade_plans_for_trade_date(
     )
     if symbols:
         stmt = stmt.where(TradePlan.symbol.in_(symbols))
-    return list(db.execute(stmt).scalars())
+    return _best_plan_per_symbol(list(db.execute(stmt).scalars()))
+
+
+def _strategy_priority(strategy_type: str | None) -> int:
+    return {
+        "long_term": 3,
+        "swing": 2,
+        "watch_breakout": 1,
+        "short_term": 0,
+    }.get(str(strategy_type or ""), 0)
+
+
+def _plan_rank(plan: TradePlan) -> tuple[int, float]:
+    return _strategy_priority(plan.strategy_type), float(plan.confidence_score or 0)
+
+
+def _best_plan_per_symbol(plans: list[TradePlan]) -> list[TradePlan]:
+    selected: dict[str, TradePlan] = {}
+    for plan in plans:
+        current = selected.get(plan.symbol)
+        if current is None or _plan_rank(plan) > _plan_rank(current):
+            selected[plan.symbol] = plan
+    return sorted(selected.values(), key=_plan_rank, reverse=True)
 
 
 def load_bar(db: Session, symbol: str, trade_date: date) -> DailyBar | None:

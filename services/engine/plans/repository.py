@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import func, select, tuple_, update
 from sqlalchemy.orm import Session
 
 from services.engine.fundamental.repository import load_fundamental_context_map
@@ -254,6 +254,28 @@ def upsert_trade_plans(db: Session, plans: list[TradePlanCandidate]) -> int:
         ],
         constraint="uq_trade_plans_daily_rule",
     )
+
+
+def retire_unselected_trade_plans(
+    db: Session,
+    *,
+    plan_date: str,
+    trade_date: str,
+    active_keys: set[tuple[str, str]],
+    include_all_plan_dates: bool = False,
+) -> int:
+    stmt = (
+        update(TradePlan)
+        .where(TradePlan.trade_date == _date(trade_date))
+        .where(TradePlan.status == "planned")
+        .values(status="retired")
+    )
+    if not include_all_plan_dates:
+        stmt = stmt.where(TradePlan.plan_date == _date(plan_date))
+    if active_keys:
+        stmt = stmt.where(tuple_(TradePlan.symbol, TradePlan.rule_id).not_in(active_keys))
+    result = db.execute(stmt.execution_options(synchronize_session=False))
+    return int(result.rowcount or 0)
 
 
 def _existing_plan_statuses(

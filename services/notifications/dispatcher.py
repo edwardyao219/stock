@@ -179,7 +179,7 @@ def _candidate_screening_items(discovery: dict[str, Any]) -> list[dict[str, Any]
         candidates = [
             item for item in candidates if str(item.get("selection_tier") or "").strip() == "formal"
         ]
-    return filter_hot_sector_candidates(discovery, candidates)
+    return _merge_candidate_items_by_symbol(filter_hot_sector_candidates(discovery, candidates))
 
 
 def _is_hot_sector_focus(item: dict[str, Any]) -> bool:
@@ -348,6 +348,95 @@ def _ordered_candidate_items(
             reverse=True,
         )[: max(0, max_items - len(low_noise))]
     )
+
+
+def _unique_texts(values: list[Any]) -> list[str]:
+    texts: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        texts.append(text)
+        seen.add(text)
+    return texts
+
+
+def _merged_candidate_item(items: list[dict[str, Any]]) -> dict[str, Any]:
+    ordered = sorted(items, key=_candidate_order_key, reverse=True)
+    best = dict(ordered[0])
+    rule_ids = _unique_texts(
+        [
+            rule_id
+            for item in ordered
+            for rule_id in (
+                item.get("matched_rule_ids")
+                if isinstance(item.get("matched_rule_ids"), list)
+                else [item.get("selected_rule_id")]
+            )
+        ]
+    )
+    rule_names = _unique_texts(
+        [
+            rule_name
+            for item in ordered
+            for rule_name in (
+                item.get("matched_rule_names")
+                if isinstance(item.get("matched_rule_names"), list)
+                else [
+                    " ".join(
+                        part
+                        for part in (
+                            str(item.get("selected_rule_id") or "").strip(),
+                            str(item.get("selected_rule_name") or "").strip(),
+                        )
+                        if part
+                    )
+                ]
+            )
+        ]
+    )
+    reasons = _unique_texts(
+        [reason for item in ordered for reason in (item.get("reasons") or [])]
+    )
+    risks = _unique_texts(
+        [risk for item in ordered for risk in (item.get("risk_flags") or [])]
+    )
+    best["matched_rule_ids"] = rule_ids
+    best["matched_rule_names"] = rule_names
+    if reasons:
+        best["reasons"] = reasons
+    if risks:
+        best["risk_flags"] = risks
+    return best
+
+
+def _merge_candidate_items_by_symbol(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    anonymous: list[dict[str, Any]] = []
+    for item in candidates:
+        symbol = str(item.get("symbol") or "").strip()
+        if not symbol:
+            anonymous.append(item)
+            continue
+        buckets.setdefault(symbol, []).append(item)
+    merged = [_merged_candidate_item(items) for items in buckets.values()]
+    return merged + anonymous
+
+
+def _take_unseen_candidate_items(
+    candidates: list[dict[str, Any]],
+    seen_symbols: set[str],
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for item in _merge_candidate_items_by_symbol(candidates):
+        symbol = str(item.get("symbol") or "")
+        if symbol and symbol in seen_symbols:
+            continue
+        selected.append(item)
+        if symbol:
+            seen_symbols.add(symbol)
+    return selected
 
 
 def _has_low_dimensional_reason(item: dict[str, Any]) -> bool:
@@ -875,9 +964,9 @@ def build_candidate_tiers(
     source_candidates = list(
         candidates if candidates is not None else discovery.get("candidates") or []
     )
-    source_candidates = [
+    source_candidates = _merge_candidate_items_by_symbol([
         _candidate_with_style_gate(discovery, item) for item in source_candidates
-    ]
+    ])
     long_action_candidates = discovery.get("long_action_candidates")
     action_candidates = discovery.get("action_candidates")
     core_source = (
@@ -888,7 +977,7 @@ def build_candidate_tiers(
         else select_long_action_candidates(discovery, source_candidates, max_items=max_core_items)
         or select_action_candidates(discovery, source_candidates, max_items=max_core_items)
     )
-    core_source_items = list(core_source)
+    core_source_items = _merge_candidate_items_by_symbol(list(core_source))
     market_core_limit = _market_stress_core_limit(discovery, max_core_items)
     blocked_core_items: list[dict[str, Any]] = []
     blocked_core_reasons: list[str] = []
@@ -1042,6 +1131,7 @@ def _format_candidate_group(
     max_items: int,
     title: str,
 ) -> None:
+    candidates = _merge_candidate_items_by_symbol(candidates)
     if not candidates:
         lines.append(f"{title}：暂无候选。")
         return
@@ -1090,6 +1180,13 @@ def _format_candidate_group(
                 f"{item.get('selected_rule_name') or ''}"
             ).strip()
         )
+        matched_rule_ids = [
+            rule_id
+            for rule_id in item.get("matched_rule_ids") or []
+            if rule_id and rule_id != "-"
+        ]
+        if len(matched_rule_ids) > 1:
+            lines.append(f"共振规则：{'、'.join(matched_rule_ids)}")
         reasons = item.get("reasons") or []
         if reasons:
             lines.append(f"理由：{_candidate_reason_preview(reasons)}")
@@ -1185,10 +1282,23 @@ def format_candidate_screening_text(
     )
     if uses_candidate_tiers:
         tiers = candidate_tiers if isinstance(candidate_tiers, dict) else {}
-        core_candidates = list(tiers.get("core_action") or [])
-        sector_watch_candidates = list(tiers.get("sector_watch") or [])
-        watch_candidates = list(tiers.get("watch_wait") or [])
-        risk_candidates = list(tiers.get("risk_reject") or [])
+        seen_tier_symbols: set[str] = set()
+        core_candidates = _take_unseen_candidate_items(
+            list(tiers.get("core_action") or []),
+            seen_tier_symbols,
+        )
+        sector_watch_candidates = _take_unseen_candidate_items(
+            list(tiers.get("sector_watch") or []),
+            seen_tier_symbols,
+        )
+        watch_candidates = _take_unseen_candidate_items(
+            list(tiers.get("watch_wait") or []),
+            seen_tier_symbols,
+        )
+        risk_candidates = _take_unseen_candidate_items(
+            list(tiers.get("risk_reject") or []),
+            seen_tier_symbols,
+        )
         displayed_candidates = (
             core_candidates + sector_watch_candidates + watch_candidates + risk_candidates
         )
@@ -1257,13 +1367,19 @@ def format_candidate_screening_text(
         return "\n".join(lines)
 
     candidates = (
-        filter_hot_sector_candidates(discovery, core_action_candidates)
+        _merge_candidate_items_by_symbol(
+            filter_hot_sector_candidates(discovery, core_action_candidates)
+        )
         if uses_core_action_candidates
         else (
-            filter_hot_sector_candidates(discovery, long_action_candidates)
+            _merge_candidate_items_by_symbol(
+                filter_hot_sector_candidates(discovery, long_action_candidates)
+            )
             if uses_long_action_candidates
             else (
-                filter_hot_sector_candidates(discovery, action_candidates)
+                _merge_candidate_items_by_symbol(
+                    filter_hot_sector_candidates(discovery, action_candidates)
+                )
                 if uses_action_candidates
                 else screening_candidates
             )

@@ -222,7 +222,15 @@ def list_pool_symbols(
     db: Session,
     pool_name: str = "manual",
     active_only: bool = True,
+    latest_candidate_batch_only: bool = False,
 ) -> list[str]:
+    if latest_candidate_batch_only:
+        item_stmt = select(ResearchPoolItem).where(ResearchPoolItem.pool_name == pool_name)
+        if active_only:
+            item_stmt = item_stmt.where(ResearchPoolItem.status == "active")
+        items = filter_latest_candidate_batch_items(list(db.execute(item_stmt).scalars()))
+        return sorted(item.symbol for item in items)
+
     stmt = select(ResearchPoolItem.symbol).where(ResearchPoolItem.pool_name == pool_name)
     if active_only:
         stmt = stmt.where(ResearchPoolItem.status == "active")

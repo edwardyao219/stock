@@ -1637,6 +1637,47 @@ def test_format_candidate_screening_text_splits_star_market_candidates() -> None
     assert text.index("688003 科创候选") > text.index("科创板高弹性池")
 
 
+def test_format_candidate_screening_text_groups_multiple_rules_by_symbol() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "candidates": [
+                {
+                    "symbol": "603083",
+                    "name": "普通候选",
+                    "sector": "通信设备",
+                    "selection_mode": "formal_strategy",
+                    "score": 82.5,
+                    "selected_rule_id": "R004",
+                    "selected_rule_name": "板块中期趋势跟随",
+                    "selected_strategy_type": "long_term",
+                    "reasons": ["板块中期趋势延续性较好"],
+                    "risk_flags": [],
+                },
+                {
+                    "symbol": "603083",
+                    "name": "普通候选",
+                    "sector": "通信设备",
+                    "selection_mode": "formal_strategy",
+                    "score": 78.5,
+                    "selected_rule_id": "R007",
+                    "selected_rule_name": "趋势量能确认",
+                    "selected_strategy_type": "swing",
+                    "reasons": ["板块20日主线扩散较好", "趋势和资金同向"],
+                    "risk_flags": [],
+                },
+            ],
+        }
+    )
+
+    assert text.count("603083 普通候选 通信设备") == 1
+    assert "规则：R004 板块中期趋势跟随" in text
+    assert "共振规则：R004、R007" in text
+    assert "板块20日主线扩散较好" in text
+
+
 def test_format_candidate_screening_text_keeps_only_formal_selection_tier_when_present() -> None:
     text = format_candidate_screening_text(
         {

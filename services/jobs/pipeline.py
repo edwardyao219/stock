@@ -264,6 +264,7 @@ def _generate_trade_plans_step(
     plan_result = generate_and_store_trade_plans(
         plan_date=plan_date,
         trade_date=trade_date,
+        pool_name="experiment",
         limit=limit,
         use_learning_adjustments=use_learning_adjustments,
     )

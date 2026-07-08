@@ -162,6 +162,30 @@ def test_compute_features_step_refreshes_low_dimensional_snapshot_cache(monkeypa
     assert "2 条低维缓存" in result
 
 
+def test_generate_trade_plans_step_uses_latest_candidate_pool(monkeypatch) -> None:
+    captured = {}
+
+    def fake_generate_and_store_trade_plans(**kwargs):
+        captured.update(kwargs)
+        return {"contexts": 3, "written": 2}
+
+    monkeypatch.setattr(
+        "services.engine.plans.sync.generate_and_store_trade_plans",
+        fake_generate_and_store_trade_plans,
+    )
+
+    detail = pipeline._generate_trade_plans_step(
+        "2026-07-07",
+        "2026-07-08",
+        limit=200,
+        use_learning_adjustments=True,
+    )
+
+    assert captured["pool_name"] == "experiment"
+    assert "symbols" not in captured
+    assert "写入 2 条计划" in detail
+
+
 def test_celery_after_close_screening_runs_at_six_pm() -> None:
     schedule = celery_app.conf.beat_schedule["paper-after-close-screening"]["schedule"]
 
