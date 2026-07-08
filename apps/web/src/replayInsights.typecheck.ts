@@ -689,13 +689,13 @@ gateSummary.dingPolicyText satisfies string;
 gateSummary.mainLineText satisfies string;
 gateSummary.supportLineText satisfies string;
 gateSummary.styleGateText satisfies string | null;
-longCandidateReplayQuery.start_date satisfies "2025-01-02";
+longCandidateReplayQuery.start_date satisfies "2024-01-01";
 longCandidateReplayQuery.end_date satisfies string;
 longCandidateReplayQuery.limit satisfies 15;
 longCandidateReplayQuery.min_coverage_ratio satisfies 0.7;
 longCandidateReplayQuery.include_fundamentals satisfies false;
 longCandidateReplayQuery.use_monthly_shards satisfies true;
-initialCandidateReplayQuery.start_date satisfies "2025-01-02";
+initialCandidateReplayQuery.start_date satisfies "2024-01-01";
 initialCandidateReplayQuery.end_date satisfies string;
 initialCandidateReplayQuery.use_monthly_shards satisfies true;
 

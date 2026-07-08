@@ -19,7 +19,7 @@ export function yesterdayReplayEndDate(today = new Date()) {
 }
 
 export const longCandidateReplayQuery = {
-  start_date: "2025-01-02",
+  start_date: "2024-01-01",
   end_date: yesterdayReplayEndDate(),
   limit: 15,
   min_coverage_ratio: 0.7,
