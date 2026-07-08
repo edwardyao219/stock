@@ -2385,6 +2385,68 @@ def _candidate_sector_groups(candidates: list[NextSessionCandidate]) -> list[dic
     )
 
 
+def _candidate_discovery_diagnostics(
+    *,
+    candidate_count: int,
+    requested_limit: int,
+    effective_limit: int,
+    market_regime: str,
+    market_regime_snapshot: dict[str, Any],
+    participation_snapshot: dict[str, float],
+    universe_size: int,
+    min_universe_size: int,
+    sector_groups: list[dict[str, Any]],
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    gate_state = str(market_regime_snapshot.get("emotion_gate") or "")
+    participation_score = float(participation_snapshot.get("participation_score", 50.0))
+    liquidity_score = float(participation_snapshot.get("liquidity_score", 50.0))
+    top_group = sector_groups[0] if sector_groups else {}
+    top_sector = str(top_group.get("sector") or "").strip() or None
+    top_sector_count = int(top_group.get("count") or 0)
+    sector_count = len([item for item in sector_groups if str(item.get("sector") or "").strip()])
+
+    if universe_size < min_universe_size:
+        reasons.append(f"本地特征宇宙只有{universe_size}只，样本覆盖不足。")
+    if effective_limit < requested_limit:
+        reasons.append(f"市场状态把候选上限从{requested_limit}只收缩到{effective_limit}只。")
+    if market_regime in {"weak_trend", "panic"} or gate_state == "risk_off":
+        label = "恐慌" if market_regime == "panic" else "弱趋势"
+        reasons.append(f"市场处于{label}，情绪阀门{gate_state or 'neutral'}，先保留少数观察票。")
+    if participation_score < 45.0 or liquidity_score < 48.0:
+        reasons.append(f"资金参与偏弱，参与{participation_score:.1f}/流动性{liquidity_score:.1f}。")
+    if candidate_count and top_sector and (
+        sector_count == 1 or top_sector_count / max(candidate_count, 1) >= 0.67
+    ):
+        reasons.append(f"候选集中在{top_sector}，板块宽度不足，暂不硬凑其他行业。")
+    if candidate_count < effective_limit:
+        reasons.append(
+            f"候选数{candidate_count}低于当前上限{effective_limit}，说明趋势/风险过滤仍偏严格。"
+        )
+
+    if candidate_count == 0:
+        state = "empty"
+        summary = "没有自动候选：先不强行给票。"
+    elif reasons:
+        state = "limited"
+        summary = f"候选偏少：{candidate_count}只，先解释原因再考虑调参。"
+    else:
+        state = "normal"
+        summary = f"候选正常：{candidate_count}只，继续按板块和趋势验证。"
+
+    return {
+        "state": state,
+        "summary": summary,
+        "reasons": reasons,
+        "candidate_count": candidate_count,
+        "requested_limit": requested_limit,
+        "effective_limit": effective_limit,
+        "sector_count": sector_count,
+        "top_sector": top_sector,
+        "top_sector_count": top_sector_count,
+    }
+
+
 def _build_candidate(
     context: dict[str, Any],
     matches: list[CandidateStrategyMatch],
@@ -2845,6 +2907,17 @@ def discover_next_session_candidates(
     selected = _surface_fresh_potential_after_crowded_sector(selected)
     sector_groups = _candidate_sector_groups(selected)
     sector_focus = _sector_focus_groups(contexts)
+    candidate_diagnostics = _candidate_discovery_diagnostics(
+        candidate_count=len(selected),
+        requested_limit=limit,
+        effective_limit=effective_limit,
+        market_regime=market_regime.regime,
+        market_regime_snapshot={"emotion_gate": emotion_gate["state"]},
+        participation_snapshot=participation_snapshot,
+        universe_size=universe_size,
+        min_universe_size=min_universe_size,
+        sector_groups=sector_groups,
+    )
     selected_symbol_set = {item.symbol for item in selected}
     previous_items = list_pool_items(db, pool_name=pool_name)
     today = datetime.utcnow().date()
@@ -2973,6 +3046,7 @@ def discover_next_session_candidates(
         "candidates": [item.to_dict() for item in selected],
         "sector_groups": sector_groups,
         "sector_focus": sector_focus,
+        "candidate_diagnostics": candidate_diagnostics,
         "written": written,
         "retired": retired,
     }

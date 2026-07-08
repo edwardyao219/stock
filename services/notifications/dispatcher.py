@@ -261,6 +261,20 @@ def _candidate_sector_focus(discovery: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in groups if str(item.get("sector") or "").strip()]
 
 
+def _append_candidate_diagnostics(lines: list[str], discovery: dict[str, Any]) -> None:
+    diagnostics = discovery.get("candidate_diagnostics")
+    if not isinstance(diagnostics, dict):
+        return
+    summary = str(diagnostics.get("summary") or "").strip()
+    reasons = [str(item).strip() for item in diagnostics.get("reasons") or [] if str(item).strip()]
+    if not summary and not reasons:
+        return
+    line = f"候选诊断：{summary}" if summary else "候选诊断："
+    if reasons:
+        line += f" 原因：{'；'.join(reasons[:2])}"
+    lines.append(line)
+
+
 def _strategy_priority(strategy_type: Any) -> int:
     mapping = {
         "long_term": 3,
@@ -1326,6 +1340,7 @@ def format_candidate_screening_text(
         warning = discovery.get("universe_warning")
         if warning:
             lines.append(f"提示：{warning}")
+        _append_candidate_diagnostics(lines, discovery)
         lines.append(
             f"钉钉分层推送：核心行动 {len(core_candidates)} 只，"
             f"防守板块观察 {len(sector_watch_candidates)} 只，"
@@ -1404,6 +1419,7 @@ def format_candidate_screening_text(
     warning = discovery.get("universe_warning")
     if warning:
         lines.append(f"提示：{warning}")
+    _append_candidate_diagnostics(lines, discovery)
     if uses_core_action_candidates:
         tiers = candidate_tiers if isinstance(candidate_tiers, dict) else {}
         watch_count = len(tiers.get("watch_wait") or [])

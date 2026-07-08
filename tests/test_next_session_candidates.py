@@ -2721,6 +2721,27 @@ def test_rank_with_sector_balance_can_cap_sector_slots() -> None:
     assert [item.symbol for item in selected[:2]] == ["600001", "600004"]
 
 
+def test_candidate_discovery_diagnostics_explains_weak_concentrated_pool() -> None:
+    diagnostics = candidate_module._candidate_discovery_diagnostics(
+        candidate_count=3,
+        requested_limit=15,
+        effective_limit=3,
+        market_regime="weak_trend",
+        market_regime_snapshot={"emotion_gate": "risk_off"},
+        participation_snapshot={"participation_score": 42, "liquidity_score": 46},
+        universe_size=3384,
+        min_universe_size=3000,
+        sector_groups=[{"sector": "半导体", "count": 3, "avg_score": 61.0}],
+    )
+
+    assert diagnostics["state"] == "limited"
+    assert diagnostics["candidate_count"] == 3
+    assert diagnostics["top_sector"] == "半导体"
+    assert any("弱趋势" in reason for reason in diagnostics["reasons"])
+    assert any("候选集中在半导体" in reason for reason in diagnostics["reasons"])
+    assert any("候选上限" in reason for reason in diagnostics["reasons"])
+
+
 def test_discover_next_session_candidates_surfaces_fresh_potential_after_crowded_sector() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

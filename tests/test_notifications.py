@@ -107,6 +107,10 @@ def test_format_candidate_screening_text_contains_reasons() -> None:
                 "notes": ["市场情绪偏弱，不新开仓或只保留观察。"],
             },
             "retired": 1,
+            "candidate_diagnostics": {
+                "summary": "候选偏少：弱市收缩，只保留少数观察票。",
+                "reasons": ["市场弱趋势，候选上限收缩到3只。", "候选集中在半导体，板块宽度不足。"],
+            },
             "sector_focus": [
                 {
                     "sector": "通信设备",
@@ -136,6 +140,8 @@ def test_format_candidate_screening_text_contains_reasons() -> None:
     assert "请求日 2026-06-24" in text
     assert "特征日 2026-06-24" in text
     assert "覆盖 95.8%" in text
+    assert "候选诊断：候选偏少：弱市收缩，只保留少数观察票。" in text
+    assert "市场弱趋势，候选上限收缩到3只。" in text
     assert "市场环境：weak_trend" not in text
     assert "情绪阀门：risk_off | 仓位系数 0.0" not in text
     assert "603083 剑桥科技 通信设备 正式策略命中 第82.5分" in text
