@@ -23,6 +23,7 @@ import {
   fetchLowDimensionalReplay,
   fetchMarketOverview,
   fetchMonthlySummary,
+  fetchRuleRegressionStatus,
   fetchSectorCatalysts,
   fetchSectorOverview,
   fetchStrategyFit,
@@ -36,6 +37,7 @@ import {
   ReplayDataCoverage,
   ReplayReturnSummary,
   refreshWorkspaceStocks,
+  RuleRegressionStatus,
   SectorCatalysts,
   SectorOverview,
   SectorOverviewItem,
@@ -938,6 +940,14 @@ function replayCoverageSummary(coverage: ReplayDataCoverage | null) {
   return `可用月份 ${overall.usable_months}/${overall.months}，风险月份 ${overall.warning_months}，活跃样本 ${overall.active_symbols}`;
 }
 
+function ruleRegressionStatusLabel(status: RuleRegressionStatus["status"] | undefined) {
+  if (status === "running") return "运行中";
+  if (status === "queued") return "排队中";
+  if (status === "idle") return "空闲";
+  if (status === "never_run") return "未运行";
+  return "待确认";
+}
+
 function uiText(value: string | null | undefined) {
   return cleanDisplayText(value);
 }
@@ -980,6 +990,10 @@ export function App() {
     useState<CandidateReplayEffectReport | null>(null);
   const [candidateReplayEffectLoading, setCandidateReplayEffectLoading] = useState(false);
   const [candidateReplayEffectError, setCandidateReplayEffectError] = useState<string | null>(null);
+  const [ruleRegressionStatus, setRuleRegressionStatus] =
+    useState<RuleRegressionStatus | null>(null);
+  const [ruleRegressionStatusLoading, setRuleRegressionStatusLoading] = useState(false);
+  const [ruleRegressionStatusError, setRuleRegressionStatusError] = useState<string | null>(null);
   const [strategyFit, setStrategyFit] = useState<StrategyFitReport | null>(null);
   const [strategyFitError, setStrategyFitError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -1179,6 +1193,19 @@ export function App() {
     }
   }
 
+  async function loadRuleRegressionStatus() {
+    setRuleRegressionStatusLoading(true);
+    setRuleRegressionStatusError(null);
+    try {
+      setRuleRegressionStatus(await fetchRuleRegressionStatus());
+    } catch (exc) {
+      setRuleRegressionStatus(null);
+      setRuleRegressionStatusError(exc instanceof Error ? exc.message : "规则回归状态加载失败");
+    } finally {
+      setRuleRegressionStatusLoading(false);
+    }
+  }
+
   async function loadMarketOverview(live = true) {
     try {
       setMarketOverview(await fetchMarketOverview(live));
@@ -1276,6 +1303,7 @@ export function App() {
     loadMonthlySummary();
     loadStrategyFit();
     loadCandidateReplayEffect(initialCandidateReplayQuery);
+    loadRuleRegressionStatus();
   }, []);
 
   useEffect(() => {
@@ -2248,6 +2276,15 @@ export function App() {
                   <RefreshCw size={14} />
                   {lowDimensionalReplayLoading ? "运行中" : "运行回归"}
                 </button>
+                <button
+                  className="refresh-button"
+                  type="button"
+                  onClick={() => loadRuleRegressionStatus()}
+                  disabled={ruleRegressionStatusLoading}
+                >
+                  <RefreshCw size={14} />
+                  {ruleRegressionStatusLoading ? "刷新中" : "回归状态"}
+                </button>
               </div>
             </div>
             {candidateReplayEffectError ? (
@@ -2255,6 +2292,28 @@ export function App() {
             ) : null}
             {lowDimensionalReplayError ? (
               <div className="empty compact">长期回归暂时不可用：{lowDimensionalReplayError}</div>
+            ) : null}
+            {ruleRegressionStatus || ruleRegressionStatusError ? (
+              <div className={`rule-regression-status ${ruleRegressionStatus?.status ?? "error"}`}>
+                <div>
+                  <span>规则回归状态</span>
+                  <strong>{ruleRegressionStatusLabel(ruleRegressionStatus?.status)}</strong>
+                  <small>{uiText(ruleRegressionStatus?.message ?? ruleRegressionStatusError)}</small>
+                </div>
+                {ruleRegressionStatus ? (
+                  <div className="rule-regression-status-metrics">
+                    <span>最近日期 {ruleRegressionStatus.latest_run_date ?? "-"}</span>
+                    <span>交易样本 {ruleRegressionStatus.latest_trade_count}</span>
+                    <span>表现行 {ruleRegressionStatus.latest_performance_rows}</span>
+                    <span>
+                      队列{" "}
+                      {ruleRegressionStatus.active_tasks
+                        + ruleRegressionStatus.reserved_tasks
+                        + ruleRegressionStatus.scheduled_tasks}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
             {replayDataCoverage ? (
               <div className={`replay-data-coverage ${replayDataCoverage.overall.grade}`}>

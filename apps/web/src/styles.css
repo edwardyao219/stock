@@ -1488,6 +1488,62 @@ button {
   white-space: nowrap;
 }
 
+.rule-regression-status {
+  align-items: start;
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(190px, 0.9fr) minmax(0, 1.1fr);
+  padding: 9px 10px;
+}
+
+.rule-regression-status.running,
+.rule-regression-status.queued {
+  background: #fff8ed;
+  border-color: #f4c67d;
+}
+
+.rule-regression-status.error {
+  background: #fff5f5;
+  border-color: #efc1c1;
+}
+
+.rule-regression-status div,
+.rule-regression-status-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  min-width: 0;
+}
+
+.rule-regression-status div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.rule-regression-status span,
+.rule-regression-status small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.rule-regression-status strong {
+  color: #17202b;
+  font-size: 14px;
+}
+
+.rule-regression-status-metrics span {
+  background: #fff;
+  border: 1px solid #dbe4ee;
+  border-radius: 999px;
+  color: #334155;
+  font-weight: 800;
+  line-height: 1.35;
+  padding: 5px 8px;
+}
+
 .replay-insight-grid {
   border-top: 1px solid #e1e8ef;
   display: grid;

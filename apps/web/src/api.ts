@@ -975,6 +975,20 @@ export interface HistoricalReplayPayload {
   dry_run?: boolean;
 }
 
+export type RuleRegressionStatusValue = "running" | "queued" | "idle" | "never_run";
+
+export interface RuleRegressionStatus {
+  status: RuleRegressionStatusValue;
+  is_running: boolean;
+  active_tasks: number;
+  reserved_tasks: number;
+  scheduled_tasks: number;
+  latest_run_date: string | null;
+  latest_trade_count: number;
+  latest_performance_rows: number;
+  message: string;
+}
+
 function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
   return {
     ...item,
@@ -1176,4 +1190,8 @@ export function runHistoricalReplay(payload: HistoricalReplayPayload) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function fetchRuleRegressionStatus() {
+  return request<RuleRegressionStatus>("/jobs/rule-regression/status");
 }
