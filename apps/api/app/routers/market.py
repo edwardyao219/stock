@@ -272,6 +272,10 @@ class SectorOverviewResponse(BaseModel):
     feature_sector_count: int = 0
     overview_sector_count: int = 0
     feature_coverage_ratio: float | None = None
+    moneyflow_sector_count: int = 0
+    moneyflow_missing_count: int = 0
+    moneyflow_coverage_ratio: float | None = None
+    moneyflow_reliability_label: str = "资金流缺失"
     sectors: list[SectorOverviewItem] = Field(default_factory=list)
     monthly_rank: list[SectorOverviewItem] = Field(default_factory=list)
     activity_rank: list[SectorOverviewItem] = Field(default_factory=list)
@@ -1045,6 +1049,14 @@ def _sector_gate(item: SectorOverviewItem) -> tuple[float, str, list[str]]:
     return score, label, reasons[:4]
 
 
+def _moneyflow_reliability_label(coverage_ratio: float | None) -> str:
+    if coverage_ratio is None or coverage_ratio <= 0:
+        return "资金流缺失"
+    if coverage_ratio >= 0.8:
+        return "资金覆盖正常"
+    return "资金覆盖不足"
+
+
 def _stored_sector_overview(db: Session) -> SectorOverviewResponse:
     latest_sector_daily_date = db.execute(
         select(func.max(SectorDaily.trade_date))
@@ -1179,8 +1191,18 @@ def _stored_sector_overview(db: Session) -> SectorOverviewResponse:
     matched_feature_count = sum(
         1 for item in ranked_items if item.sector_strength_score is not None
     )
+    moneyflow_sector_count = sum(
+        1
+        for item in ranked_items
+        if item.fund_flow_net_amount is not None or item.fund_flow_rate is not None
+    )
     feature_coverage_ratio = (
         round(matched_feature_count / overview_sector_count, 6)
+        if overview_sector_count
+        else None
+    )
+    moneyflow_coverage_ratio = (
+        round(moneyflow_sector_count / overview_sector_count, 6)
         if overview_sector_count
         else None
     )
@@ -1193,6 +1215,10 @@ def _stored_sector_overview(db: Session) -> SectorOverviewResponse:
         feature_sector_count=feature_sector_count,
         overview_sector_count=overview_sector_count,
         feature_coverage_ratio=feature_coverage_ratio,
+        moneyflow_sector_count=moneyflow_sector_count,
+        moneyflow_missing_count=max(0, overview_sector_count - moneyflow_sector_count),
+        moneyflow_coverage_ratio=moneyflow_coverage_ratio,
+        moneyflow_reliability_label=_moneyflow_reliability_label(moneyflow_coverage_ratio),
         sectors=ranked_items,
         monthly_rank=ranked_items[:10],
         activity_rank=sorted(

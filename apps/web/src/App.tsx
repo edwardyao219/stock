@@ -2067,6 +2067,8 @@ export function App() {
               {sectorOverview?.feature_trade_date ? `特征 ${sectorOverview.feature_trade_date}` : "暂无特征日"}
               {sectorOverview?.feature_coverage_ratio != null ? ` / 覆盖 ${pct(sectorOverview.feature_coverage_ratio)}` : ""}
               {sectorOverview?.moneyflow_trade_date ? ` / 资金 ${sectorOverview.moneyflow_trade_date}` : ""}
+              {sectorOverview?.moneyflow_coverage_ratio != null ? ` / 资金覆盖 ${pct(sectorOverview.moneyflow_coverage_ratio)}` : ""}
+              {sectorOverview?.moneyflow_reliability_label ? ` / ${sectorOverview.moneyflow_reliability_label}` : ""}
             </span>
           </div>
           {monthlySummary ? (
@@ -3019,6 +3021,10 @@ export function App() {
                         <li>
                           特征覆盖 {pct(sectorOverview?.feature_coverage_ratio ?? null)} / 样本 {sectorOverview?.feature_sector_count ?? 0}
                           /{sectorOverview?.overview_sector_count ?? 0}
+                        </li>
+                        <li>
+                          资金覆盖 {pct(sectorOverview?.moneyflow_coverage_ratio ?? null)} / 已匹配 {sectorOverview?.moneyflow_sector_count ?? 0}
+                          /{sectorOverview?.overview_sector_count ?? 0} / 缺失 {sectorOverview?.moneyflow_missing_count ?? 0}
                         </li>
                       </ul>
                     </div>

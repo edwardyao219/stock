@@ -158,6 +158,10 @@ export interface SectorOverview {
   feature_sector_count: number;
   overview_sector_count: number;
   feature_coverage_ratio: number | null;
+  moneyflow_sector_count: number;
+  moneyflow_missing_count: number;
+  moneyflow_coverage_ratio: number | null;
+  moneyflow_reliability_label: string;
   sectors: SectorOverviewItem[];
   monthly_rank: SectorOverviewItem[];
   activity_rank: SectorOverviewItem[];
