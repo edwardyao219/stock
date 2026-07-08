@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from services.engine.backtest.replay import run_historical_replay
 from services.jobs.pipeline import (
@@ -14,11 +16,15 @@ from services.jobs.pipeline import (
     run_daily_research_pipeline,
     run_intraday_trade_session,
 )
+from services.shared.database import get_db
+from services.shared.models import BacktestTradeRecord, RulePerformanceDaily
 from services.shared.time import now_local
 
 router = APIRouter()
 
 PipelineStage = Literal["daily", "prepare", "intraday", "after-close"]
+DbSession = Annotated[Session, Depends(get_db)]
+RULE_REGRESSION_TASK = "services.jobs.tasks.run_rule_regression_task"
 
 
 class PipelineRunRequest(BaseModel):
@@ -109,12 +115,60 @@ class HistoricalReplayRunResponse(BaseModel):
     days: list[HistoricalReplayDayResponse]
 
 
+class RuleRegressionStatusResponse(BaseModel):
+    status: Literal["running", "queued", "idle", "never_run"]
+    is_running: bool
+    active_tasks: int
+    reserved_tasks: int
+    scheduled_tasks: int
+    latest_run_date: str | None
+    latest_trade_count: int
+    latest_performance_rows: int
+    message: str
+
+
 def _today() -> str:
     return now_local().date().isoformat()
 
 
 def _next_date(value: str) -> str:
     return resolve_next_trade_date(value)
+
+
+def _task_name(task: Any) -> str | None:
+    if not isinstance(task, dict):
+        return None
+    if task.get("name"):
+        return str(task["name"])
+    request = task.get("request")
+    if isinstance(request, dict) and request.get("name"):
+        return str(request["name"])
+    return None
+
+
+def _count_rule_regression_tasks(worker_tasks: dict[str, list[Any]] | None) -> int:
+    if not worker_tasks:
+        return 0
+    return sum(
+        1
+        for tasks in worker_tasks.values()
+        for task in tasks
+        if _task_name(task) == RULE_REGRESSION_TASK
+    )
+
+
+def _rule_regression_celery_counts() -> dict[str, int]:
+    try:
+        from services.jobs.celery_app import celery_app
+
+        inspector = celery_app.control.inspect(timeout=1)
+        return {
+            "active": _count_rule_regression_tasks(inspector.active()),
+            "reserved": _count_rule_regression_tasks(inspector.reserved()),
+            "scheduled": _count_rule_regression_tasks(inspector.scheduled()),
+        }
+    except Exception:
+        return {"active": 0, "reserved": 0, "scheduled": 0}
 
 
 @router.post("/pipeline/run", response_model=PipelineRunResponse)
@@ -169,3 +223,58 @@ def run_historical_replay_job(payload: HistoricalReplayRunRequest) -> Historical
         dry_run=payload.dry_run,
     )
     return HistoricalReplayRunResponse(**result.to_dict())
+
+
+@router.get("/rule-regression/status", response_model=RuleRegressionStatusResponse)
+def get_rule_regression_status(db: DbSession) -> RuleRegressionStatusResponse:
+    counts = _rule_regression_celery_counts()
+    active = counts.get("active", 0)
+    reserved = counts.get("reserved", 0)
+    scheduled = counts.get("scheduled", 0)
+
+    latest_run_date = db.execute(
+        select(func.max(BacktestTradeRecord.run_date))
+    ).scalar_one_or_none()
+    latest_trade_count = 0
+    latest_performance_rows = 0
+    latest_run_date_text = None
+    if latest_run_date is not None:
+        latest_run_date_text = latest_run_date.isoformat()
+        latest_trade_count = db.execute(
+            select(func.count()).select_from(BacktestTradeRecord).where(
+                BacktestTradeRecord.run_date == latest_run_date
+            )
+        ).scalar_one()
+        latest_performance_rows = db.execute(
+            select(func.count()).select_from(RulePerformanceDaily).where(
+                RulePerformanceDaily.trade_date == latest_run_date
+            )
+        ).scalar_one()
+
+    if active > 0:
+        status: Literal["running", "queued", "idle", "never_run"] = "running"
+        message = f"规则回归运行中；active {active}，排队 {reserved + scheduled}。"
+    elif reserved + scheduled > 0:
+        status = "queued"
+        message = f"规则回归排队中；reserved {reserved}，scheduled {scheduled}。"
+    elif latest_run_date is None:
+        status = "never_run"
+        message = "还没有回归落库记录。"
+    else:
+        status = "idle"
+        message = (
+            f"规则回归空闲；最近一次 {latest_run_date_text}，"
+            f"交易样本 {latest_trade_count}，表现行 {latest_performance_rows}。"
+        )
+
+    return RuleRegressionStatusResponse(
+        status=status,
+        is_running=status == "running",
+        active_tasks=active,
+        reserved_tasks=reserved,
+        scheduled_tasks=scheduled,
+        latest_run_date=latest_run_date_text,
+        latest_trade_count=latest_trade_count,
+        latest_performance_rows=latest_performance_rows,
+        message=message,
+    )

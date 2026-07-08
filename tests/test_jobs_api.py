@@ -1,7 +1,15 @@
+from datetime import date
+from decimal import Decimal
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 from apps.api.app.main import create_app
 from apps.api.app.routers import jobs
 from services.jobs import run_pipeline as run_pipeline_cli
 from services.jobs.pipeline import DailyPipelineResult, PipelineStepResult
+from services.shared.database import Base
+from services.shared.models import BacktestTradeRecord, RulePerformanceDaily
 
 
 def _result(stage: str) -> DailyPipelineResult:
@@ -18,6 +26,97 @@ def test_jobs_routes_are_registered() -> None:
 
     assert "/jobs/pipeline/run" in schema["paths"]
     assert "/jobs/historical-replay/run" in schema["paths"]
+    assert "/jobs/rule-regression/status" in schema["paths"]
+
+
+def test_rule_regression_status_reads_latest_persisted_run(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(
+        jobs,
+        "_rule_regression_celery_counts",
+        lambda: {"active": 0, "reserved": 0, "scheduled": 0},
+    )
+
+    with session() as db:
+        db.add_all(
+            [
+                BacktestTradeRecord(
+                    run_date=date(2026, 7, 8),
+                    rule_id="R001",
+                    symbol="600183",
+                    signal_date=date(2026, 6, 1),
+                    entry_date=date(2026, 6, 2),
+                    entry_price=Decimal("10"),
+                    exit_date=date(2026, 6, 5),
+                    exit_price=Decimal("10.5"),
+                    holding_days=3,
+                    pnl_pct=Decimal("0.05"),
+                    mfe_pct=Decimal("0.08"),
+                    mae_pct=Decimal("-0.02"),
+                    exit_reason="time_exit",
+                ),
+                BacktestTradeRecord(
+                    run_date=date(2026, 7, 8),
+                    rule_id="R002",
+                    symbol="603083",
+                    signal_date=date(2026, 6, 3),
+                    entry_date=date(2026, 6, 4),
+                    entry_price=Decimal("20"),
+                    exit_date=date(2026, 6, 8),
+                    exit_price=Decimal("19.8"),
+                    holding_days=4,
+                    pnl_pct=Decimal("-0.01"),
+                    mfe_pct=Decimal("0.03"),
+                    mae_pct=Decimal("-0.04"),
+                    exit_reason="time_exit",
+                ),
+                RulePerformanceDaily(
+                    rule_id="R001",
+                    trade_date=date(2026, 7, 8),
+                    window_days=0,
+                    trade_count=2,
+                    win_rate=Decimal("0.5"),
+                    avg_return=Decimal("0.02"),
+                    expectancy=Decimal("0.02"),
+                    profit_factor=Decimal("1.5"),
+                    max_drawdown=Decimal("-0.04"),
+                    avg_mfe=Decimal("0.05"),
+                    avg_mae=Decimal("-0.03"),
+                    score=Decimal("1.0"),
+                ),
+            ]
+        )
+        db.commit()
+
+        payload = jobs.get_rule_regression_status(db=db)
+
+    assert payload.status == "idle"
+    assert payload.is_running is False
+    assert payload.latest_run_date == "2026-07-08"
+    assert payload.latest_trade_count == 2
+    assert payload.latest_performance_rows == 1
+    assert "空闲" in payload.message
+
+
+def test_rule_regression_status_reports_running_when_celery_has_active_task(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(
+        jobs,
+        "_rule_regression_celery_counts",
+        lambda: {"active": 1, "reserved": 0, "scheduled": 0},
+    )
+
+    with session() as db:
+        payload = jobs.get_rule_regression_status(db=db)
+
+    assert payload.status == "running"
+    assert payload.is_running is True
+    assert payload.latest_run_date is None
+    assert "运行中" in payload.message
 
 
 def test_run_prepare_pipeline_stage(monkeypatch) -> None:
