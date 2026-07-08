@@ -2215,6 +2215,7 @@ def _rank_with_sector_balance(
     *,
     limit: int,
     score_fn: Any | None = None,
+    max_per_sector: int | None = None,
 ) -> list[NextSessionCandidate]:
     if len(candidates) <= 1:
         return candidates[:limit]
@@ -2225,9 +2226,19 @@ def _rank_with_sector_balance(
     sector_counts: dict[str, int] = {}
 
     while remaining and len(selected) < limit:
+        eligible_indices = range(len(remaining))
+        if max_per_sector is not None:
+            capped = [
+                index
+                for index, item in enumerate(remaining)
+                if sector_counts.get(_candidate_sector_key(item), 0) < max_per_sector
+            ]
+            if capped:
+                eligible_indices = capped
         best_index = 0
         best_effective_score = -10_000.0
-        for index, item in enumerate(remaining):
+        for index in eligible_indices:
+            item = remaining[index]
             sector_key = _candidate_sector_key(item)
             effective_score = effective_score_fn(item) - _sector_concentration_penalty(
                 item,
@@ -2268,9 +2279,35 @@ def _is_fresh_potential_watch_candidate(item: NextSessionCandidate) -> bool:
     return "潜力启动：20日涨幅仍低" in reasons_text or "启动前夜：T-1量价修复" in reasons_text
 
 
+def _potential_startup_confirmation_bonus(item: NextSessionCandidate) -> float:
+    if not _is_fresh_potential_watch_candidate(item):
+        return 0.0
+
+    volume_values = [
+        value
+        for value in (item.volume_confirmation_score, item.price_volume_trend_score)
+        if value is not None
+    ]
+    volume_score = sum(volume_values) / len(volume_values) if volume_values else 50.0
+    return_20d = item.return_20d
+    distance_to_ma20 = item.distance_to_ma20
+    sector_return = item.sector_avg_return_20d
+    startup_score = item.startup_signal_score or 0.0
+
+    bonus = 0.0
+    bonus += _score_between(startup_score, 70.0, 92.0) * 0.04
+    bonus += _score_between(volume_score, 64.0, 84.0) * 0.08
+    bonus += _score_between(sector_return, 0.0, 0.06) * 0.05
+    if return_20d is not None:
+        bonus += _score_between(0.16 - abs(return_20d - 0.09), 0.0, 0.16) * 0.05
+    if distance_to_ma20 is not None:
+        bonus += _score_between(0.09 - abs(distance_to_ma20 - 0.025), 0.0, 0.09) * 0.04
+    return min(18.0, bonus)
+
+
 def _potential_watch_rank_score(item: NextSessionCandidate) -> float:
     fresh_start_bonus = 30.0 if _is_fresh_potential_watch_candidate(item) else 0.0
-    return item.score + fresh_start_bonus
+    return item.score + fresh_start_bonus + _potential_startup_confirmation_bonus(item)
 
 
 def _is_crowded_sector_observation(item: NextSessionCandidate) -> bool:
@@ -2742,6 +2779,7 @@ def discover_next_session_candidates(
         ranked_observation,
         limit=remaining_slots,
         score_fn=rank_score_fn,
+        max_per_sector=1 if market_regime.regime in {"weak_trend", "panic"} else None,
     )
     action_symbols = {item.symbol for item in [*selected_formal, *selected_observation]}
     exploration_limit = max(requested_limit, effective_limit)

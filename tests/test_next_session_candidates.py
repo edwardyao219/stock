@@ -2606,6 +2606,121 @@ def test_discover_next_session_candidates_marks_t_minus_one_startup_preheat() ->
     assert any(tag.startswith("startup_signal_reason:") for tag in stock_tags["002558"])
 
 
+def test_potential_watch_rank_prefers_confirmed_startup_over_spike() -> None:
+    def candidate(
+        *,
+        symbol: str,
+        score: float,
+        volume: float,
+        price_volume: float,
+        sector_return: float,
+        return_20d: float,
+        distance_to_ma20: float,
+    ):
+        return candidate_module.NextSessionCandidate(
+            symbol=symbol,
+            name=None,
+            sector="元器件",
+            sector_style="growth_cycle",
+            suggested_horizon_days=10,
+            horizon_reason="",
+            day_change_pct=0.038,
+            score=score,
+            route_score=60,
+            route_label="观察路线",
+            route_reason="量价修复但仍需承接确认",
+            selection_mode="potential_watch",
+            selected_rule_id="POT001",
+            selected_rule_name="潜力启动观察",
+            selected_strategy_type="watch_breakout",
+            trend_score=76,
+            relative_strength_score=64,
+            sector_strength_score=58,
+            volume_confirmation_score=volume,
+            price_volume_trend_score=price_volume,
+            sector_avg_return_20d=sector_return,
+            return_20d=return_20d,
+            distance_to_ma20=distance_to_ma20,
+            startup_signal_score=88,
+            startup_signal_label="启动观察",
+            startup_signal_reasons=["板块修复", "量价修复", "风险可控：不代表买点"],
+            reasons=["启动前夜：T-1量价修复，20日涨幅仍不高，只观察次日承接"],
+            risk_flags=[],
+            matched_rules=[],
+        )
+
+    confirmed = candidate(
+        symbol="600002",
+        score=74,
+        volume=82,
+        price_volume=80,
+        sector_return=0.03,
+        return_20d=0.09,
+        distance_to_ma20=0.02,
+    )
+    spike = candidate(
+        symbol="600003",
+        score=80,
+        volume=64,
+        price_volume=64,
+        sector_return=-0.02,
+        return_20d=0.18,
+        distance_to_ma20=0.08,
+    )
+
+    assert candidate_module._potential_watch_rank_score(
+        confirmed
+    ) > candidate_module._potential_watch_rank_score(spike)
+
+
+def test_rank_with_sector_balance_can_cap_sector_slots() -> None:
+    def candidate(symbol: str, sector: str, score: float):
+        return candidate_module.NextSessionCandidate(
+            symbol=symbol,
+            name=None,
+            sector=sector,
+            sector_style="growth_cycle",
+            suggested_horizon_days=10,
+            horizon_reason="",
+            day_change_pct=0.02,
+            score=score,
+            route_score=60,
+            route_label="观察路线",
+            route_reason="",
+            selection_mode="observation",
+            selected_rule_id="OBS001",
+            selected_rule_name="观察候选",
+            selected_strategy_type="watch_breakout",
+            trend_score=76,
+            relative_strength_score=64,
+            sector_strength_score=60,
+            volume_confirmation_score=55,
+            price_volume_trend_score=55,
+            sector_avg_return_20d=0.03,
+            return_20d=0.10,
+            distance_to_ma20=0.02,
+            startup_signal_score=None,
+            startup_signal_label=None,
+            startup_signal_reasons=[],
+            reasons=[],
+            risk_flags=[],
+            matched_rules=[],
+        )
+
+    selected = candidate_module._rank_with_sector_balance(
+        [
+            candidate("600001", "半导体", 90),
+            candidate("600002", "半导体", 88),
+            candidate("600003", "半导体", 86),
+            candidate("600004", "消费电子", 70),
+        ],
+        limit=3,
+        max_per_sector=1,
+    )
+
+    assert [item.symbol for item in selected[:2]] == ["600001", "600004"]
+
+
 def test_discover_next_session_candidates_surfaces_fresh_potential_after_crowded_sector() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
