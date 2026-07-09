@@ -1,15 +1,19 @@
 from services.engine.backtest import run_long_replay_baseline as baseline
 from services.engine.backtest.run_long_replay_baseline import (
-    diagnose_ranked_replay_losses,
     annotate_drawdown_limit,
-    format_ranked_replay_market_context,
-    format_ranked_replay_months,
+    diagnose_ranked_replay_losses,
     format_ranked_replay_baselines,
+    format_ranked_replay_market_context,
+    format_ranked_replay_market_state_gate_simulation,
+    format_ranked_replay_market_state_returns,
+    format_ranked_replay_months,
     format_replay_loss_diagnostics,
-    summarize_market_context_by_month,
     rank_replay_baselines,
     resolve_guard_parameters,
     run_replay_baseline,
+    simulate_ranked_replay_market_state_gates,
+    summarize_market_context_by_month,
+    summarize_ranked_replay_market_state_returns,
     summarize_replay_baseline,
 )
 from services.engine.backtest.walk_forward import (
@@ -19,7 +23,12 @@ from services.engine.backtest.walk_forward import (
 )
 
 
-def _candidate(symbol: str, value: float | None, *, guarded: float | None = None) -> WalkForwardCandidate:
+def _candidate(
+    symbol: str,
+    value: float | None,
+    *,
+    guarded: float | None = None,
+) -> WalkForwardCandidate:
     return WalkForwardCandidate(
         symbol=symbol,
         name=symbol,
@@ -92,6 +101,29 @@ def test_summarize_replay_baseline_can_use_guarded_returns() -> None:
 
     assert summary["total_return"] == 0.03
     assert summary["months"][0]["month_return"] == 0.03
+
+
+def test_summarize_replay_baseline_keeps_signal_date_candidate_returns() -> None:
+    result = WalkForwardReplayResult(
+        start_date="2026-01-01",
+        end_date="2026-01-31",
+        processed_days=1,
+        days=[
+            _day(
+                "2026-01-02",
+                [
+                    _candidate("600001", 0.10, guarded=0.03),
+                    _candidate("000001", 0.50, guarded=0.20),
+                ],
+            )
+        ],
+    )
+
+    summary = summarize_replay_baseline(result, horizon=5, guarded=True)
+
+    assert summary["candidate_returns"] == [
+        {"signal_date": "2026-01-02", "month": "2026-01", "return": 0.03}
+    ]
 
 
 def test_run_replay_baseline_passes_guard_parameters(monkeypatch) -> None:
@@ -488,7 +520,14 @@ def test_format_ranked_replay_market_context_marks_loss_month_state() -> None:
                 ],
             }
         ],
-        {"2024-06": {"trend_score": 45.0, "breadth_score": 40.0, "emotion_score": 40.0, "market_state": "risk_off"}},
+        {
+            "2024-06": {
+                "trend_score": 45.0,
+                "breadth_score": 40.0,
+                "emotion_score": 40.0,
+                "market_state": "risk_off",
+            }
+        },
         top_n=1,
     )
 
@@ -511,3 +550,196 @@ def test_format_ranked_replay_market_context_marks_missing_context() -> None:
     )
 
     assert "2024-02 | -1.49% | 缺数据 | 趋势- | 宽度- | 情绪-" in text
+
+
+def test_summarize_ranked_replay_market_state_returns_groups_month_returns() -> None:
+    summary = summarize_ranked_replay_market_state_returns(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "months": [
+                    {"month": "2024-01", "month_return": 0.03},
+                    {"month": "2024-02", "month_return": -0.01},
+                    {"month": "2024-03", "month_return": -0.02},
+                    {"month": "2024-04", "month_return": 0.04},
+                ],
+            }
+        ],
+        {
+            "2024-01": {"market_state": "risk_on"},
+            "2024-02": {"market_state": "risk_on"},
+            "2024-03": {"market_state": "risk_off"},
+        },
+    )
+
+    assert summary == [
+        {
+            "candidate_scope": "action",
+            "guard_preset": "drawdown15",
+            "states": [
+                {
+                    "market_state": "risk_on",
+                    "month_count": 2,
+                    "total_return": 0.02,
+                    "average_return": 0.01,
+                    "win_rate": 0.5,
+                    "worst_month": "2024-02",
+                    "worst_month_return": -0.01,
+                },
+                {
+                    "market_state": "risk_off",
+                    "month_count": 1,
+                    "total_return": -0.02,
+                    "average_return": -0.02,
+                    "win_rate": 0.0,
+                    "worst_month": "2024-03",
+                    "worst_month_return": -0.02,
+                },
+                {
+                    "market_state": "缺数据",
+                    "month_count": 1,
+                    "total_return": 0.04,
+                    "average_return": 0.04,
+                    "win_rate": 1.0,
+                    "worst_month": "2024-04",
+                    "worst_month_return": 0.04,
+                },
+            ],
+        }
+    ]
+
+
+def test_summarize_ranked_replay_market_state_returns_uses_signal_date_context() -> None:
+    summary = summarize_ranked_replay_market_state_returns(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "months": [{"month": "2024-06", "month_return": 0.01}],
+                "candidate_returns": [
+                    {"signal_date": "2024-06-03", "month": "2024-06", "return": 0.04},
+                    {"signal_date": "2024-06-04", "month": "2024-06", "return": -0.02},
+                ],
+            }
+        ],
+        {
+            "2024-06": {"market_state": "risk_on"},
+            "2024-06-03": {"market_state": "risk_on"},
+            "2024-06-04": {"market_state": "risk_off"},
+        },
+    )
+
+    assert summary[0]["states"] == [
+        {
+            "market_state": "risk_on",
+            "month_count": 1,
+            "total_return": 0.04,
+            "average_return": 0.04,
+            "win_rate": 1.0,
+            "worst_month": "2024-06",
+            "worst_month_return": 0.04,
+        },
+        {
+            "market_state": "risk_off",
+            "month_count": 1,
+            "total_return": -0.02,
+            "average_return": -0.02,
+            "win_rate": 0.0,
+            "worst_month": "2024-06",
+            "worst_month_return": -0.02,
+        },
+    ]
+
+
+def test_format_ranked_replay_market_state_returns_uses_chinese_table() -> None:
+    text = format_ranked_replay_market_state_returns(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "months": [
+                    {"month": "2024-01", "month_return": 0.03},
+                    {"month": "2024-02", "month_return": -0.01},
+                ],
+            }
+        ],
+        {
+            "2024-01": {"market_state": "risk_on"},
+            "2024-02": {"market_state": "risk_on"},
+        },
+        top_n=1,
+    )
+
+    assert "行情状态收益拆解 Top 1" in text
+    assert "action/drawdown15" in text
+    assert "risk_on | 2 | 2.00% | 1.00% | 50.00% | 2024-02 -1.00%" in text
+
+
+def test_simulate_ranked_replay_market_state_gates_rebuilds_month_returns() -> None:
+    simulation = simulate_ranked_replay_market_state_gates(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "candidate_returns": [
+                    {"signal_date": "2024-01-02", "month": "2024-01", "return": 0.10},
+                    {"signal_date": "2024-01-03", "month": "2024-01", "return": -0.02},
+                    {"signal_date": "2024-02-02", "month": "2024-02", "return": -0.03},
+                ],
+            }
+        ],
+        {
+            "2024-01-02": {"market_state": "risk_on"},
+            "2024-01-03": {"market_state": "risk_off"},
+            "2024-02-02": {"market_state": "risk_off"},
+        },
+    )
+
+    assert simulation[0]["gates"][:3] == [
+        {
+            "gate": "全部",
+            "candidate_count": 3,
+            "month_count": 2,
+            "total_return": 0.01,
+            "max_drawdown": -0.03,
+        },
+        {
+            "gate": "排除risk_off",
+            "candidate_count": 1,
+            "month_count": 1,
+            "total_return": 0.1,
+            "max_drawdown": 0.0,
+        },
+        {
+            "gate": "risk_on+neutral",
+            "candidate_count": 1,
+            "month_count": 1,
+            "total_return": 0.1,
+            "max_drawdown": 0.0,
+        },
+    ]
+
+
+def test_format_ranked_replay_market_state_gate_simulation_uses_chinese_table() -> None:
+    text = format_ranked_replay_market_state_gate_simulation(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "candidate_returns": [
+                    {"signal_date": "2024-01-02", "month": "2024-01", "return": 0.10},
+                    {"signal_date": "2024-01-03", "month": "2024-01", "return": -0.02},
+                ],
+            }
+        ],
+        {
+            "2024-01-02": {"market_state": "risk_on"},
+            "2024-01-03": {"market_state": "risk_off"},
+        },
+        top_n=1,
+    )
+
+    assert "行情状态门控模拟 Top 1" in text
+    assert "action/drawdown15" in text
+    assert "排除risk_off | 10.00% | 0.00% | 1 | 1" in text

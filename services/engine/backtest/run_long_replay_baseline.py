@@ -43,6 +43,12 @@ DEFAULT_RANK_SCOPES = (
     "startup_confirmed",
 )
 DEFAULT_RANK_PRESETS = ("adaptive", "drawdown15")
+MARKET_STATE_GATE_PRESETS: tuple[tuple[str, set[str] | None], ...] = (
+    ("全部", None),
+    ("排除risk_off", {"risk_on", "neutral", "缺数据"}),
+    ("risk_on+neutral", {"risk_on", "neutral"}),
+    ("仅risk_on", {"risk_on"}),
+)
 
 
 def resolve_guard_parameters(
@@ -97,6 +103,7 @@ def summarize_replay_baseline(
 ) -> dict[str, Any]:
     month_returns: dict[str, list[float]] = defaultdict(list)
     month_signal_days: dict[str, set[str]] = defaultdict(set)
+    candidate_returns: list[dict[str, Any]] = []
 
     for day in result.days:
         month = day.signal_date[:7]
@@ -108,6 +115,13 @@ def summarize_replay_baseline(
                 continue
             month_returns[month].append(value)
             month_signal_days[month].add(day.signal_date)
+            candidate_returns.append(
+                {
+                    "signal_date": day.signal_date,
+                    "month": month,
+                    "return": value,
+                }
+            )
 
     months: list[dict[str, Any]] = []
     monthly_values: list[float] = []
@@ -137,6 +151,7 @@ def summarize_replay_baseline(
         "total_return": round(sum(monthly_values), 6) if monthly_values else 0.0,
         "max_drawdown": _max_drawdown(monthly_values),
         "months": months,
+        "candidate_returns": candidate_returns,
     }
 
 
@@ -317,11 +332,9 @@ def format_ranked_replay_months(
     lines = [f"月度拆解 Top {top_n}"]
     for item in rows[: max(0, top_n)]:
         lines.append(
-            (
-                f"{item['candidate_scope']}/{item['guard_preset']} "
-                f"总收益{_pct(float(item['total_return']))} "
-                f"最大回撤{_pct(float(item['max_drawdown']))}"
-            )
+            f"{item['candidate_scope']}/{item['guard_preset']} "
+            f"总收益{_pct(float(item['total_return']))} "
+            f"最大回撤{_pct(float(item['max_drawdown']))}"
         )
         lines.append("月份 | 信号日 | 候选 | 胜率 | 月收益")
         for month in item.get("months") or []:
@@ -449,7 +462,7 @@ def _ranked_signal_dates(rows: list[dict[str, Any]]) -> list[str]:
     return sorted(dates)
 
 
-def load_market_context_by_signal_dates(signal_dates: list[str]) -> dict[str, dict[str, Any]]:
+def load_market_context_by_signal_date(signal_dates: list[str]) -> dict[str, dict[str, Any]]:
     parsed_dates = sorted({date.fromisoformat(value) for value in signal_dates})
     if not parsed_dates:
         return {}
@@ -471,15 +484,34 @@ def load_market_context_by_signal_dates(signal_dates: list[str]) -> dict[str, di
             .group_by(LowDimensionalFeatureSnapshot.trade_date)
             .order_by(LowDimensionalFeatureSnapshot.trade_date)
         ).all()
+    context_by_date: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        trend_score = float(row[1] or 50.0)
+        breadth_score = float(row[2] or 50.0)
+        emotion_score = float(row[3] or 50.0)
+        context_by_date[row[0].isoformat()] = {
+            "trend_score": round(trend_score, 4),
+            "breadth_score": round(breadth_score, 4),
+            "emotion_score": round(emotion_score, 4),
+            "market_state": _market_state(
+                trend_score=trend_score,
+                breadth_score=breadth_score,
+                emotion_score=emotion_score,
+            ),
+        }
+    return context_by_date
+
+
+def load_market_context_by_signal_dates(signal_dates: list[str]) -> dict[str, dict[str, Any]]:
     return summarize_market_context_by_month(
         [
             {
-                "trade_date": row[0].isoformat(),
-                "trend_score": row[1],
-                "breadth_score": row[2],
-                "emotion_score": row[3],
+                "trade_date": trade_date,
+                "trend_score": context.get("trend_score"),
+                "breadth_score": context.get("breadth_score"),
+                "emotion_score": context.get("emotion_score"),
             }
-            for row in rows
+            for trade_date, context in load_market_context_by_signal_date(signal_dates).items()
         ]
     )
 
@@ -521,6 +553,194 @@ def format_ranked_replay_market_context(
                         f"趋势{float(context.get('trend_score') or 0.0):.1f}",
                         f"宽度{float(context.get('breadth_score') or 0.0):.1f}",
                         f"情绪{float(context.get('emotion_score') or 0.0):.1f}",
+                    ]
+                )
+            )
+    return "\n".join(lines)
+
+
+def summarize_ranked_replay_market_state_returns(
+    rows: list[dict[str, Any]],
+    market_context_by_month: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    state_order = {"risk_on": 0, "neutral": 1, "risk_off": 2, "缺数据": 3}
+    summaries: list[dict[str, Any]] = []
+    for item in rows:
+        month_state_values: dict[tuple[str, str], list[float]] = defaultdict(list)
+        candidate_returns = list(item.get("candidate_returns") or [])
+        if candidate_returns:
+            for candidate_return in candidate_returns:
+                signal_date = str(candidate_return.get("signal_date"))
+                month_key = str(candidate_return.get("month") or signal_date[:7])
+                context = (
+                    market_context_by_month.get(signal_date)
+                    or market_context_by_month.get(month_key)
+                    or {}
+                )
+                state = str(context.get("market_state") or "缺数据")
+                month_state_values[(state, month_key)].append(
+                    float(candidate_return.get("return") or 0.0)
+                )
+        else:
+            for month in item.get("months") or []:
+                month_key = str(month.get("month"))
+                context = market_context_by_month.get(month_key) or {}
+                state = str(context.get("market_state") or "缺数据")
+                month_state_values[(state, month_key)].append(
+                    float(month.get("month_return") or 0.0)
+                )
+
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for (state, month_key), values in month_state_values.items():
+            grouped[state].append(
+                {
+                    "month": month_key,
+                    "month_return": round(sum(values) / len(values), 6),
+                }
+            )
+
+        states: list[dict[str, Any]] = []
+        for state, months in sorted(grouped.items(), key=lambda pair: state_order.get(pair[0], 99)):
+            returns = [float(month.get("month_return") or 0.0) for month in months]
+            worst = min(months, key=lambda month: float(month.get("month_return") or 0.0))
+            states.append(
+                {
+                    "market_state": state,
+                    "month_count": len(months),
+                    "total_return": round(sum(returns), 6),
+                    "average_return": round(sum(returns) / len(returns), 6),
+                    "win_rate": round(sum(1 for value in returns if value > 0) / len(returns), 6),
+                    "worst_month": worst.get("month"),
+                    "worst_month_return": float(worst.get("month_return") or 0.0),
+                }
+            )
+        summaries.append(
+            {
+                "candidate_scope": item["candidate_scope"],
+                "guard_preset": item["guard_preset"],
+                "states": states,
+            }
+        )
+    return summaries
+
+
+def _candidate_market_state(
+    candidate_return: dict[str, Any],
+    market_context_by_period: dict[str, dict[str, Any]],
+) -> str:
+    signal_date = str(candidate_return.get("signal_date"))
+    month_key = str(candidate_return.get("month") or signal_date[:7])
+    context = (
+        market_context_by_period.get(signal_date)
+        or market_context_by_period.get(month_key)
+        or {}
+    )
+    return str(context.get("market_state") or "缺数据")
+
+
+def _summarize_candidate_return_rows(candidate_returns: list[dict[str, Any]]) -> dict[str, Any]:
+    month_returns: dict[str, list[float]] = defaultdict(list)
+    for candidate_return in candidate_returns:
+        month = str(candidate_return.get("month") or str(candidate_return.get("signal_date"))[:7])
+        month_returns[month].append(float(candidate_return.get("return") or 0.0))
+
+    monthly_values = [
+        round(sum(values) / len(values), 6)
+        for month, values in sorted(month_returns.items())
+        if values
+    ]
+    return {
+        "candidate_count": len(candidate_returns),
+        "month_count": len(monthly_values),
+        "total_return": round(sum(monthly_values), 6) if monthly_values else 0.0,
+        "max_drawdown": _max_drawdown(monthly_values),
+    }
+
+
+def simulate_ranked_replay_market_state_gates(
+    rows: list[dict[str, Any]],
+    market_context_by_period: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    simulations: list[dict[str, Any]] = []
+    for item in rows:
+        candidate_returns = list(item.get("candidate_returns") or [])
+        gates: list[dict[str, Any]] = []
+        for gate_name, allowed_states in MARKET_STATE_GATE_PRESETS:
+            if allowed_states is None:
+                filtered = candidate_returns
+            else:
+                filtered = [
+                    candidate_return
+                    for candidate_return in candidate_returns
+                    if _candidate_market_state(candidate_return, market_context_by_period)
+                    in allowed_states
+                ]
+            gates.append({"gate": gate_name, **_summarize_candidate_return_rows(filtered)})
+        simulations.append(
+            {
+                "candidate_scope": item["candidate_scope"],
+                "guard_preset": item["guard_preset"],
+                "gates": gates,
+            }
+        )
+    return simulations
+
+
+def format_ranked_replay_market_state_gate_simulation(
+    rows: list[dict[str, Any]],
+    market_context_by_period: dict[str, dict[str, Any]],
+    *,
+    top_n: int,
+) -> str:
+    lines = [
+        f"行情状态门控模拟 Top {top_n}",
+        "门控 | 总收益 | 最大回撤 | 候选 | 月份",
+    ]
+    for item in simulate_ranked_replay_market_state_gates(
+        rows[: max(0, top_n)],
+        market_context_by_period,
+    ):
+        lines.append(f"{item['candidate_scope']}/{item['guard_preset']}")
+        for gate in item["gates"]:
+            lines.append(
+                " | ".join(
+                    [
+                        str(gate["gate"]),
+                        _pct(float(gate["total_return"])),
+                        _pct(float(gate["max_drawdown"])),
+                        str(gate["candidate_count"]),
+                        str(gate["month_count"]),
+                    ]
+                )
+            )
+    return "\n".join(lines)
+
+
+def format_ranked_replay_market_state_returns(
+    rows: list[dict[str, Any]],
+    market_context_by_month: dict[str, dict[str, Any]],
+    *,
+    top_n: int,
+) -> str:
+    lines = [
+        f"行情状态收益拆解 Top {top_n}",
+        "状态 | 月份桶 | 总收益 | 月均 | 月胜率 | 最差月",
+    ]
+    for item in summarize_ranked_replay_market_state_returns(
+        rows[: max(0, top_n)],
+        market_context_by_month,
+    ):
+        lines.append(f"{item['candidate_scope']}/{item['guard_preset']}")
+        for state in item["states"]:
+            lines.append(
+                " | ".join(
+                    [
+                        str(state["market_state"]),
+                        str(state["month_count"]),
+                        _pct(float(state["total_return"])),
+                        _pct(float(state["average_return"])),
+                        _pct(float(state["win_rate"])),
+                        f"{state['worst_month']} {_pct(float(state['worst_month_return']))}",
                     ]
                 )
             )
@@ -590,11 +810,40 @@ def main() -> None:
             print()
             print(format_replay_loss_diagnostics(diagnose_ranked_replay_losses(ranked)))
         if args.market_context:
+            signal_dates = _ranked_signal_dates(ranked)
+            market_context_by_signal_date = load_market_context_by_signal_date(signal_dates)
+            market_context_by_month = summarize_market_context_by_month(
+                [
+                    {
+                        "trade_date": trade_date,
+                        "trend_score": context.get("trend_score"),
+                        "breadth_score": context.get("breadth_score"),
+                        "emotion_score": context.get("emotion_score"),
+                    }
+                    for trade_date, context in market_context_by_signal_date.items()
+                ]
+            )
             print()
             print(
                 format_ranked_replay_market_context(
                     ranked,
-                    load_market_context_by_signal_dates(_ranked_signal_dates(ranked)),
+                    market_context_by_month,
+                    top_n=args.rank_months_top,
+                )
+            )
+            print()
+            print(
+                format_ranked_replay_market_state_returns(
+                    ranked,
+                    market_context_by_signal_date,
+                    top_n=args.rank_months_top,
+                )
+            )
+            print()
+            print(
+                format_ranked_replay_market_state_gate_simulation(
+                    ranked,
+                    market_context_by_signal_date,
                     top_n=args.rank_months_top,
                 )
             )
