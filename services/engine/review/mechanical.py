@@ -704,6 +704,7 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 report_type="daily_mechanical",
                 content_md=content,
                 metrics_json={
+                    "market_summary": market_summary,
                     "rule_diagnostics": [item.to_dict() for item in diagnostics],
                     "parameter_suggestions": parameter_suggestions_json,
                     "trade_plan_count": len(plans),

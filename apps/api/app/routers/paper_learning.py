@@ -1,4 +1,6 @@
+import re
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
@@ -17,6 +19,15 @@ from services.shared.models import PaperTradeReview
 
 router = APIRouter()
 DbSession = Annotated[Session, Depends(get_db)]
+_MARKET_SUMMARY_RE = re.compile(
+    r"数据日期 (?P<trade_date>\d{4}-\d{2}-\d{2}).*?"
+    r"上涨 (?P<up_count>\d+) / 下跌 (?P<down_count>\d+) / 平盘 (?P<flat_count>\d+)，"
+    r"上涨占比 (?P<up_ratio>-?\d+(?:\.\d+)?)%，"
+    r"平均涨跌 (?P<avg_change_pct>-?\d+(?:\.\d+)?)%，"
+    r"成交额 (?P<total_amount>-?\d+(?:\.\d+)?)亿",
+    re.S,
+)
+_AMOUNT_CHANGE_RE = re.compile(r"较前日成交额 (?P<amount_change_pct>-?\d+(?:\.\d+)?)%")
 
 
 class LearningInsightResponse(BaseModel):
@@ -106,6 +117,43 @@ def _review_to_response(item: PaperTradeReview) -> TradeReviewResponse:
     )
 
 
+def _pct_to_decimal(value: str) -> float:
+    return float(Decimal(value) / Decimal("100"))
+
+
+def _amount_yi_to_yuan(value: str) -> float:
+    return float(Decimal(value) * Decimal("100000000"))
+
+
+def _review_metrics_with_legacy_market_summary(
+    metrics: dict[str, Any],
+    content_md: str,
+) -> dict[str, Any]:
+    if metrics.get("market_summary"):
+        return metrics
+    market_match = _MARKET_SUMMARY_RE.search(content_md)
+    if not market_match:
+        return metrics
+
+    enriched = dict(metrics)
+    summary: dict[str, Any] = {
+        "trade_date": market_match.group("trade_date"),
+        "up_count": int(market_match.group("up_count")),
+        "down_count": int(market_match.group("down_count")),
+        "flat_count": int(market_match.group("flat_count")),
+        "up_ratio": _pct_to_decimal(market_match.group("up_ratio")),
+        "avg_change_pct": _pct_to_decimal(market_match.group("avg_change_pct")),
+        "total_amount": _amount_yi_to_yuan(market_match.group("total_amount")),
+    }
+    amount_change_match = _AMOUNT_CHANGE_RE.search(content_md)
+    if amount_change_match:
+        summary["amount_change_pct"] = _pct_to_decimal(
+            amount_change_match.group("amount_change_pct")
+        )
+    enriched["market_summary"] = summary
+    return enriched
+
+
 @router.get("/overview", response_model=PaperLearningOverviewResponse)
 def get_learning_overview(
     db: DbSession,
@@ -171,7 +219,10 @@ def get_mechanical_review(
         report_type=report.report_type,
         title=f"{report.report_date.isoformat()} 收盘总体复盘",
         content_md=report.content_md,
-        metrics=report.metrics_json or {},
+        metrics=_review_metrics_with_legacy_market_summary(
+            report.metrics_json or {},
+            report.content_md,
+        ),
         found=True,
     )
 

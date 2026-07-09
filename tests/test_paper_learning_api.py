@@ -105,6 +105,42 @@ def test_get_mechanical_review_returns_latest_report() -> None:
     assert "000001" in payload.content_md
 
 
+def test_get_mechanical_review_backfills_market_summary_from_legacy_content() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(
+            ReviewReport(
+                report_date=date(2026, 7, 8),
+                report_type="daily_mechanical",
+                scope="market",
+                generator="mechanical",
+                content_md=(
+                    "# 收盘总体复盘\n\n"
+                    "- 请求日期 2026-07-08 / 数据日期 2026-07-07（已过期）\n"
+                    "- 上涨 693 / 下跌 4797 / 平盘 27，上涨占比 12.56%，"
+                    "平均涨跌 -2.63%，成交额 25984.7亿\n"
+                    "- 较前日成交额 -16.51%\n"
+                ),
+                metrics_json={"data_health": {"status": "ok"}},
+            )
+        )
+        db.commit()
+
+        payload = get_mechanical_review(db=db)
+
+    assert payload.metrics["market_summary"]["trade_date"] == "2026-07-07"
+    assert payload.metrics["market_summary"]["up_count"] == 693
+    assert payload.metrics["market_summary"]["down_count"] == 4797
+    assert payload.metrics["market_summary"]["flat_count"] == 27
+    assert payload.metrics["market_summary"]["up_ratio"] == 0.1256
+    assert payload.metrics["market_summary"]["avg_change_pct"] == -0.0263
+    assert payload.metrics["market_summary"]["total_amount"] == 2598470000000.0
+    assert payload.metrics["market_summary"]["amount_change_pct"] == -0.1651
+
+
 def test_get_monthly_summary_returns_web_only_payload(monkeypatch) -> None:
     class _Summary:
         month = "2026-06"

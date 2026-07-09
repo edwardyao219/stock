@@ -225,6 +225,134 @@ button {
   font-size: 12px;
 }
 
+.post-close-review-panel {
+  background: #fff;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.post-close-review-head {
+  align-items: center;
+  border-bottom: 1px solid #edf2f7;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding-bottom: 8px;
+}
+
+.post-close-review-head span,
+.post-close-review-head small,
+.post-close-review-card span,
+.post-close-review-card small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.post-close-review-head strong {
+  color: #17202b;
+  display: block;
+  font-size: 17px;
+  margin: 2px 0;
+}
+
+.post-close-review-head button {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #dbe2ea;
+  border-radius: 7px;
+  color: #475569;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.post-close-review-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.post-close-review-card {
+  background: #f8fafc;
+  border: 1px solid #e1e8ef;
+  border-radius: 7px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px;
+}
+
+.post-close-review-card.wide {
+  grid-column: span 2;
+}
+
+.post-close-review-card.up {
+  background: #f3fbf5;
+  border-color: #bde4ca;
+}
+
+.post-close-review-card.down {
+  background: #fff5f3;
+  border-color: #f5c2bd;
+}
+
+.post-close-review-card.warn {
+  background: #fffaf0;
+  border-color: #f5d99c;
+}
+
+.post-close-review-card strong,
+.post-close-review-card small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.post-close-review-card strong {
+  color: #17202b;
+  font-size: 16px;
+}
+
+.post-close-review-card.up strong {
+  color: #17623a;
+}
+
+.post-close-review-card.down strong {
+  color: #9f2d20;
+}
+
+.post-close-review-details {
+  border-top: 1px solid #edf2f7;
+  padding-top: 8px;
+}
+
+.post-close-review-details summary {
+  color: #334155;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.post-close-review-details pre {
+  background: #f8fafc;
+  border: 1px solid #e1e8ef;
+  border-radius: 7px;
+  color: #334155;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 8px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
 .review-strip {
   background: #fff;
   border: 1px solid #dbe2ea;

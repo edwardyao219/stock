@@ -1,4 +1,5 @@
-import { candidatePoolTextForStock, manualTagTextForStock } from "./stockLabels";
+// @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
+import { candidatePoolTextForStock, manualTagTextForStock } from "./stockLabels.ts";
 
 function assertEqual(actual: unknown, expected: unknown, message: string) {
   if (actual !== expected) {

@@ -197,9 +197,15 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
             )
         ],
     )
+    captured_report: dict[str, object] = {}
+
+    def fake_insert_review_report(*args, **kwargs):
+        captured_report.update(kwargs)
+        return 1
+
     monkeypatch.setattr(
         "services.engine.review.repository.insert_review_report",
-        lambda *args, **kwargs: 1,
+        fake_insert_review_report,
     )
     monkeypatch.setattr(
         "services.engine.review.repository.upsert_parameter_recommendations",
@@ -236,6 +242,11 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
     assert "分层: 核心行动" in review.content_md
     assert "弱情绪阶段只保留少量长期主线" in review.content_md
     assert "候选池提示: 没有核心行动：大盘压力大，停止扩散，只做观察和风控。" in review.content_md
+
+    assert captured_report["metrics_json"]["market_summary"]["up_count"] == 1
+    assert captured_report["metrics_json"]["market_summary"]["down_count"] == 1
+    assert captured_report["metrics_json"]["market_summary"]["up_ratio"] == 0.5
+
     assert "策略线回看: 长期主线 1只，平均 2.00%" in review.content_md
     assert "K线 O10.00 H10.50 L9.80 C10.20" in review.content_md
     assert "复盘判断: 跑赢市场 1.00 个百分点" in review.content_md

@@ -22,6 +22,7 @@ import {
   fetchIntradayCandidates,
   fetchLowDimensionalReplay,
   fetchMarketOverview,
+  fetchMechanicalReview,
   fetchMonthlySummary,
   fetchRuleRegressionStatus,
   fetchSectorCatalysts,
@@ -33,6 +34,7 @@ import {
   IntradayCandidateSnapshotList,
   LowDimensionalReplayReport,
   MarketOverview,
+  MechanicalReview,
   MonthlySummary,
   ReplayDataCoverage,
   ReplayReturnSummary,
@@ -731,6 +733,57 @@ function objectNumber(item: Record<string, unknown>, keys: string[]) {
   return null;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asRecordList(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item)) : [];
+}
+
+function reviewMetricRecord(review: MechanicalReview | null, key: string) {
+  return asRecord(review?.metrics?.[key]);
+}
+
+function nestedMetricList(parent: Record<string, unknown> | null, key: string) {
+  return parent ? asRecordList(parent[key]) : [];
+}
+
+function reviewMetricList(review: MechanicalReview | null, key: string) {
+  return asRecordList(review?.metrics?.[key]);
+}
+
+function reviewHealthTone(status: string | null | undefined) {
+  if (status === "ok") return "up";
+  if (status === "critical") return "down";
+  if (status) return "warn";
+  return "neutral";
+}
+
+function reviewHealthLabel(status: string | null | undefined) {
+  if (status === "ok") return "正常";
+  if (status === "critical") return "严重";
+  if (status && status !== "-") return "关注";
+  return "未知";
+}
+
+function reviewBreadthTone(value: number | null | undefined) {
+  if (value === null || value === undefined) return "neutral";
+  if (value >= 0.55) return "up";
+  if (value <= 0.45) return "down";
+  return "neutral";
+}
+
+function reviewSectorLine(item: Record<string, unknown>) {
+  const name = objectText(item, ["sector", "sector_name"]);
+  const avg = objectNumber(item, ["avg_change_pct"]);
+  const upRatio = objectNumber(item, ["up_ratio"]);
+  const flow = objectNumber(item, ["fund_flow_rate"]);
+  return `${name} / 均涨 ${pct(avg)} / 上涨 ${ratioPct(upRatio)} / 资金 ${fundFlowRateText(flow)}`;
+}
+
 function factorInsightLabel(item: Record<string, unknown>) {
   const name = objectText(item, ["factor_name", "factor_id", "name"]);
   const avgReturn = objectNumber(item, ["avg_return", "return", "avg_pnl"]);
@@ -1033,6 +1086,7 @@ export function App() {
   const [sectorCatalysts, setSectorCatalysts] = useState<SectorCatalysts | null>(null);
   const [dataHealth, setDataHealth] = useState<DataHealth | null>(null);
   const [selectedSectorCode, setSelectedSectorCode] = useState<string | null>(null);
+  const [mechanicalReview, setMechanicalReview] = useState<MechanicalReview | null>(null);
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummary | null>(null);
   const [lowDimensionalReplay, setLowDimensionalReplay] =
     useState<LowDimensionalReplayReport | null>(null);
@@ -1317,6 +1371,14 @@ export function App() {
     }
   }
 
+  async function loadMechanicalReview() {
+    try {
+      setMechanicalReview(await fetchMechanicalReview());
+    } catch {
+      setMechanicalReview(null);
+    }
+  }
+
   async function addManualFocus() {
     const symbol = manualSymbol.trim();
     if (!symbol) return;
@@ -1357,6 +1419,7 @@ export function App() {
     loadSectorOverview();
     loadSectorCatalysts();
     loadDataHealth();
+    loadMechanicalReview();
     loadMonthlySummary();
     loadStrategyFit();
     loadCandidateReplayEffect(initialCandidateReplayQuery);
@@ -1395,6 +1458,24 @@ export function App() {
   const coverageText = marketOverview
     ? `${marketOverview.stock_count}/${marketOverview.active_security_count} 样本`
     : "-";
+  const reviewMarketSummary = reviewMetricRecord(mechanicalReview, "market_summary");
+  const reviewDisplayMarketSummary = reviewMarketSummary ?? {
+    trade_date: marketOverview?.trade_date ?? null,
+    up_count: marketOverview?.up_count ?? null,
+    down_count: marketOverview?.down_count ?? null,
+    up_ratio: marketOverview?.up_ratio ?? null,
+    avg_change_pct: marketOverview?.avg_change_pct ?? null,
+    amount_change_pct: marketOverview?.amount_change_pct ?? null,
+    total_amount: marketOverview?.total_amount ?? null,
+  };
+  const reviewDataHealth = reviewMetricRecord(mechanicalReview, "data_health");
+  const reviewCrossSection = reviewMetricRecord(mechanicalReview, "market_cross_section");
+  const reviewIndexes = reviewMetricList(mechanicalReview, "market_indexes");
+  const reviewStrongSectors = nestedMetricList(reviewCrossSection, "strong_sectors");
+  const reviewWeakSectors = nestedMetricList(reviewCrossSection, "weak_sectors");
+  const reviewUpRatio = objectNumber(reviewDisplayMarketSummary, ["up_ratio"]);
+  const reviewAmountChange = objectNumber(reviewDisplayMarketSummary, ["amount_change_pct"]);
+  const reviewHealthStatus = objectText(reviewDataHealth ?? {}, ["status"]);
   const tradableCount = boardFilteredStocks.filter(hasTradablePlan).length;
   const openTradeCount = boardFilteredStocks.filter(hasOpenAutoTrade).length;
   const candidateCount = boardFilteredStocks.filter(isNextSessionCandidate).length;
@@ -1672,6 +1753,79 @@ export function App() {
                 今日胜率 {pct(paperStats.todayWinRate)} / 已平 {paperStats.closedCount} 笔
               </small>
             </div>
+          </section>
+
+          <section className="post-close-review-panel">
+            <div className="post-close-review-head">
+              <div>
+                <span>收盘复盘</span>
+                <strong>{mechanicalReview?.found ? mechanicalReview.title : "暂无收盘总体复盘"}</strong>
+                <small>
+                  {mechanicalReview?.found
+                    ? `报告 ${mechanicalReview.report_date ?? "-"} / 数据 ${objectText(reviewDisplayMarketSummary, ["trade_date"])}`
+                    : "收盘后会展示大盘、板块和候选回看"}
+                </small>
+              </div>
+              <button type="button" onClick={loadMechanicalReview} aria-label="刷新收盘复盘">
+                <RefreshCw size={14} />
+              </button>
+            </div>
+            {mechanicalReview?.found ? (
+              <>
+                <div className="post-close-review-grid">
+                  <div className={`post-close-review-card ${reviewBreadthTone(reviewUpRatio)}`}>
+                    <span>盘面宽度</span>
+                    <strong>
+                      {objectNumber(reviewDisplayMarketSummary, ["up_count"]) ?? "-"}涨{" "}
+                      {objectNumber(reviewDisplayMarketSummary, ["down_count"]) ?? "-"}跌
+                    </strong>
+                    <small>上涨占比 {pct(reviewUpRatio)} / 均值 {pct(objectNumber(reviewDisplayMarketSummary, ["avg_change_pct"]))}</small>
+                  </div>
+                  <div className={`post-close-review-card ${(reviewAmountChange ?? 0) >= 0 ? "up" : "down"}`}>
+                    <span>成交变化</span>
+                    <strong>{pct(reviewAmountChange)}</strong>
+                    <small>成交额 {amountText(objectNumber(reviewDisplayMarketSummary, ["total_amount"]))}</small>
+                  </div>
+                  <div className={`post-close-review-card ${reviewHealthTone(reviewHealthStatus)}`}>
+                    <span>数据健康</span>
+                    <strong>{reviewHealthLabel(reviewHealthStatus)}</strong>
+                    <small>
+                      日线 {objectNumber(reviewDataHealth ?? {}, ["daily_bar_count"]) ?? "-"} / 特征{" "}
+                      {objectNumber(reviewDataHealth ?? {}, ["feature_count"]) ?? "-"}
+                    </small>
+                  </div>
+                  <div className={`post-close-review-card ${(objectNumber(reviewIndexes[0] ?? {}, ["change_pct"]) ?? 0) >= 0 ? "up" : "down"}`}>
+                    <span>指数状态</span>
+                    <strong>
+                      {objectText(reviewIndexes[0] ?? {}, ["name"])} {pct(objectNumber(reviewIndexes[0] ?? {}, ["change_pct"]))}
+                    </strong>
+                    <small>{objectText(reviewIndexes[0] ?? {}, ["trade_date"])}</small>
+                  </div>
+                  <div className="post-close-review-card wide up">
+                    <span>相对强势</span>
+                    {reviewStrongSectors.slice(0, 2).map((item) => (
+                      <small key={`strong-${objectText(item, ["sector"])}`}>{reviewSectorLine(item)}</small>
+                    ))}
+                    {!reviewStrongSectors.length ? <small>暂无强势板块样本</small> : null}
+                  </div>
+                  <div className="post-close-review-card wide down">
+                    <span>主要承压</span>
+                    {reviewWeakSectors.slice(0, 2).map((item) => (
+                      <small key={`weak-${objectText(item, ["sector"])}`}>{reviewSectorLine(item)}</small>
+                    ))}
+                    {!reviewWeakSectors.length ? <small>暂无承压板块样本</small> : null}
+                  </div>
+                </div>
+                {mechanicalReview.content_md ? (
+                  <details className="post-close-review-details">
+                    <summary>查看完整收盘复盘</summary>
+                    <pre>{mechanicalReview.content_md}</pre>
+                  </details>
+                ) : null}
+              </>
+            ) : (
+              <div className="empty compact">暂无收盘复盘报告，收盘任务完成后会自动出现在这里。</div>
+            )}
           </section>
 
           <section className="intraday-watch-strip">
