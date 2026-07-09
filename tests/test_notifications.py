@@ -961,6 +961,8 @@ def test_build_candidate_tiers_keeps_quality_long_action_on_emotion_risk_off() -
     tiers = build_candidate_tiers(discovery, max_core_items=3)
 
     assert [item["symbol"] for item in tiers["core_action"]] == ["603061"]
+    assert "弱情绪阶段" in tiers["core_action"][0]["tier_reason"]
+    assert "长期主线" in tiers["core_action"][0]["tier_reason"]
     assert [item["symbol"] for item in tiers["watch_wait"]] == ["600360"]
     assert "弱情绪阶段" in tiers["watch_wait"][0]["tier_reason"]
     assert tiers["summary"]["core_block_reason"] is None

@@ -1024,6 +1024,18 @@ def _watch_wait_reason(item: dict[str, Any]) -> str:
     )
 
 
+def _core_action_reason(discovery: dict[str, Any], item: dict[str, Any]) -> str:
+    if (
+        _emotion_gate_state(discovery) == "risk_off"
+        and _passes_long_action_emotion_risk_off_gate(item)
+    ):
+        return (
+            "弱情绪阶段只保留少量长期主线：板块连续性和量能确认同时达标；"
+            "盘中仍看承接，不追高。"
+        )
+    return "板块和个股趋势同时在线，作为核心行动候选；盘中仍看承接。"
+
+
 def _core_block_reason(
     candidates: list[dict[str, Any]],
     core_action: list[dict[str, Any]],
@@ -1141,7 +1153,7 @@ def build_candidate_tiers(
             label="核心行动",
             reason=_append_horizon_reason(
                 item,
-                "板块和个股趋势同时在线，作为核心行动候选；盘中仍看承接。",
+                _core_action_reason(discovery, item),
             ),
         )
         for item in filtered_core_source[:effective_core_limit]
