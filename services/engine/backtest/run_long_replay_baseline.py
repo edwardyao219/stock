@@ -93,7 +93,9 @@ def format_replay_baseline(summary: dict[str, Any]) -> str:
     lines = [
         (
             f"长回归基线 {summary['start_date']} -> {summary['end_date']} "
-            f"H{summary['horizon']} {summary['return_type']}"
+            f"H{summary['horizon']} {summary['return_type']} "
+            f"止损{_pct(float(summary.get('stop_loss_pct') or 0.0))} "
+            f"回撤{_pct(float(summary.get('trailing_drawdown_pct') or 0.0))}"
         ),
         (
             f"总收益(不复利) {_pct(float(summary['total_return']))} | "
@@ -115,6 +117,37 @@ def format_replay_baseline(summary: dict[str, Any]) -> str:
             )
         )
     return "\n".join(lines)
+
+
+def run_replay_baseline(
+    *,
+    start_date: str,
+    end_date: str,
+    horizon: int,
+    limit: int,
+    candidate_scope: str,
+    guarded: bool,
+    min_coverage_ratio: float,
+    include_fundamentals: bool,
+    stop_loss_pct: float,
+    trailing_drawdown_pct: float,
+) -> dict[str, Any]:
+    result = run_candidate_walk_forward_replay(
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        horizons=(horizon,),
+        min_coverage_ratio=min_coverage_ratio,
+        include_fundamentals=include_fundamentals,
+        candidate_scope=candidate_scope,
+        stop_loss_pct=stop_loss_pct,
+        trailing_drawdown_pct=trailing_drawdown_pct,
+    )
+    return {
+        **summarize_replay_baseline(result, horizon=horizon, guarded=guarded),
+        "stop_loss_pct": stop_loss_pct,
+        "trailing_drawdown_pct": trailing_drawdown_pct,
+    }
 
 
 def main() -> None:
@@ -139,21 +172,25 @@ def main() -> None:
     parser.add_argument("--guarded", action="store_true")
     parser.add_argument("--min-coverage-ratio", type=float, default=0.70)
     parser.add_argument("--disable-fundamentals", action="store_true")
+    parser.add_argument("--stop-loss-pct", type=float, default=0.06)
+    parser.add_argument("--trailing-drawdown-pct", type=float, default=0.08)
     args = parser.parse_args()
 
     require_primary_database("long_replay_baseline")
-    result = run_candidate_walk_forward_replay(
-        start_date=args.start_date,
-        end_date=args.end_date,
-        limit=args.limit,
-        horizons=(args.horizon,),
-        min_coverage_ratio=args.min_coverage_ratio,
-        include_fundamentals=not args.disable_fundamentals,
-        candidate_scope=args.candidate_scope,
-    )
     print(
         format_replay_baseline(
-            summarize_replay_baseline(result, horizon=args.horizon, guarded=args.guarded)
+            run_replay_baseline(
+                start_date=args.start_date,
+                end_date=args.end_date,
+                horizon=args.horizon,
+                limit=args.limit,
+                candidate_scope=args.candidate_scope,
+                guarded=args.guarded,
+                min_coverage_ratio=args.min_coverage_ratio,
+                include_fundamentals=not args.disable_fundamentals,
+                stop_loss_pct=args.stop_loss_pct,
+                trailing_drawdown_pct=args.trailing_drawdown_pct,
+            )
         )
     )
 

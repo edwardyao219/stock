@@ -1,4 +1,8 @@
-from services.engine.backtest.run_long_replay_baseline import summarize_replay_baseline
+from services.engine.backtest import run_long_replay_baseline as baseline
+from services.engine.backtest.run_long_replay_baseline import (
+    run_replay_baseline,
+    summarize_replay_baseline,
+)
 from services.engine.backtest.walk_forward import (
     WalkForwardCandidate,
     WalkForwardDay,
@@ -77,3 +81,43 @@ def test_summarize_replay_baseline_can_use_guarded_returns() -> None:
 
     assert summary["total_return"] == 0.03
     assert summary["months"][0]["month_return"] == 0.03
+
+
+def test_run_replay_baseline_passes_guard_parameters(monkeypatch) -> None:
+    captured = {}
+    result = WalkForwardReplayResult(
+        start_date="2026-01-01",
+        end_date="2026-01-31",
+        processed_days=1,
+        days=[_day("2026-01-02", [_candidate("600001", 0.10, guarded=0.03)])],
+    )
+
+    def fake_run_candidate_walk_forward_replay(**kwargs):
+        captured.update(kwargs)
+        return result
+
+    monkeypatch.setattr(
+        baseline,
+        "run_candidate_walk_forward_replay",
+        fake_run_candidate_walk_forward_replay,
+    )
+
+    summary = run_replay_baseline(
+        start_date="2026-01-01",
+        end_date="2026-01-31",
+        horizon=5,
+        limit=3,
+        candidate_scope="sector_watch",
+        guarded=True,
+        min_coverage_ratio=0.8,
+        include_fundamentals=False,
+        stop_loss_pct=0.04,
+        trailing_drawdown_pct=0.08,
+    )
+
+    assert summary["total_return"] == 0.03
+    assert summary["stop_loss_pct"] == 0.04
+    assert summary["trailing_drawdown_pct"] == 0.08
+    assert captured["stop_loss_pct"] == 0.04
+    assert captured["trailing_drawdown_pct"] == 0.08
+    assert captured["candidate_scope"] == "sector_watch"

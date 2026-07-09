@@ -59,7 +59,7 @@ Add helpers that summarize replay candidates by month with `month_return = sum(c
 
 - [ ] **Step 3: Add CLI wrapper**
 
-The command accepts `--start-date`, `--end-date`, `--horizon`, `--limit`, and `--candidate-scope`, calls the existing replay function, and prints a compact table.
+The command accepts `--start-date`, `--end-date`, `--horizon`, `--limit`, `--candidate-scope`, `--stop-loss-pct`, and `--trailing-drawdown-pct`, calls the existing replay function, and prints a compact table.
 
 - [ ] **Step 4: Verify on code and real data**
 
