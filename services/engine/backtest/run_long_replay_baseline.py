@@ -12,6 +12,32 @@ from services.engine.backtest.walk_forward import (
 )
 from services.shared.database import require_primary_database
 
+ADAPTIVE_GUARD_PARAMETERS = {
+    "action": (0.04, 0.06),
+    "action_long": (0.04, 0.06),
+    "sector_watch": (0.06, 0.08),
+    "potential_watch": (0.06, 0.08),
+    "startup_preheat": (0.06, 0.08),
+    "startup_confirmed": (0.04, 0.06),
+}
+
+
+def resolve_guard_parameters(
+    *,
+    candidate_scope: str,
+    guard_preset: str,
+    stop_loss_pct: float,
+    trailing_drawdown_pct: float,
+) -> tuple[float, float]:
+    if guard_preset == "fixed":
+        return stop_loss_pct, trailing_drawdown_pct
+    if guard_preset == "adaptive":
+        return ADAPTIVE_GUARD_PARAMETERS.get(
+            candidate_scope,
+            (stop_loss_pct, trailing_drawdown_pct),
+        )
+    raise ValueError(f"Unsupported guard_preset: {guard_preset}")
+
 
 def _candidate_return(
     candidate: WalkForwardCandidate,
@@ -131,7 +157,14 @@ def run_replay_baseline(
     include_fundamentals: bool,
     stop_loss_pct: float,
     trailing_drawdown_pct: float,
+    guard_preset: str = "fixed",
 ) -> dict[str, Any]:
+    effective_stop_loss_pct, effective_trailing_drawdown_pct = resolve_guard_parameters(
+        candidate_scope=candidate_scope,
+        guard_preset=guard_preset,
+        stop_loss_pct=stop_loss_pct,
+        trailing_drawdown_pct=trailing_drawdown_pct,
+    )
     result = run_candidate_walk_forward_replay(
         start_date=start_date,
         end_date=end_date,
@@ -140,13 +173,14 @@ def run_replay_baseline(
         min_coverage_ratio=min_coverage_ratio,
         include_fundamentals=include_fundamentals,
         candidate_scope=candidate_scope,
-        stop_loss_pct=stop_loss_pct,
-        trailing_drawdown_pct=trailing_drawdown_pct,
+        stop_loss_pct=effective_stop_loss_pct,
+        trailing_drawdown_pct=effective_trailing_drawdown_pct,
     )
     return {
         **summarize_replay_baseline(result, horizon=horizon, guarded=guarded),
-        "stop_loss_pct": stop_loss_pct,
-        "trailing_drawdown_pct": trailing_drawdown_pct,
+        "guard_preset": guard_preset,
+        "stop_loss_pct": effective_stop_loss_pct,
+        "trailing_drawdown_pct": effective_trailing_drawdown_pct,
     }
 
 
@@ -172,6 +206,7 @@ def main() -> None:
     parser.add_argument("--guarded", action="store_true")
     parser.add_argument("--min-coverage-ratio", type=float, default=0.70)
     parser.add_argument("--disable-fundamentals", action="store_true")
+    parser.add_argument("--guard-preset", choices=["fixed", "adaptive"], default="fixed")
     parser.add_argument("--stop-loss-pct", type=float, default=0.06)
     parser.add_argument("--trailing-drawdown-pct", type=float, default=0.08)
     args = parser.parse_args()
@@ -190,6 +225,7 @@ def main() -> None:
                 include_fundamentals=not args.disable_fundamentals,
                 stop_loss_pct=args.stop_loss_pct,
                 trailing_drawdown_pct=args.trailing_drawdown_pct,
+                guard_preset=args.guard_preset,
             )
         )
     )

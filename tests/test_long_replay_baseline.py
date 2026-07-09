@@ -1,5 +1,6 @@
 from services.engine.backtest import run_long_replay_baseline as baseline
 from services.engine.backtest.run_long_replay_baseline import (
+    resolve_guard_parameters,
     run_replay_baseline,
     summarize_replay_baseline,
 )
@@ -121,3 +122,64 @@ def test_run_replay_baseline_passes_guard_parameters(monkeypatch) -> None:
     assert captured["stop_loss_pct"] == 0.04
     assert captured["trailing_drawdown_pct"] == 0.08
     assert captured["candidate_scope"] == "sector_watch"
+
+
+def test_resolve_guard_parameters_can_adapt_by_candidate_scope() -> None:
+    assert resolve_guard_parameters(
+        candidate_scope="action",
+        guard_preset="adaptive",
+        stop_loss_pct=0.06,
+        trailing_drawdown_pct=0.08,
+    ) == (0.04, 0.06)
+    assert resolve_guard_parameters(
+        candidate_scope="sector_watch",
+        guard_preset="adaptive",
+        stop_loss_pct=0.04,
+        trailing_drawdown_pct=0.06,
+    ) == (0.06, 0.08)
+    assert resolve_guard_parameters(
+        candidate_scope="unknown",
+        guard_preset="fixed",
+        stop_loss_pct=0.05,
+        trailing_drawdown_pct=0.07,
+    ) == (0.05, 0.07)
+
+
+def test_run_replay_baseline_uses_adaptive_guard_parameters(monkeypatch) -> None:
+    captured = {}
+    result = WalkForwardReplayResult(
+        start_date="2026-01-01",
+        end_date="2026-01-31",
+        processed_days=1,
+        days=[_day("2026-01-02", [_candidate("600001", 0.10, guarded=0.03)])],
+    )
+
+    def fake_run_candidate_walk_forward_replay(**kwargs):
+        captured.update(kwargs)
+        return result
+
+    monkeypatch.setattr(
+        baseline,
+        "run_candidate_walk_forward_replay",
+        fake_run_candidate_walk_forward_replay,
+    )
+
+    summary = run_replay_baseline(
+        start_date="2026-01-01",
+        end_date="2026-01-31",
+        horizon=5,
+        limit=3,
+        candidate_scope="action",
+        guarded=True,
+        min_coverage_ratio=0.8,
+        include_fundamentals=False,
+        stop_loss_pct=0.06,
+        trailing_drawdown_pct=0.08,
+        guard_preset="adaptive",
+    )
+
+    assert summary["guard_preset"] == "adaptive"
+    assert summary["stop_loss_pct"] == 0.04
+    assert summary["trailing_drawdown_pct"] == 0.06
+    assert captured["stop_loss_pct"] == 0.04
+    assert captured["trailing_drawdown_pct"] == 0.06
