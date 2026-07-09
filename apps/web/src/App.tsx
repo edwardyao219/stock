@@ -158,6 +158,16 @@ function amountText(value: number | null | undefined) {
   return `${(value / 100_000_000).toFixed(1)}亿`;
 }
 
+function fundFlowRateText(value: number | null | undefined) {
+  if (value === null || value === undefined) return "-";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function fundFlowRateBarWidth(value: number | null | undefined) {
+  if (value === null || value === undefined) return 0;
+  return Math.min(100, Math.max(8, (Math.abs(value) / 15) * 100));
+}
+
 function currentMonthText() {
   return new Date().toISOString().slice(0, 7);
 }
@@ -736,9 +746,45 @@ function sectorOpportunityLabel(item: Record<string, unknown>) {
 
 function sectorFlowText(item: SectorOverviewItem) {
   const net = amountText(item.fund_flow_net_amount);
-  const rate = pct(item.fund_flow_rate);
+  const rate = fundFlowRateText(item.fund_flow_rate);
   if (net === "-" && rate === "-") return "暂无资金流";
   return `${net} / ${rate}`;
+}
+
+type SectorRadarKind = "monthly" | "activity" | "continuity";
+
+function sectorRadarValue(item: SectorOverviewItem, kind: SectorRadarKind) {
+  if (kind === "activity") return item.fund_flow_rate;
+  if (kind === "continuity") return item.sector_strength_score;
+  return item.monthly_return_pct;
+}
+
+function sectorRadarValueText(item: SectorOverviewItem, kind: SectorRadarKind) {
+  const value = sectorRadarValue(item, kind);
+  if (kind === "continuity") return scoreText(value);
+  if (kind === "activity") return fundFlowRateText(value);
+  return pct(value);
+}
+
+function sectorRadarWidth(item: SectorOverviewItem, kind: SectorRadarKind) {
+  const value = sectorRadarValue(item, kind);
+  if (value === null || value === undefined) return 0;
+  if (kind === "activity") return fundFlowRateBarWidth(value);
+  if (kind === "continuity") return Math.min(100, Math.max(8, value));
+  return Math.min(100, Math.max(8, Math.abs(value) * 280));
+}
+
+function sectorRadarTone(item: SectorOverviewItem, kind: SectorRadarKind) {
+  const value = sectorRadarValue(item, kind);
+  if (value === null || value === undefined) return "neutral";
+  if (kind === "continuity") {
+    if (value >= 60) return "up";
+    if (value < 45) return "down";
+    return "neutral";
+  }
+  if (value > 0) return "up";
+  if (value < 0) return "down";
+  return "neutral";
 }
 
 function sectorBreadthText(item: SectorOverviewItem) {
@@ -2997,19 +3043,26 @@ export function App() {
           </section>
           <section className="sector-radar-grid">
             {[
-              ["月度主线", sectorOverview?.monthly_rank ?? []],
-              ["资金活跃", sectorOverview?.activity_rank ?? []],
-              ["趋势持续", sectorOverview?.continuity_rank ?? []],
-            ].map(([title, items]) => (
+              ["月度主线", "monthly", sectorOverview?.monthly_rank ?? []],
+              ["资金活跃", "activity", sectorOverview?.activity_rank ?? []],
+              ["趋势持续", "continuity", sectorOverview?.continuity_rank ?? []],
+            ].map(([title, kind, items]) => (
               <div className="sector-radar-card" key={title as string}>
                 <span>{title as string}</span>
                 {(items as SectorOverviewItem[]).slice(0, 5).map((item) => (
                   <button
+                    className={`sector-radar-item ${sectorRadarTone(item, kind as SectorRadarKind)}`}
                     key={`${title}-${item.sector_code}`}
                     type="button"
                     onClick={() => setSelectedSectorCode(item.sector_code)}
                   >
-                    <strong>{item.sector_name}</strong>
+                    <span className="sector-radar-item-head">
+                      <strong>{item.sector_name}</strong>
+                      <em>{sectorRadarValueText(item, kind as SectorRadarKind)}</em>
+                    </span>
+                    <span className="sector-radar-bar">
+                      <i style={{ width: `${sectorRadarWidth(item, kind as SectorRadarKind)}%` }} />
+                    </span>
                     <small>
                       月 {pct(item.monthly_return_pct)} / 强度 {scoreText(item.sector_strength_score)}
                     </small>

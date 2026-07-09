@@ -2606,30 +2606,87 @@ button {
   font-weight: 700;
 }
 
-.sector-radar-card button {
+.sector-radar-card .sector-radar-item {
   background: #f8fafc;
   border: 1px solid #e1e8ef;
   border-radius: 7px;
   color: #17202b;
-  display: block;
+  display: grid;
+  gap: 5px;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 8px 9px;
   text-align: left;
 }
 
+.sector-radar-card .sector-radar-item.up {
+  border-color: #bde4ca;
+  background: #f8fcf9;
+}
+
+.sector-radar-card .sector-radar-item.down {
+  border-color: #f5c2bd;
+  background: #fff7f5;
+}
+
+.sector-radar-item-head {
+  align-items: baseline;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+}
+
 .sector-radar-card strong,
-.sector-radar-card small {
+.sector-radar-card small,
+.sector-radar-card em {
   display: block;
+  font-style: normal;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.sector-radar-card em {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.sector-radar-item.up em {
+  color: #17623a;
+}
+
+.sector-radar-item.down em {
+  color: #9f2d20;
+}
+
+.sector-radar-bar {
+  background: #e7edf4;
+  border-radius: 999px;
+  height: 7px;
+  overflow: hidden;
+}
+
+.sector-radar-bar i {
+  background: #64748b;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  min-width: 6px;
+}
+
+.sector-radar-item.up .sector-radar-bar i {
+  background: #2f9e63;
+}
+
+.sector-radar-item.down .sector-radar-bar i {
+  background: #d65f4f;
+}
+
 .sector-radar-card small {
   color: #64748b;
   font-size: 12px;
-  margin-top: 2px;
 }
 
 .sector-list,
