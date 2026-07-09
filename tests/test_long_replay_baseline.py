@@ -1,6 +1,7 @@
 from services.engine.backtest import run_long_replay_baseline as baseline
 from services.engine.backtest.run_long_replay_baseline import (
     annotate_drawdown_limit,
+    format_ranked_replay_months,
     format_ranked_replay_baselines,
     rank_replay_baselines,
     resolve_guard_parameters,
@@ -339,3 +340,45 @@ def test_format_ranked_replay_baselines_uses_compact_chinese_table() -> None:
 
     assert "回撤约束排名" in text
     assert "sector_watch | drawdown15 | 达标 | 35.56% | -8.84%" in text
+
+
+def test_format_ranked_replay_months_shows_top_month_breakdown() -> None:
+    text = format_ranked_replay_months(
+        [
+            {
+                "candidate_scope": "sector_watch",
+                "guard_preset": "drawdown15",
+                "total_return": 0.3556,
+                "max_drawdown": -0.0884,
+                "months": [
+                    {
+                        "month": "2025-06",
+                        "signal_days": 1,
+                        "candidate_count": 2,
+                        "win_rate": 1.0,
+                        "month_return": 0.2013,
+                    },
+                    {
+                        "month": "2025-09",
+                        "signal_days": 5,
+                        "candidate_count": 11,
+                        "win_rate": 0.3636,
+                        "month_return": -0.0086,
+                    },
+                ],
+            },
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "total_return": 0.198,
+                "max_drawdown": -0.0716,
+                "months": [],
+            },
+        ],
+        top_n=1,
+    )
+
+    assert "月度拆解 Top 1" in text
+    assert "sector_watch/drawdown15 总收益35.56% 最大回撤-8.84%" in text
+    assert "2025-06 | 1 | 2 | 100.00% | 20.13%" in text
+    assert "action/drawdown15" not in text

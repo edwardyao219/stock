@@ -304,6 +304,36 @@ def format_ranked_replay_baselines(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def format_ranked_replay_months(
+    rows: list[dict[str, Any]],
+    *,
+    top_n: int,
+) -> str:
+    lines = [f"月度拆解 Top {top_n}"]
+    for item in rows[: max(0, top_n)]:
+        lines.append(
+            (
+                f"{item['candidate_scope']}/{item['guard_preset']} "
+                f"总收益{_pct(float(item['total_return']))} "
+                f"最大回撤{_pct(float(item['max_drawdown']))}"
+            )
+        )
+        lines.append("月份 | 信号日 | 候选 | 胜率 | 月收益")
+        for month in item.get("months") or []:
+            lines.append(
+                " | ".join(
+                    [
+                        str(month["month"]),
+                        str(month["signal_days"]),
+                        str(month["candidate_count"]),
+                        _pct(float(month["win_rate"])),
+                        _pct(float(month["month_return"])),
+                    ]
+                )
+            )
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run long walk-forward baseline.")
     parser.add_argument("--start-date", required=True, help="YYYY-MM-DD")
@@ -335,28 +365,32 @@ def main() -> None:
     parser.add_argument("--trailing-drawdown-pct", type=float, default=0.08)
     parser.add_argument("--max-drawdown-limit-pct", type=float, default=0.15)
     parser.add_argument("--rank-presets", action="store_true")
+    parser.add_argument("--rank-months", action="store_true")
+    parser.add_argument("--rank-months-top", type=int, default=3)
     args = parser.parse_args()
 
     require_primary_database("long_replay_baseline")
     if args.rank_presets:
-        print(
-            format_ranked_replay_baselines(
-                rank_replay_baselines(
-                    start_date=args.start_date,
-                    end_date=args.end_date,
-                    horizon=args.horizon,
-                    limit=args.limit,
-                    candidate_scopes=list(DEFAULT_RANK_SCOPES),
-                    guard_presets=list(DEFAULT_RANK_PRESETS),
-                    guarded=True,
-                    min_coverage_ratio=args.min_coverage_ratio,
-                    include_fundamentals=not args.disable_fundamentals,
-                    stop_loss_pct=args.stop_loss_pct,
-                    trailing_drawdown_pct=args.trailing_drawdown_pct,
-                    max_drawdown_limit_pct=args.max_drawdown_limit_pct,
-                )
-            )
+        ranked = rank_replay_baselines(
+            start_date=args.start_date,
+            end_date=args.end_date,
+            horizon=args.horizon,
+            limit=args.limit,
+            candidate_scopes=list(DEFAULT_RANK_SCOPES),
+            guard_presets=list(DEFAULT_RANK_PRESETS),
+            guarded=True,
+            min_coverage_ratio=args.min_coverage_ratio,
+            include_fundamentals=not args.disable_fundamentals,
+            stop_loss_pct=args.stop_loss_pct,
+            trailing_drawdown_pct=args.trailing_drawdown_pct,
+            max_drawdown_limit_pct=args.max_drawdown_limit_pct,
         )
+        print(
+            format_ranked_replay_baselines(ranked)
+        )
+        if args.rank_months:
+            print()
+            print(format_ranked_replay_months(ranked, top_n=args.rank_months_top))
         return
     print(
         format_replay_baseline(
