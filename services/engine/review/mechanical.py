@@ -205,6 +205,41 @@ def _candidate_recap_hint(
     return "；".join(parts)
 
 
+def _candidate_line_label(tags: list[str]) -> str:
+    if any(
+        tag == "candidate_pool:startup_preheat" or tag.startswith("startup_signal_")
+        for tag in tags
+    ):
+        return "启动观察"
+    if "strategy:long_term" in tags or any(tag.startswith("hold_style:") for tag in tags):
+        return "长期主线"
+    if "strategy:swing" in tags:
+        return "波段跟踪"
+    if "tier:sector_watch" in tags:
+        return "板块观察"
+    return "其他观察"
+
+
+def _candidate_line_recap(
+    *,
+    candidate_items: list[dict[str, object]],
+    candidate_bars: dict[str, Any],
+) -> str | None:
+    grouped: dict[str, list[float]] = {}
+    for item in candidate_items:
+        change_pct = _bar_change_pct(candidate_bars.get(item["symbol"]))
+        if change_pct is None:
+            continue
+        label = _candidate_line_label([str(tag) for tag in item.get("tags") or []])
+        grouped.setdefault(label, []).append(change_pct)
+    parts = []
+    for label in ("长期主线", "启动观察", "波段跟踪", "板块观察", "其他观察"):
+        values = grouped.get(label)
+        if values:
+            parts.append(f"{label} {len(values)}只，平均 {_pct(sum(values) / len(values))}")
+    return f"策略线回看: {'；'.join(parts)}" if parts else None
+
+
 def _candidate_divergence_lines(
     *,
     market_summary: dict[str, object],
@@ -581,6 +616,12 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                     f"- 昨日候选 {len(candidate_items)} 只，活跃 {active_count} 只，"
                     f"已退休 {retired_count} 只"
                 )
+                line_recap = _candidate_line_recap(
+                    candidate_items=candidate_items,
+                    candidate_bars=candidate_bars,
+                )
+                if line_recap:
+                    lines.append(f"- {line_recap}")
                 for item in candidate_items[:8]:
                     symbol = item["symbol"]
                     security = securities.get(symbol)

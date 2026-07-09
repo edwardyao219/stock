@@ -139,6 +139,7 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
                     "2026-06-23",
                     "rank:1",
                     "score:86.4",
+                    "strategy:long_term",
                     "tier:core_action",
                     "tier_reason:弱情绪阶段只保留少量长期主线：板块连续性和量能确认同时达标；盘中仍看承接，不追高。",
                     "candidate_summary:没有核心行动：大盘压力大，停止扩散，只做观察和风控。",
@@ -235,6 +236,7 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
     assert "分层: 核心行动" in review.content_md
     assert "弱情绪阶段只保留少量长期主线" in review.content_md
     assert "候选池提示: 没有核心行动：大盘压力大，停止扩散，只做观察和风控。" in review.content_md
+    assert "策略线回看: 长期主线 1只，平均 2.00%" in review.content_md
     assert "K线 O10.00 H10.50 L9.80 C10.20" in review.content_md
     assert "复盘判断: 跑赢市场 1.00 个百分点" in review.content_md
     assert "## 明日候选计划" not in review.content_md
@@ -300,3 +302,24 @@ def test_candidate_recap_hint_explains_resilience_in_extreme_market() -> None:
     assert "处在当日相对强板块" in hint
     assert "极端宽度日先记为抗跌样本" in hint
     assert "次日仍看承接" in hint
+
+
+def test_candidate_line_recap_groups_long_and_startup_lines() -> None:
+    lines = review_mechanical._candidate_line_recap(
+        candidate_items=[
+            {
+                "symbol": "600001",
+                "tags": ["strategy:long_term"],
+            },
+            {
+                "symbol": "600002",
+                "tags": ["candidate_pool:startup_preheat", "startup_signal_score:82.5"],
+            },
+        ],
+        candidate_bars={
+            "600001": SimpleNamespace(close=Decimal("10.20"), pre_close=Decimal("10.00")),
+            "600002": SimpleNamespace(close=Decimal("9.90"), pre_close=Decimal("10.00")),
+        },
+    )
+
+    assert "策略线回看: 长期主线 1只，平均 2.00%；启动观察 1只，平均 -1.00%" in lines
