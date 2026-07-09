@@ -3,8 +3,10 @@ from services.engine.backtest.run_long_replay_baseline import (
     annotate_drawdown_limit,
     diagnose_ranked_replay_losses,
     format_ranked_replay_baselines,
+    format_ranked_replay_fixed_market_state_gate_validation,
     format_ranked_replay_market_context,
     format_ranked_replay_market_state_gate_simulation,
+    format_ranked_replay_market_state_gate_validation,
     format_ranked_replay_market_state_returns,
     format_ranked_replay_months,
     format_replay_loss_diagnostics,
@@ -15,6 +17,8 @@ from services.engine.backtest.run_long_replay_baseline import (
     summarize_market_context_by_month,
     summarize_ranked_replay_market_state_returns,
     summarize_replay_baseline,
+    validate_ranked_replay_fixed_market_state_gates,
+    validate_ranked_replay_market_state_gates,
 )
 from services.engine.backtest.walk_forward import (
     WalkForwardCandidate,
@@ -743,3 +747,159 @@ def test_format_ranked_replay_market_state_gate_simulation_uses_chinese_table() 
     assert "行情状态门控模拟 Top 1" in text
     assert "action/drawdown15" in text
     assert "排除risk_off | 10.00% | 0.00% | 1 | 1" in text
+
+
+def test_validate_ranked_replay_market_state_gates_uses_prior_years_for_selection() -> None:
+    validation = validate_ranked_replay_market_state_gates(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "candidate_returns": [
+                    {"signal_date": "2024-01-02", "month": "2024-01", "return": 0.10},
+                    {"signal_date": "2024-02-02", "month": "2024-02", "return": -0.04},
+                    {"signal_date": "2025-01-02", "month": "2025-01", "return": 0.05},
+                    {"signal_date": "2025-01-03", "month": "2025-01", "return": -0.02},
+                    {"signal_date": "2026-01-02", "month": "2026-01", "return": -0.03},
+                ],
+            }
+        ],
+        {
+            "2024-01-02": {"market_state": "risk_on"},
+            "2024-02-02": {"market_state": "risk_off"},
+            "2025-01-02": {"market_state": "risk_on"},
+            "2025-01-03": {"market_state": "risk_off"},
+            "2026-01-02": {"market_state": "risk_off"},
+        },
+    )
+
+    assert validation[0]["windows"] == [
+        {
+            "train": "2024",
+            "test": "2025-2026",
+            "selected_gate": "排除risk_off",
+            "train_total_return": 0.1,
+            "train_max_drawdown": 0.0,
+            "test_total_return": 0.05,
+            "test_max_drawdown": 0.0,
+            "baseline_test_total_return": -0.015,
+            "baseline_test_max_drawdown": -0.03,
+            "test_delta_return": 0.065,
+            "test_drawdown_delta": 0.03,
+            "test_candidate_count": 1,
+            "baseline_test_candidate_count": 3,
+        },
+        {
+            "train": "2024-2025",
+            "test": "2026",
+            "selected_gate": "排除risk_off",
+            "train_total_return": 0.15,
+            "train_max_drawdown": 0.0,
+            "test_total_return": 0.0,
+            "test_max_drawdown": 0.0,
+            "baseline_test_total_return": -0.03,
+            "baseline_test_max_drawdown": -0.03,
+            "test_delta_return": 0.03,
+            "test_drawdown_delta": 0.03,
+            "test_candidate_count": 0,
+            "baseline_test_candidate_count": 1,
+        },
+    ]
+
+
+def test_format_ranked_replay_market_state_gate_validation_uses_chinese_table() -> None:
+    text = format_ranked_replay_market_state_gate_validation(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "candidate_returns": [
+                    {"signal_date": "2024-01-02", "month": "2024-01", "return": 0.10},
+                    {"signal_date": "2024-02-02", "month": "2024-02", "return": -0.04},
+                    {"signal_date": "2025-01-02", "month": "2025-01", "return": 0.05},
+                    {"signal_date": "2025-01-03", "month": "2025-01", "return": -0.02},
+                ],
+            }
+        ],
+        {
+            "2024-01-02": {"market_state": "risk_on"},
+            "2024-02-02": {"market_state": "risk_off"},
+            "2025-01-02": {"market_state": "risk_on"},
+            "2025-01-03": {"market_state": "risk_off"},
+        },
+        top_n=1,
+    )
+
+    assert "行情状态门控滚动验证 Top 1" in text
+    assert "action/drawdown15" in text
+    assert "2024 | 2025 | 排除risk_off | 10.00%/0.00% | 5.00%/0.00% | +3.50%/+0.00%" in text
+
+
+def test_validate_ranked_replay_fixed_market_state_gates_compares_each_gate_out_of_sample() -> None:
+    validation = validate_ranked_replay_fixed_market_state_gates(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "candidate_returns": [
+                    {"signal_date": "2024-01-02", "month": "2024-01", "return": 0.10},
+                    {"signal_date": "2024-02-02", "month": "2024-02", "return": -0.04},
+                    {"signal_date": "2025-01-02", "month": "2025-01", "return": 0.05},
+                    {"signal_date": "2025-01-03", "month": "2025-01", "return": -0.02},
+                    {"signal_date": "2026-01-02", "month": "2026-01", "return": -0.03},
+                ],
+            }
+        ],
+        {
+            "2024-01-02": {"market_state": "risk_on"},
+            "2024-02-02": {"market_state": "risk_off"},
+            "2025-01-02": {"market_state": "risk_on"},
+            "2025-01-03": {"market_state": "risk_off"},
+            "2026-01-02": {"market_state": "risk_off"},
+        },
+    )
+
+    first_window = validation[0]["windows"][0]
+    assert first_window["train"] == "2024"
+    assert first_window["test"] == "2025-2026"
+    assert first_window["gates"][0] == {
+        "gate": "排除risk_off",
+        "train_total_return": 0.1,
+        "train_max_drawdown": 0.0,
+        "test_total_return": 0.05,
+        "test_max_drawdown": 0.0,
+        "baseline_test_total_return": -0.015,
+        "baseline_test_max_drawdown": -0.03,
+        "test_delta_return": 0.065,
+        "test_drawdown_delta": 0.03,
+        "test_candidate_count": 1,
+        "baseline_test_candidate_count": 3,
+    }
+
+
+def test_format_ranked_replay_fixed_market_state_gate_validation_uses_chinese_table() -> None:
+    text = format_ranked_replay_fixed_market_state_gate_validation(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "candidate_returns": [
+                    {"signal_date": "2024-01-02", "month": "2024-01", "return": 0.10},
+                    {"signal_date": "2024-02-02", "month": "2024-02", "return": -0.04},
+                    {"signal_date": "2025-01-02", "month": "2025-01", "return": 0.05},
+                    {"signal_date": "2025-01-03", "month": "2025-01", "return": -0.02},
+                ],
+            }
+        ],
+        {
+            "2024-01-02": {"market_state": "risk_on"},
+            "2024-02-02": {"market_state": "risk_off"},
+            "2025-01-02": {"market_state": "risk_on"},
+            "2025-01-03": {"market_state": "risk_off"},
+        },
+        top_n=1,
+    )
+
+    assert "固定门控样本外对比 Top 1" in text
+    assert "action/drawdown15" in text
+    assert "2024 | 2025 | 排除risk_off | 10.00%/0.00% | 5.00%/0.00% | +3.50%/+0.00%" in text

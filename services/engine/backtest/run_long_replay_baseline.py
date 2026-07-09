@@ -638,6 +638,20 @@ def _candidate_market_state(
     return str(context.get("market_state") or "缺数据")
 
 
+def _filter_candidate_returns_by_allowed_states(
+    candidate_returns: list[dict[str, Any]],
+    market_context_by_period: dict[str, dict[str, Any]],
+    allowed_states: set[str] | None,
+) -> list[dict[str, Any]]:
+    if allowed_states is None:
+        return candidate_returns
+    return [
+        candidate_return
+        for candidate_return in candidate_returns
+        if _candidate_market_state(candidate_return, market_context_by_period) in allowed_states
+    ]
+
+
 def _summarize_candidate_return_rows(candidate_returns: list[dict[str, Any]]) -> dict[str, Any]:
     month_returns: dict[str, list[float]] = defaultdict(list)
     for candidate_return in candidate_returns:
@@ -666,15 +680,11 @@ def simulate_ranked_replay_market_state_gates(
         candidate_returns = list(item.get("candidate_returns") or [])
         gates: list[dict[str, Any]] = []
         for gate_name, allowed_states in MARKET_STATE_GATE_PRESETS:
-            if allowed_states is None:
-                filtered = candidate_returns
-            else:
-                filtered = [
-                    candidate_return
-                    for candidate_return in candidate_returns
-                    if _candidate_market_state(candidate_return, market_context_by_period)
-                    in allowed_states
-                ]
+            filtered = _filter_candidate_returns_by_allowed_states(
+                candidate_returns,
+                market_context_by_period,
+                allowed_states,
+            )
             gates.append({"gate": gate_name, **_summarize_candidate_return_rows(filtered)})
         simulations.append(
             {
@@ -684,6 +694,295 @@ def simulate_ranked_replay_market_state_gates(
             }
         )
     return simulations
+
+
+def _candidate_return_year(candidate_return: dict[str, Any]) -> int:
+    signal_date = str(candidate_return.get("signal_date"))
+    if signal_date:
+        return int(signal_date[:4])
+    return int(str(candidate_return.get("month"))[:4])
+
+
+def _year_span(years: list[int]) -> str:
+    if not years:
+        return "-"
+    return str(years[0]) if years[0] == years[-1] else f"{years[0]}-{years[-1]}"
+
+
+def _select_best_gate(
+    gate_summaries: list[dict[str, Any]],
+    *,
+    max_drawdown_limit_pct: float,
+) -> dict[str, Any]:
+    indexed = list(enumerate(gate_summaries))
+    return max(
+        indexed,
+        key=lambda pair: (
+            float(pair[1]["max_drawdown"]) >= -abs(max_drawdown_limit_pct),
+            float(pair[1]["total_return"]),
+            float(pair[1]["max_drawdown"]),
+            -pair[0],
+        ),
+    )[1]
+
+
+def validate_ranked_replay_market_state_gates(
+    rows: list[dict[str, Any]],
+    market_context_by_period: dict[str, dict[str, Any]],
+    *,
+    max_drawdown_limit_pct: float = 0.15,
+) -> list[dict[str, Any]]:
+    validations: list[dict[str, Any]] = []
+    gate_lookup = dict(MARKET_STATE_GATE_PRESETS)
+    for item in rows:
+        candidate_returns = list(item.get("candidate_returns") or [])
+        years = sorted(
+            {_candidate_return_year(candidate_return) for candidate_return in candidate_returns}
+        )
+        windows: list[dict[str, Any]] = []
+        for split_year in years[1:]:
+            train_years = [year for year in years if year < split_year]
+            test_years = [year for year in years if year >= split_year]
+            train_rows = [
+                candidate_return
+                for candidate_return in candidate_returns
+                if _candidate_return_year(candidate_return) < split_year
+            ]
+            test_rows = [
+                candidate_return
+                for candidate_return in candidate_returns
+                if _candidate_return_year(candidate_return) >= split_year
+            ]
+            if not train_rows or not test_rows:
+                continue
+
+            train_gates = []
+            for gate_name, allowed_states in MARKET_STATE_GATE_PRESETS:
+                filtered = _filter_candidate_returns_by_allowed_states(
+                    train_rows,
+                    market_context_by_period,
+                    allowed_states,
+                )
+                train_gates.append(
+                    {"gate": gate_name, **_summarize_candidate_return_rows(filtered)}
+                )
+            selected_train = _select_best_gate(
+                train_gates,
+                max_drawdown_limit_pct=max_drawdown_limit_pct,
+            )
+            selected_test_rows = _filter_candidate_returns_by_allowed_states(
+                test_rows,
+                market_context_by_period,
+                gate_lookup.get(str(selected_train["gate"])),
+            )
+            selected_test = _summarize_candidate_return_rows(selected_test_rows)
+            baseline_test = _summarize_candidate_return_rows(test_rows)
+            windows.append(
+                {
+                    "train": _year_span(train_years),
+                    "test": _year_span(test_years),
+                    "selected_gate": selected_train["gate"],
+                    "train_total_return": selected_train["total_return"],
+                    "train_max_drawdown": selected_train["max_drawdown"],
+                    "test_total_return": selected_test["total_return"],
+                    "test_max_drawdown": selected_test["max_drawdown"],
+                    "baseline_test_total_return": baseline_test["total_return"],
+                    "baseline_test_max_drawdown": baseline_test["max_drawdown"],
+                    "test_delta_return": round(
+                        float(selected_test["total_return"])
+                        - float(baseline_test["total_return"]),
+                        6,
+                    ),
+                    "test_drawdown_delta": round(
+                        float(selected_test["max_drawdown"])
+                        - float(baseline_test["max_drawdown"]),
+                        6,
+                    ),
+                    "test_candidate_count": selected_test["candidate_count"],
+                    "baseline_test_candidate_count": baseline_test["candidate_count"],
+                }
+            )
+        validations.append(
+            {
+                "candidate_scope": item["candidate_scope"],
+                "guard_preset": item["guard_preset"],
+                "windows": windows,
+            }
+        )
+    return validations
+
+
+def validate_ranked_replay_fixed_market_state_gates(
+    rows: list[dict[str, Any]],
+    market_context_by_period: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    validations: list[dict[str, Any]] = []
+    for item in rows:
+        candidate_returns = list(item.get("candidate_returns") or [])
+        years = sorted(
+            {_candidate_return_year(candidate_return) for candidate_return in candidate_returns}
+        )
+        windows: list[dict[str, Any]] = []
+        for split_year in years[1:]:
+            train_years = [year for year in years if year < split_year]
+            test_years = [year for year in years if year >= split_year]
+            train_rows = [
+                candidate_return
+                for candidate_return in candidate_returns
+                if _candidate_return_year(candidate_return) < split_year
+            ]
+            test_rows = [
+                candidate_return
+                for candidate_return in candidate_returns
+                if _candidate_return_year(candidate_return) >= split_year
+            ]
+            if not train_rows or not test_rows:
+                continue
+
+            baseline_test = _summarize_candidate_return_rows(test_rows)
+            gates: list[dict[str, Any]] = []
+            for gate_name, allowed_states in MARKET_STATE_GATE_PRESETS[1:]:
+                train_gate = _summarize_candidate_return_rows(
+                    _filter_candidate_returns_by_allowed_states(
+                        train_rows,
+                        market_context_by_period,
+                        allowed_states,
+                    )
+                )
+                test_gate = _summarize_candidate_return_rows(
+                    _filter_candidate_returns_by_allowed_states(
+                        test_rows,
+                        market_context_by_period,
+                        allowed_states,
+                    )
+                )
+                gates.append(
+                    {
+                        "gate": gate_name,
+                        "train_total_return": train_gate["total_return"],
+                        "train_max_drawdown": train_gate["max_drawdown"],
+                        "test_total_return": test_gate["total_return"],
+                        "test_max_drawdown": test_gate["max_drawdown"],
+                        "baseline_test_total_return": baseline_test["total_return"],
+                        "baseline_test_max_drawdown": baseline_test["max_drawdown"],
+                        "test_delta_return": round(
+                            float(test_gate["total_return"])
+                            - float(baseline_test["total_return"]),
+                            6,
+                        ),
+                        "test_drawdown_delta": round(
+                            float(test_gate["max_drawdown"])
+                            - float(baseline_test["max_drawdown"]),
+                            6,
+                        ),
+                        "test_candidate_count": test_gate["candidate_count"],
+                        "baseline_test_candidate_count": baseline_test["candidate_count"],
+                    }
+                )
+            windows.append(
+                {
+                    "train": _year_span(train_years),
+                    "test": _year_span(test_years),
+                    "gates": gates,
+                }
+            )
+        validations.append(
+            {
+                "candidate_scope": item["candidate_scope"],
+                "guard_preset": item["guard_preset"],
+                "windows": windows,
+            }
+        )
+    return validations
+
+
+def _signed_pct(value: float) -> str:
+    return f"{value * 100:+.2f}%"
+
+
+def _format_gate_validation_line(
+    *,
+    train: str,
+    test: str,
+    gate: str,
+    row: dict[str, Any],
+) -> str:
+    return " | ".join(
+        [
+            train,
+            test,
+            gate,
+            (
+                f"{_pct(float(row['train_total_return']))}/"
+                f"{_pct(float(row['train_max_drawdown']))}"
+            ),
+            (
+                f"{_pct(float(row['test_total_return']))}/"
+                f"{_pct(float(row['test_max_drawdown']))}"
+            ),
+            (
+                f"{_signed_pct(float(row['test_delta_return']))}/"
+                f"{_signed_pct(float(row['test_drawdown_delta']))}"
+            ),
+        ]
+    )
+
+
+def format_ranked_replay_market_state_gate_validation(
+    rows: list[dict[str, Any]],
+    market_context_by_period: dict[str, dict[str, Any]],
+    *,
+    top_n: int,
+    max_drawdown_limit_pct: float = 0.15,
+) -> str:
+    lines = [
+        f"行情状态门控滚动验证 Top {top_n}",
+        "训练 | 测试 | 选中门控 | 训练收益/回撤 | 测试收益/回撤 | 相对全部",
+    ]
+    for item in validate_ranked_replay_market_state_gates(
+        rows[: max(0, top_n)],
+        market_context_by_period,
+        max_drawdown_limit_pct=max_drawdown_limit_pct,
+    ):
+        lines.append(f"{item['candidate_scope']}/{item['guard_preset']}")
+        for window in item["windows"]:
+            lines.append(
+                _format_gate_validation_line(
+                    train=str(window["train"]),
+                    test=str(window["test"]),
+                    gate=str(window["selected_gate"]),
+                    row=window,
+                )
+            )
+    return "\n".join(lines)
+
+
+def format_ranked_replay_fixed_market_state_gate_validation(
+    rows: list[dict[str, Any]],
+    market_context_by_period: dict[str, dict[str, Any]],
+    *,
+    top_n: int,
+) -> str:
+    lines = [
+        f"固定门控样本外对比 Top {top_n}",
+        "训练 | 测试 | 门控 | 训练收益/回撤 | 测试收益/回撤 | 相对全部",
+    ]
+    for item in validate_ranked_replay_fixed_market_state_gates(
+        rows[: max(0, top_n)],
+        market_context_by_period,
+    ):
+        lines.append(f"{item['candidate_scope']}/{item['guard_preset']}")
+        for window in item["windows"]:
+            for gate in window["gates"]:
+                lines.append(
+                    _format_gate_validation_line(
+                        train=str(window["train"]),
+                        test=str(window["test"]),
+                        gate=str(gate["gate"]),
+                        row=gate,
+                    )
+                )
+    return "\n".join(lines)
 
 
 def format_ranked_replay_market_state_gate_simulation(
@@ -782,6 +1081,7 @@ def main() -> None:
     parser.add_argument("--rank-months-top", type=int, default=3)
     parser.add_argument("--loss-diagnostics", action="store_true")
     parser.add_argument("--market-context", action="store_true")
+    parser.add_argument("--gate-validation", action="store_true")
     args = parser.parse_args()
 
     require_primary_database("long_replay_baseline")
@@ -809,9 +1109,10 @@ def main() -> None:
         if args.loss_diagnostics:
             print()
             print(format_replay_loss_diagnostics(diagnose_ranked_replay_losses(ranked)))
-        if args.market_context:
+        if args.market_context or args.gate_validation:
             signal_dates = _ranked_signal_dates(ranked)
             market_context_by_signal_date = load_market_context_by_signal_date(signal_dates)
+        if args.market_context:
             market_context_by_month = summarize_market_context_by_month(
                 [
                     {
@@ -842,6 +1143,24 @@ def main() -> None:
             print()
             print(
                 format_ranked_replay_market_state_gate_simulation(
+                    ranked,
+                    market_context_by_signal_date,
+                    top_n=args.rank_months_top,
+                )
+            )
+        if args.gate_validation:
+            print()
+            print(
+                format_ranked_replay_market_state_gate_validation(
+                    ranked,
+                    market_context_by_signal_date,
+                    top_n=args.rank_months_top,
+                    max_drawdown_limit_pct=args.max_drawdown_limit_pct,
+                )
+            )
+            print()
+            print(
+                format_ranked_replay_fixed_market_state_gate_validation(
                     ranked,
                     market_context_by_signal_date,
                     top_n=args.rank_months_top,
