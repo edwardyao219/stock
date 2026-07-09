@@ -791,7 +791,13 @@ def _passes_market_regime_gate(
                 and overheat <= CANDIDATE_POTENTIAL_OVERHEAT_MAX
             )
         if selection_mode == "observation":
-            return trend >= 64 and relative >= 56 and sector >= 56 and volume >= 35 and risk <= 65
+            return (
+                trend >= CANDIDATE_OBSERVATION_TREND_MIN
+                and relative >= CANDIDATE_OBSERVATION_RELATIVE_MIN
+                and sector >= CANDIDATE_OBSERVATION_SECTOR_MIN
+                and volume >= CANDIDATE_OBSERVATION_VOLUME_MIN
+                and risk <= CANDIDATE_OBSERVATION_RISK_MAX
+            )
         return (
             selection_mode == "formal_strategy"
             and trend >= 76

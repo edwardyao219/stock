@@ -1359,6 +1359,83 @@ def test_discover_next_session_candidates_prefers_low_noise_observation_in_weak_
     assert any("回调质量符合5月较稳因子" in reason for reason in result["candidates"][0]["reasons"])
 
 
+def test_discover_next_session_candidates_keeps_defensive_observation_near_sector_gate() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add(
+            Security(
+                symbol="603054",
+                name="防守观察",
+                exchange="SH",
+                industry="半导体",
+                is_active=True,
+            )
+        )
+        db.add(_bar("603054"))
+        db.add(
+            _feature(
+                "603054",
+                trend_score=82,
+                relative_strength_score=70,
+                sector_strength_score=54,
+                sector_breadth_score=60,
+                sector_trend_continuity_score=62,
+                sector_trend_resilience_score=58,
+                sector_avg_return_20d=0.26,
+                sector_positive_20d_rate=70,
+                volume_confirmation_score=46,
+                risk_score=35,
+                overheat_score=54,
+                volume_trap_risk_score=35,
+                return_1d=0.01,
+                return_5d=0.02,
+                return_20d=0.13,
+                distance_to_ma20=0.03,
+                pullback_volume_ratio=0.92,
+            )
+        )
+        for idx in range(24):
+            symbol = f"601{idx:03d}"
+            db.add(
+                Security(
+                    symbol=symbol,
+                    name=f"弱势样本{idx}",
+                    exchange="SH",
+                    industry="弱势",
+                    is_active=True,
+                )
+            )
+            db.add(_bar(symbol))
+            db.add(
+                _feature(
+                    symbol,
+                    trend_score=28,
+                    relative_strength_score=42,
+                    sector_strength_score=45,
+                    volume_confirmation_score=35,
+                    risk_score=64,
+                    return_1d=0.002 if idx < 6 else -0.01,
+                    return_5d=-0.03,
+                    return_20d=-0.04,
+                )
+            )
+        db.commit()
+
+        result = discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            limit=10,
+        )
+
+    assert result["market_regime"] == "weak_trend"
+    assert result["candidates"][0]["symbol"] == "603054"
+    assert result["candidates"][0]["selection_mode"] == "observation"
+
+
 def test_discover_next_session_candidates_prefers_low_noise_in_weak_participation_range() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

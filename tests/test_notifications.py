@@ -1441,6 +1441,48 @@ def test_filter_hot_sector_candidates_keeps_potential_watch_outside_hot_sector()
     assert [item["symbol"] for item in filtered] == ["601066", "600673"]
 
 
+def test_filter_hot_sector_candidates_keeps_defensive_sector_resilience_observation() -> None:
+    discovery = {"sector_focus": []}
+    candidates = [
+        {
+            "symbol": "600360",
+            "sector": "半导体",
+            "selection_mode": "observation",
+            "reasons": ["趋势强度领先", "板块回撤韧性还在"],
+        }
+    ]
+
+    filtered = filter_hot_sector_candidates(discovery, candidates)
+
+    assert [item["symbol"] for item in filtered] == ["600360"]
+
+
+def test_filter_hot_sector_candidates_keeps_reasoned_observation_outside_focus_sector() -> None:
+    discovery = {
+        "sector_focus": [
+            {
+                "sector": "银行",
+                "focus_score": 76,
+                "continuity_score": 40,
+                "avg_return_20d_pct": -4,
+                "positive_ratio": 0.05,
+            }
+        ]
+    }
+    candidates = [
+        {
+            "symbol": "600360",
+            "sector": "半导体",
+            "selection_mode": "observation",
+            "reasons": ["板块20日主线扩散较好", "板块回撤韧性还在"],
+        }
+    ]
+
+    filtered = filter_hot_sector_candidates(discovery, candidates)
+
+    assert [item["symbol"] for item in filtered] == ["600360"]
+
+
 def test_select_action_candidates_excludes_potential_watch() -> None:
     candidates = [
         {

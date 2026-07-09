@@ -213,6 +213,7 @@ def _candidate_has_hot_sector_reason(item: dict[str, Any]) -> bool:
     return (
         "板块20日主线扩散较好" in reasons_text
         or "板块中期趋势延续性较好" in reasons_text
+        or "板块回撤韧性还在" in reasons_text
         or "先看板块主线" in reasons_text
     )
 
@@ -232,7 +233,9 @@ def filter_hot_sector_candidates(
         return [
             item
             for item in candidate_items
-            if str(item.get("sector") or "").strip() in hot_sectors or _is_potential_watch(item)
+            if str(item.get("sector") or "").strip() in hot_sectors
+            or _candidate_has_hot_sector_reason(item)
+            or _is_potential_watch(item)
         ]
     if "sector_focus" in discovery:
         return [
