@@ -14,6 +14,8 @@ HOT_SECTOR_POSITIVE_RATIO_MIN = 0.55
 ACTION_CANDIDATE_LIMIT = 3
 LONG_ACTION_PARTICIPATION_MIN = 45.0
 LONG_ACTION_LIQUIDITY_MIN = 35.0
+LONG_ACTION_RISK_OFF_SECTOR_MIN = 60.0
+LONG_ACTION_RISK_OFF_VOLUME_MIN = 60.0
 LONG_ACTION_TREND_STYLES = {"growth_cycle", "cyclical", "property_chain"}
 LONG_ACTION_STYLE_KEYWORDS = {
     "growth_cycle": (
@@ -476,6 +478,14 @@ def _candidate_float(item: dict[str, Any], key: str) -> float | None:
     return float(value) if value is not None else None
 
 
+def _candidate_float_any(item: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = _candidate_float(item, key)
+        if value is not None:
+            return value
+    return None
+
+
 def _safe_float(value: Any, default: float) -> float:
     try:
         if value is None:
@@ -520,6 +530,26 @@ def _passes_long_action_market_gate(discovery: dict[str, Any]) -> bool:
     )
 
 
+def _passes_long_action_emotion_risk_off_gate(item: dict[str, Any]) -> bool:
+    sector_strength = _candidate_float(item, "sector_strength_score") or 0.0
+    volume = _candidate_float_any(
+        item,
+        "volume_confirmation_score",
+        "price_volume_trend_score",
+        "volume_score",
+    ) or 0.0
+    return (
+        _passes_long_action_style_gate(item)
+        and not _is_heavy_risk_candidate(item)
+        and sector_strength >= LONG_ACTION_RISK_OFF_SECTOR_MIN
+        and volume >= LONG_ACTION_RISK_OFF_VOLUME_MIN
+        and (
+            _has_long_horizon_strength_reason(item)
+            or _passes_long_action_extension_quality(item)
+        )
+    )
+
+
 def _market_beta_core_block_reason(discovery: dict[str, Any], item: dict[str, Any]) -> str | None:
     if _candidate_sector_style(item) != "market_beta":
         return None
@@ -559,8 +589,10 @@ def _emotion_gate_state(discovery: dict[str, Any]) -> str:
 
 def _market_stress_core_limit(discovery: dict[str, Any], max_core_items: int) -> int:
     status = str(_market_stress_snapshot(discovery).get("stress_status") or "")
-    if status == "risk_off" or _emotion_gate_state(discovery) == "risk_off":
+    if status == "risk_off":
         return 0
+    if _emotion_gate_state(discovery) == "risk_off":
+        return min(max_core_items, 1)
     if status == "caution":
         return min(max_core_items, 1)
     return max_core_items
@@ -619,7 +651,14 @@ def _market_stress_core_block_reason(
     if _emotion_gate_state(discovery) == "risk_off":
         if _market_beta_core_block_reason(discovery, item):
             return None
-        return "情绪阀门risk_off：长回放显示弱情绪阶段适合少推不硬上，先降级观察。"
+        if selected_core_count >= max_core_items:
+            return "情绪阀门risk_off：弱情绪阶段最多保留1只长期主线，其余先降级观察。"
+        if _passes_long_action_emotion_risk_off_gate(item):
+            return None
+        return (
+            "情绪阀门risk_off：长回放显示弱情绪阶段普通行动容易回撤；"
+            "只有板块连续且量能确认的长期线可保留，其余先降级观察。"
+        )
     if status == "caution" and selected_core_count >= max_core_items:
         action_text = action or "降低频率，等盘中确认"
         return f"大盘谨慎：只保留最强一只，其余{action_text}{reason_suffix}。"

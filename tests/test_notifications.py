@@ -915,6 +915,57 @@ def test_build_candidate_tiers_blocks_core_when_emotion_gate_is_risk_off() -> No
     )
 
 
+def test_build_candidate_tiers_keeps_quality_long_action_on_emotion_risk_off() -> None:
+    long_action = {
+        "symbol": "603061",
+        "name": "金海通",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "suggested_horizon_days": 20,
+        "horizon_reason": "风格周期：growth_cycle偏20日观察，科技成长看主线延续",
+        "selection_mode": "formal_strategy",
+        "score": 88.0,
+        "selected_strategy_type": "long_term",
+        "reasons": ["中期强者：相对强度或板块扩散足够强", "板块中期趋势延续性较好"],
+        "risk_flags": [],
+        "sector_strength_score": 68.0,
+        "volume_confirmation_score": 62.0,
+    }
+    ordinary_action = {
+        "symbol": "600360",
+        "name": "华微电子",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "selection_mode": "formal_strategy",
+        "score": 84.0,
+        "selected_strategy_type": "swing",
+        "reasons": ["低维主线：板块趋势和个股强度共振"],
+        "risk_flags": [],
+        "sector_strength_score": 58.0,
+        "volume_confirmation_score": 48.0,
+    }
+    discovery = {
+        "candidates": [long_action, ordinary_action],
+        "long_action_candidates": [long_action, ordinary_action],
+        "market_regime": "weak_trend",
+        "market_regime_snapshot": {
+            "emotion_gate": "risk_off",
+            "breadth_score": 40.0,
+        },
+        "emotion_gate": {
+            "state": "risk_off",
+            "notes": ["市场情绪偏弱，只保留极少数长期主线。"],
+        },
+    }
+
+    tiers = build_candidate_tiers(discovery, max_core_items=3)
+
+    assert [item["symbol"] for item in tiers["core_action"]] == ["603061"]
+    assert [item["symbol"] for item in tiers["watch_wait"]] == ["600360"]
+    assert "弱情绪阶段" in tiers["watch_wait"][0]["tier_reason"]
+    assert tiers["summary"]["core_block_reason"] is None
+
+
 def test_build_candidate_tiers_adds_sector_watch_basket_when_market_stress_is_risk_off() -> None:
     core = {
         "symbol": "603061",
