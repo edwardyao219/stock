@@ -2200,6 +2200,7 @@ def get_strategy_fit(
     rule_id: str | None = None,
     symbol: str | None = None,
     include_symbols: bool = True,
+    include_recommendations: bool = True,
     min_samples: Annotated[int, Query(ge=1, le=100)] = 1,
     per_scope_limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> dict:
@@ -2209,6 +2210,7 @@ def get_strategy_fit(
         rule_id=rule_id,
         include_symbols=include_symbols,
         symbol=symbol,
+        include_recommendations=include_recommendations,
         min_samples=min_samples,
         per_scope_limit=per_scope_limit,
     ).to_dict()

@@ -1132,7 +1132,11 @@ export function fetchIntradayCandidateSnapshots(
 }
 
 export function fetchStrategyFit(symbol?: string | null) {
-  const params = new URLSearchParams({ min_samples: "1", per_scope_limit: "12" });
+  const params = new URLSearchParams({
+    min_samples: "1",
+    per_scope_limit: "12",
+    include_recommendations: "false",
+  });
   if (symbol) {
     params.set("symbol", symbol);
   } else {

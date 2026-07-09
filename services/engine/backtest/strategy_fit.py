@@ -47,8 +47,11 @@ class StrategyFitMetrics:
     summary: str
     recommendations: list[dict]
 
-    def to_dict(self) -> dict:
-        return asdict(self)
+    def to_dict(self, *, include_recommendations: bool = True) -> dict:
+        payload = asdict(self)
+        if not include_recommendations:
+            payload["recommendations"] = []
+        return payload
 
 
 @dataclass(frozen=True)
@@ -358,6 +361,7 @@ def load_strategy_fit_report(
     per_scope_limit: int = 20,
     include_symbols: bool = True,
     symbol: str | None = None,
+    include_recommendations: bool = True,
 ) -> StrategyFitReport:
     parsed_date = date.fromisoformat(report_date) if report_date else _latest_backtest_run_date(db)
     if parsed_date is None:
@@ -429,16 +433,18 @@ def load_strategy_fit_report(
         rules.append(
             {
                 "rule_id": current_rule_id,
-                "overall": overall_metric.to_dict(),
+                "overall": overall_metric.to_dict(
+                    include_recommendations=include_recommendations
+                ),
                 "sectors": [
-                    item.to_dict()
+                    item.to_dict(include_recommendations=include_recommendations)
                     for item in sorted(
                         sector_metrics,
                         key=lambda item: (item.fit_status != "weak", -item.trade_count),
                     )[:per_scope_limit]
                 ],
                 "symbols": [
-                    item.to_dict()
+                    item.to_dict(include_recommendations=include_recommendations)
                     for item in sorted(
                         symbol_metrics,
                         key=lambda item: (item.fit_status != "weak", -item.trade_count),

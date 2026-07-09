@@ -241,6 +241,60 @@ def test_get_strategy_fit_can_skip_symbol_details_for_compact_payload() -> None:
     assert payload["rules"][0]["symbols"] == []
 
 
+def test_get_strategy_fit_can_hide_recommendation_payload_without_changing_status() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(
+            Security(
+                symbol="603083",
+                name="剑桥科技",
+                exchange="SH",
+                list_date=None,
+                industry="通信设备",
+                is_active=True,
+            )
+        )
+        db.add_all(
+            [
+                _trade("R007", "603083", 1, "-0.05"),
+                _trade("R007", "603083", 2, "-0.03"),
+            ]
+        )
+        db.add(
+            ParameterRecommendation(
+                report_date=date(2026, 6, 24),
+                rule_id="R007",
+                scope_type="sector",
+                scope_value="通信设备",
+                target_type="entry_filter",
+                target_name="backtest_scope_quality",
+                action="reduce_priority_or_require_confirmation",
+                priority="high",
+                rationale="R007 在通信设备历史回归偏弱",
+                current_json={"sample_count": 2},
+                proposed_json={"priority_score_delta": -2, "source_rule_id": "R007"},
+                guardrails_json={"items": []},
+                source_report_type="backtest_learning_review",
+                status="pending",
+            )
+        )
+        db.commit()
+
+        payload = get_strategy_fit(
+            db=db,
+            report_date="2026-06-24",
+            rule_id="R007",
+            include_recommendations=False,
+        )
+
+    sector_payload = payload["rules"][0]["sectors"][0]
+    assert sector_payload["fit_status"] == "weak"
+    assert sector_payload["recommendations"] == []
+
+
 def test_get_strategy_fit_can_limit_symbol_details_to_selected_symbol() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
