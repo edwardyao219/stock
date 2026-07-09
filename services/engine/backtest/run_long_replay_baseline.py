@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from datetime import date
 from typing import Any
+
+from sqlalchemy import case, func, select
 
 from services.engine.backtest.walk_forward import (
     NOISE_WALK_FORWARD_SYMBOLS,
@@ -10,7 +13,8 @@ from services.engine.backtest.walk_forward import (
     WalkForwardReplayResult,
     run_candidate_walk_forward_replay,
 )
-from services.shared.database import require_primary_database
+from services.shared.database import SessionLocal, require_primary_database
+from services.shared.models import LowDimensionalFeatureSnapshot
 
 ADAPTIVE_GUARD_PARAMETERS = {
     "action": (0.04, 0.06),
@@ -118,6 +122,7 @@ def summarize_replay_baseline(
                 "candidate_count": len(values),
                 "win_rate": round(sum(1 for value in values if value > 0) / len(values), 6),
                 "month_return": month_return,
+                "signal_dates": sorted(month_signal_days[month]),
             }
         )
 
@@ -396,6 +401,132 @@ def format_replay_loss_diagnostics(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _average(values: list[float]) -> float:
+    return round(sum(values) / len(values), 4) if values else 50.0
+
+
+def _market_state(*, trend_score: float, breadth_score: float, emotion_score: float) -> str:
+    if (trend_score <= 45.0 and breadth_score <= 45.0) or emotion_score <= 40.0:
+        return "risk_off"
+    if trend_score >= 55.0 and breadth_score >= 50.0 and emotion_score >= 50.0:
+        return "risk_on"
+    return "neutral"
+
+
+def summarize_market_context_by_month(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, dict[str, list[float]]] = defaultdict(
+        lambda: {"trend": [], "breadth": [], "emotion": []}
+    )
+    for row in rows:
+        month = str(row["trade_date"])[:7]
+        grouped[month]["trend"].append(float(row.get("trend_score") or 50.0))
+        grouped[month]["breadth"].append(float(row.get("breadth_score") or 50.0))
+        grouped[month]["emotion"].append(float(row.get("emotion_score") or 50.0))
+
+    summary: dict[str, dict[str, Any]] = {}
+    for month, values in grouped.items():
+        trend_score = _average(values["trend"])
+        breadth_score = _average(values["breadth"])
+        emotion_score = _average(values["emotion"])
+        summary[month] = {
+            "trend_score": trend_score,
+            "breadth_score": breadth_score,
+            "emotion_score": emotion_score,
+            "market_state": _market_state(
+                trend_score=trend_score,
+                breadth_score=breadth_score,
+                emotion_score=emotion_score,
+            ),
+        }
+    return summary
+
+
+def _ranked_signal_dates(rows: list[dict[str, Any]]) -> list[str]:
+    dates: set[str] = set()
+    for item in rows:
+        for month in item.get("months") or []:
+            dates.update(str(value) for value in month.get("signal_dates") or [])
+    return sorted(dates)
+
+
+def load_market_context_by_signal_dates(signal_dates: list[str]) -> dict[str, dict[str, Any]]:
+    parsed_dates = sorted({date.fromisoformat(value) for value in signal_dates})
+    if not parsed_dates:
+        return {}
+
+    emotion_expr = case(
+        (LowDimensionalFeatureSnapshot.return_5d > 0, 1.0),
+        (LowDimensionalFeatureSnapshot.return_5d <= 0, 0.0),
+        else_=None,
+    )
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(
+                LowDimensionalFeatureSnapshot.trade_date,
+                func.avg(LowDimensionalFeatureSnapshot.trend_score),
+                func.avg(LowDimensionalFeatureSnapshot.sector_breadth_score),
+                func.avg(emotion_expr) * 100.0,
+            )
+            .where(LowDimensionalFeatureSnapshot.trade_date.in_(parsed_dates))
+            .group_by(LowDimensionalFeatureSnapshot.trade_date)
+            .order_by(LowDimensionalFeatureSnapshot.trade_date)
+        ).all()
+    return summarize_market_context_by_month(
+        [
+            {
+                "trade_date": row[0].isoformat(),
+                "trend_score": row[1],
+                "breadth_score": row[2],
+                "emotion_score": row[3],
+            }
+            for row in rows
+        ]
+    )
+
+
+def format_ranked_replay_market_context(
+    rows: list[dict[str, Any]],
+    market_context_by_month: dict[str, dict[str, Any]],
+    *,
+    top_n: int,
+) -> str:
+    lines = [f"行情状态诊断 Top {top_n}", "月份 | 月收益 | 状态 | 趋势 | 宽度 | 情绪"]
+    for item in rows[: max(0, top_n)]:
+        lines.append(f"{item['candidate_scope']}/{item['guard_preset']}")
+        for month in item.get("months") or []:
+            month_return = float(month.get("month_return") or 0.0)
+            if month_return >= 0:
+                continue
+            context = market_context_by_month.get(str(month.get("month"))) or {}
+            if not context:
+                lines.append(
+                    " | ".join(
+                        [
+                            str(month["month"]),
+                            _pct(month_return),
+                            "缺数据",
+                            "趋势-",
+                            "宽度-",
+                            "情绪-",
+                        ]
+                    )
+                )
+                continue
+            lines.append(
+                " | ".join(
+                    [
+                        str(month["month"]),
+                        _pct(month_return),
+                        str(context.get("market_state") or "unknown"),
+                        f"趋势{float(context.get('trend_score') or 0.0):.1f}",
+                        f"宽度{float(context.get('breadth_score') or 0.0):.1f}",
+                        f"情绪{float(context.get('emotion_score') or 0.0):.1f}",
+                    ]
+                )
+            )
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run long walk-forward baseline.")
     parser.add_argument("--start-date", required=True, help="YYYY-MM-DD")
@@ -430,6 +561,7 @@ def main() -> None:
     parser.add_argument("--rank-months", action="store_true")
     parser.add_argument("--rank-months-top", type=int, default=3)
     parser.add_argument("--loss-diagnostics", action="store_true")
+    parser.add_argument("--market-context", action="store_true")
     args = parser.parse_args()
 
     require_primary_database("long_replay_baseline")
@@ -457,6 +589,15 @@ def main() -> None:
         if args.loss_diagnostics:
             print()
             print(format_replay_loss_diagnostics(diagnose_ranked_replay_losses(ranked)))
+        if args.market_context:
+            print()
+            print(
+                format_ranked_replay_market_context(
+                    ranked,
+                    load_market_context_by_signal_dates(_ranked_signal_dates(ranked)),
+                    top_n=args.rank_months_top,
+                )
+            )
         return
     print(
         format_replay_baseline(

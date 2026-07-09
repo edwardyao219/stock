@@ -2,9 +2,11 @@ from services.engine.backtest import run_long_replay_baseline as baseline
 from services.engine.backtest.run_long_replay_baseline import (
     diagnose_ranked_replay_losses,
     annotate_drawdown_limit,
+    format_ranked_replay_market_context,
     format_ranked_replay_months,
     format_ranked_replay_baselines,
     format_replay_loss_diagnostics,
+    summarize_market_context_by_month,
     rank_replay_baselines,
     resolve_guard_parameters,
     run_replay_baseline,
@@ -65,6 +67,7 @@ def test_summarize_replay_baseline_uses_monthly_average_without_compounding() ->
             "candidate_count": 2,
             "win_rate": 0.5,
             "month_return": 0.04,
+            "signal_dates": ["2026-01-02"],
         },
         {
             "month": "2026-02",
@@ -72,6 +75,7 @@ def test_summarize_replay_baseline_uses_monthly_average_without_compounding() ->
             "candidate_count": 1,
             "win_rate": 0.0,
             "month_return": -0.05,
+            "signal_dates": ["2026-02-03"],
         },
     ]
 
@@ -441,3 +445,69 @@ def test_format_replay_loss_diagnostics_uses_compact_chinese_table() -> None:
 
     assert "亏损月诊断" in text
     assert "action | drawdown15 | 3 | 2024-06 -5.73% | 3 | 需要行情门控" in text
+
+
+def test_summarize_market_context_by_month_uses_signal_day_rows() -> None:
+    summary = summarize_market_context_by_month(
+        [
+            {
+                "trade_date": "2024-06-03",
+                "trend_score": 40.0,
+                "breadth_score": 35.0,
+                "emotion_score": 25.0,
+            },
+            {
+                "trade_date": "2024-06-04",
+                "trend_score": 50.0,
+                "breadth_score": 45.0,
+                "emotion_score": 55.0,
+            },
+        ]
+    )
+
+    assert summary["2024-06"] == {
+        "trend_score": 45.0,
+        "breadth_score": 40.0,
+        "emotion_score": 40.0,
+        "market_state": "risk_off",
+    }
+
+
+def test_format_ranked_replay_market_context_marks_loss_month_state() -> None:
+    text = format_ranked_replay_market_context(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "months": [
+                    {
+                        "month": "2024-06",
+                        "month_return": -0.0573,
+                        "signal_dates": ["2024-06-03"],
+                    }
+                ],
+            }
+        ],
+        {"2024-06": {"trend_score": 45.0, "breadth_score": 40.0, "emotion_score": 40.0, "market_state": "risk_off"}},
+        top_n=1,
+    )
+
+    assert "行情状态诊断 Top 1" in text
+    assert "action/drawdown15" in text
+    assert "2024-06 | -5.73% | risk_off | 趋势45.0 | 宽度40.0 | 情绪40.0" in text
+
+
+def test_format_ranked_replay_market_context_marks_missing_context() -> None:
+    text = format_ranked_replay_market_context(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "months": [{"month": "2024-02", "month_return": -0.0149}],
+            }
+        ],
+        {},
+        top_n=1,
+    )
+
+    assert "2024-02 | -1.49% | 缺数据 | 趋势- | 宽度- | 情绪-" in text
