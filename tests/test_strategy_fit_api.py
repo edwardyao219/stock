@@ -1,7 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import sessionmaker
 
 from apps.api.app.main import create_app
@@ -125,6 +126,14 @@ def test_strategy_fit_route_is_registered() -> None:
     assert "/rules/candidate-replay-effect" in schema["paths"]
 
 
+def test_review_report_large_fields_use_mysql_longtext() -> None:
+    content_impl = ReviewReport.__table__.c.content_md.type.dialect_impl(mysql.dialect())
+    metrics_impl = ReviewReport.__table__.c.metrics_json.type.dialect_impl(mysql.dialect())
+
+    assert isinstance(getattr(content_impl, "impl", content_impl), mysql.LONGTEXT)
+    assert isinstance(getattr(metrics_impl, "impl", metrics_impl), mysql.LONGTEXT)
+
+
 def test_get_strategy_fit_returns_rule_sector_symbol_metrics_and_reasons() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -194,6 +203,55 @@ def test_get_strategy_fit_returns_rule_sector_symbol_metrics_and_reasons() -> No
         item for item in rule_payload["symbols"] if item["scope_value"] == "603083"
     )
     assert symbol_payload["trade_count"] == 2
+
+
+def test_get_strategy_fit_ignores_corrupt_learning_report_metrics() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(
+            Security(
+                symbol="603083",
+                name="剑桥科技",
+                exchange="SH",
+                list_date=None,
+                industry="通信设备",
+                is_active=True,
+            )
+        )
+        db.add_all(
+            [
+                _trade("R007", "603083", 1, "0.05"),
+                _trade("R007", "603083", 2, "-0.02"),
+            ]
+        )
+        db.execute(
+            text(
+                "INSERT INTO review_reports "
+                "(report_date, report_type, scope, generator, content_md, "
+                "metrics_json, created_at) "
+                "VALUES "
+                "(:report_date, :report_type, :scope, :generator, :content_md, "
+                ":metrics_json, :created_at)"
+            ),
+            {
+                "report_date": "2026-06-24",
+                "report_type": "backtest_learning_review",
+                "scope": "backtest",
+                "generator": "mechanical",
+                "content_md": "# 回归学习报告",
+                "metrics_json": '{"insights": [{"rule_id": "R007"',
+                "created_at": "2026-06-24 15:30:00",
+            },
+        )
+        db.commit()
+
+        payload = get_strategy_fit(db=db, report_date="2026-06-24", rule_id="R007")
+
+    assert payload["rules"][0]["rule_id"] == "R007"
+    assert payload["rules"][0]["sectors"][0]["out_of_sample_status"] is None
 
 
 def test_strategy_fit_prefers_stable_long_term_returns_over_win_rate() -> None:

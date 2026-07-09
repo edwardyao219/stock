@@ -78,6 +78,8 @@ def main() -> None:
             "ALTER TABLE candidate_discovery_snapshots "
             "MODIFY COLUMN discovery_json LONGTEXT NOT NULL"
         )
+        _execute_mysql("ALTER TABLE review_reports MODIFY COLUMN content_md LONGTEXT NOT NULL")
+        _execute_mysql("ALTER TABLE review_reports MODIFY COLUMN metrics_json LONGTEXT NOT NULL")
 
 
 if __name__ == "__main__":

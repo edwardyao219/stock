@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
@@ -22,6 +24,9 @@ from sqlalchemy.types import JSON, TypeDecorator
 
 from services.shared.database import Base
 
+logger = logging.getLogger(__name__)
+MYSQL_LONGTEXT = Text().with_variant(mysql.LONGTEXT(), "mysql")
+
 
 class PortableJSON(TypeDecorator):
     impl = Text
@@ -37,16 +42,20 @@ class PortableJSON(TypeDecorator):
             return None
         if dialect.name == "postgresql":
             return value
-        import json
 
         return json.dumps(value, ensure_ascii=False)
 
     def process_result_value(self, value, dialect):
         if value is None or dialect.name == "postgresql":
             return value
-        import json
-
-        return json.loads(value)
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            logger.warning(
+                "Invalid JSON in %s; returning empty object.",
+                self.__class__.__name__,
+            )
+            return {}
 
 
 class LargePortableJSON(PortableJSON):
@@ -424,8 +433,8 @@ class ReviewReport(Base):
     report_type: Mapped[str] = mapped_column(String(64), index=True)
     scope: Mapped[str] = mapped_column(String(64), default="market")
     generator: Mapped[str] = mapped_column(String(64), default="mechanical")
-    content_md: Mapped[str] = mapped_column(Text)
-    metrics_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    content_md: Mapped[str] = mapped_column(MYSQL_LONGTEXT)
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(LargePortableJSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
