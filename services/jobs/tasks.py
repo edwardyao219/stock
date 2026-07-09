@@ -22,6 +22,10 @@ from services.shared.time import now_local
 _DAILY_TASK_LOCK_TTL_SECONDS = 6 * 60 * 60
 
 
+def _is_after_close_push_window(value: datetime) -> bool:
+    return value.hour > 17 or (value.hour == 17 and value.minute >= 55)
+
+
 def _acquire_daily_task_lock(task_name: str, trade_date: date) -> tuple[bool, str]:
     key = f"stock:daily-task:{task_name}:{trade_date.isoformat()}"
     try:
@@ -216,7 +220,14 @@ def send_monthly_trade_summary_task(month: str = "2026-06") -> dict[str, str]:
 
 @celery_app.task(name="services.jobs.tasks.run_after_close_session_task")
 def run_after_close_session_task(force: bool = False) -> dict[str, object]:
-    today = now_local().date()
+    current_time = now_local()
+    today = current_time.date()
+    if not force and not _is_after_close_push_window(current_time):
+        return {
+            "trade_date": today.isoformat(),
+            "status": "skipped",
+            "message": f"outside after-close window: {current_time.isoformat()}",
+        }
     if not force:
         acquired, lock_key = _acquire_daily_task_lock("after-close", today)
         if not acquired:

@@ -277,6 +277,30 @@ def test_after_close_task_skips_duplicate_daily_push(monkeypatch) -> None:
     assert calls == []
 
 
+def test_after_close_task_ignores_stale_catchup_before_after_close_window(monkeypatch) -> None:
+    from datetime import datetime
+
+    calls = []
+
+    def fake_run_after_close_session(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("stale catch-up should not run after-close session")
+
+    def fake_lock(*args, **kwargs):
+        raise AssertionError("stale catch-up should not occupy the after-close lock")
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 30, 8, 46))
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-01")
+    monkeypatch.setattr(tasks, "run_after_close_session", fake_run_after_close_session)
+    monkeypatch.setattr(tasks, "_acquire_daily_task_lock", fake_lock)
+
+    result = tasks.run_after_close_session_task()
+
+    assert result["status"] == "skipped"
+    assert "outside after-close window" in result["message"]
+    assert calls == []
+
+
 def test_celery_intraday_schedule_matches_trading_windows() -> None:
     schedule = celery_app.conf.beat_schedule["paper-intraday-screening"]["schedule"]
 
