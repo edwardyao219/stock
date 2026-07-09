@@ -16,10 +16,15 @@ class Base(DeclarativeBase):
 
 
 settings = get_settings()
+_ENGINE_FALLBACK_ACTIVE = False
+_ACTIVE_DATABASE_URL = settings.database_url
 
 
 def _create_engine():
+    global _ACTIVE_DATABASE_URL, _ENGINE_FALLBACK_ACTIVE
     url = settings.database_url
+    _ACTIVE_DATABASE_URL = url
+    _ENGINE_FALLBACK_ACTIVE = False
     kwargs = {"pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
@@ -38,6 +43,8 @@ def _create_engine():
             exc,
             fallback_url,
         )
+        _ACTIVE_DATABASE_URL = fallback_url
+        _ENGINE_FALLBACK_ACTIVE = True
         return create_engine(
             fallback_url,
             pool_pre_ping=True,
@@ -47,6 +54,19 @@ def _create_engine():
 
 engine = _create_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def is_database_fallback_active() -> bool:
+    return _ENGINE_FALLBACK_ACTIVE
+
+
+def require_primary_database(reason: str = "critical job") -> None:
+    if not is_database_fallback_active():
+        return
+    raise RuntimeError(
+        f"{reason} refused to run on fallback database {_ACTIVE_DATABASE_URL}. "
+        "Start the primary database and restart the process before running market jobs."
+    )
 
 
 def get_db() -> Generator[Session, None, None]:

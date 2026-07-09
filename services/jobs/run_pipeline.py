@@ -8,6 +8,7 @@ from services.jobs.pipeline import (
     run_daily_research_pipeline,
     run_intraday_trade_session,
 )
+from services.shared.database import require_primary_database
 from services.shared.time import now_local
 
 
@@ -29,6 +30,7 @@ def main() -> None:
     parser.add_argument("--dry-run-entries", action="store_true")
     parser.add_argument("--dry-run-exits", action="store_true")
     args = parser.parse_args()
+    require_primary_database("run_pipeline")
     next_trade_date = args.next_trade_date or resolve_next_trade_date(args.trade_date)
 
     if args.stage == "prepare":
