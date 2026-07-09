@@ -138,6 +138,11 @@ function pct(value: number | null | undefined) {
   return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
 }
 
+function replayBarWidth(value: number | null | undefined) {
+  if (value === null || value === undefined) return 0;
+  return Math.min(100, Math.max(8, Math.abs(value) * 250));
+}
+
 function ratioPct(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return `${(value * 100).toFixed(1)}%`;
@@ -1360,6 +1365,10 @@ export function App() {
   const candidateStrategyPkRows = strategyPkRows(candidateReplayEffect);
   const candidateDualLineLongSummary = dualLineLongReplaySummary(candidateReplayEffect);
   const candidateMonthlyStrategyPkRows = monthlyStrategyPkRows(candidateReplayEffect, 20, 6);
+  const visualStrategyLines = candidateDualLineLongSummary
+    ? [candidateDualLineLongSummary.mainLine, candidateDualLineLongSummary.supportLine]
+    : [];
+  const visualMonthlyRows = candidateMonthlyStrategyPkRows.slice(0, 4);
   const candidateReplayCacheText = replayCacheText(candidateReplayEffect);
   const candidateReplayWindowLabel = candidateReplayEffect
     ? (
@@ -2334,6 +2343,50 @@ export function App() {
               </div>
             ) : null}
             {candidateReplayEffect ? (
+              <>
+                <div className="replay-visual-board">
+                  <div className="replay-visual-hero">
+                    <span>当前姿态</span>
+                    <strong>{candidateGate.title}</strong>
+                    <small>{uiText(candidateGate.reason)}</small>
+                  </div>
+                  {visualStrategyLines.length ? (
+                    <div className="replay-visual-lines">
+                      {visualStrategyLines.map((line) => (
+                        <div className={`replay-visual-line ${line.tone}`} key={line.scope}>
+                          <div>
+                            <span>{line.label}</span>
+                            <strong>{pct(line.displayMetric?.total_return)}</strong>
+                            <small>
+                              均值 {pct(line.displayMetric?.avg_return)} / 样本{" "}
+                              {line.displayMetric?.sample_count ?? 0}
+                            </small>
+                          </div>
+                          <div className="replay-visual-bar">
+                            <span style={{ width: `${replayBarWidth(line.displayMetric?.total_return)}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {visualMonthlyRows.length ? (
+                    <div className="replay-visual-months">
+                      <span>近月策略线</span>
+                      {visualMonthlyRows.map((row) => (
+                        <div className={`replay-visual-month ${row.tone}`} key={row.month}>
+                          <strong>{row.month}</strong>
+                          <small>{row.postureLabel}</small>
+                          <em>{row.leaderLabel}</em>
+                          <div className="replay-visual-bar">
+                            <span style={{ width: `${replayBarWidth(row.leaderTotalReturn)}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <details className="replay-detail-drawer">
+                  <summary>查看详细策略诊断</summary>
               <div className="replay-insight-block">
                 <span>策略诊断</span>
                 <div className="replay-diagnosis">
@@ -2742,6 +2795,8 @@ export function App() {
                   ))}
                 </div>
               </div>
+                </details>
+              </>
             ) : null}
             {lowDimensionalReplay ? (
               <>

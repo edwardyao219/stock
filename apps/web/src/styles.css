@@ -1569,6 +1569,142 @@ button {
   gap: 5px;
 }
 
+.replay-visual-board {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(260px, 1.1fr) minmax(260px, 1.2fr);
+}
+
+.replay-visual-hero,
+.replay-visual-line,
+.replay-visual-months {
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.replay-visual-hero {
+  display: grid;
+  gap: 5px;
+}
+
+.replay-visual-hero span,
+.replay-visual-months > span,
+.replay-visual-line span,
+.replay-visual-line small,
+.replay-visual-month small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.replay-visual-hero strong {
+  color: #17202b;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.replay-visual-hero small {
+  color: #475569;
+  line-height: 1.45;
+}
+
+.replay-visual-lines {
+  display: grid;
+  gap: 8px;
+}
+
+.replay-visual-line {
+  display: grid;
+  gap: 8px;
+}
+
+.replay-visual-line div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.replay-visual-line strong {
+  color: #17202b;
+  font-size: 22px;
+}
+
+.replay-visual-line.up strong,
+.replay-visual-month.up em {
+  color: #17623a;
+}
+
+.replay-visual-line.down strong,
+.replay-visual-month.down em {
+  color: #9f2d20;
+}
+
+.replay-visual-bar {
+  background: #e7edf4;
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.replay-visual-bar span {
+  background: #64748b;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  min-width: 6px;
+}
+
+.replay-visual-line.up .replay-visual-bar span,
+.replay-visual-month.up .replay-visual-bar span {
+  background: #2f9e63;
+}
+
+.replay-visual-line.down .replay-visual-bar span,
+.replay-visual-month.down .replay-visual-bar span {
+  background: #d65f4f;
+}
+
+.replay-visual-months {
+  display: grid;
+  gap: 7px;
+}
+
+.replay-visual-month {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 64px 60px minmax(76px, 1fr) minmax(72px, 1fr);
+  min-width: 0;
+}
+
+.replay-visual-month strong,
+.replay-visual-month em {
+  color: #17202b;
+  font-size: 12px;
+  font-style: normal;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replay-detail-drawer {
+  border-top: 1px solid #e1e8ef;
+  padding-top: 8px;
+}
+
+.replay-detail-drawer summary {
+  color: #1d5fb8;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.replay-detail-drawer .replay-insight-block {
+  margin-top: 10px;
+}
+
 .strategy-pk-summary {
   border-left: 3px solid #97b7d8;
   display: grid;
@@ -2922,6 +3058,7 @@ textarea {
   .sector-radar-grid,
   .monthly-summary-grid,
   .monthly-summary-lists,
+  .replay-visual-board,
   .replay-insight-grid,
   .review-strip-grid,
   .review-summary-block,
@@ -2970,6 +3107,14 @@ textarea {
 
   .replay-insight-row {
     grid-template-columns: minmax(76px, 0.8fr) minmax(64px, 0.45fr) minmax(0, 1.3fr);
+  }
+
+  .replay-visual-month {
+    grid-template-columns: 58px minmax(52px, 0.7fr) minmax(0, 1fr);
+  }
+
+  .replay-visual-month .replay-visual-bar {
+    grid-column: 1 / -1;
   }
 
   .source-tabs,
