@@ -277,6 +277,9 @@ def test_candidate_divergence_describes_relative_strength_in_weak_market() -> No
     text = "\n".join(lines)
 
     assert "市场宽度偏弱" in text
+    assert "下跌 4797" in text
+    assert "极端防守" in text
+    assert "次日少推核心" in text
     assert "弱市里相对抗跌先看 半导体、银行" in text
     assert "不等于主线确认" in text
     assert "主线先看 半导体、银行" not in text

@@ -181,14 +181,23 @@ def _candidate_divergence_lines(
     lines = ["", "## 盘面与候选分化", ""]
     up_ratio = market_summary.get("up_ratio")
     avg_change_pct = market_summary.get("avg_change_pct")
+    down_count = int(market_summary.get("down_count") or 0)
     lines.append(
         "- "
         f"{_breadth_label(up_ratio)}："
         f"上涨 {market_summary.get('up_count', 0)} / "
-        f"下跌 {market_summary.get('down_count', 0)}，"
+        f"下跌 {down_count}，"
         f"上涨占比 {_pct_or_dash(up_ratio)}，"
         f"市场平均 {_pct_or_dash(avg_change_pct)}。"
     )
+    if down_count >= 4500 or (up_ratio is not None and float(up_ratio) <= 0.18):
+        pressure_text = (
+            f"下跌 {down_count} 家" if down_count else f"上涨占比 {_pct_or_dash(up_ratio)}"
+        )
+        lines.append(
+            f"- 极端防守：{pressure_text}，次日少推核心，多数候选先降级观察；"
+            "优先等指数止跌、板块资金回流和个股承接确认。"
+        )
 
     strong_sectors = list(market_cross_section.get("strong_sectors") or [])
     weak_sectors = list(market_cross_section.get("weak_sectors") or [])
