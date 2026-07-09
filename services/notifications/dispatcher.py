@@ -551,9 +551,15 @@ def _market_stress_snapshot(discovery: dict[str, Any]) -> dict[str, Any]:
     return snapshot if isinstance(snapshot, dict) else {}
 
 
+def _emotion_gate_state(discovery: dict[str, Any]) -> str:
+    regime_snapshot = discovery.get("market_regime_snapshot") or {}
+    emotion_gate = discovery.get("emotion_gate") or {}
+    return str(regime_snapshot.get("emotion_gate") or emotion_gate.get("state") or "")
+
+
 def _market_stress_core_limit(discovery: dict[str, Any], max_core_items: int) -> int:
     status = str(_market_stress_snapshot(discovery).get("stress_status") or "")
-    if status == "risk_off":
+    if status == "risk_off" or _emotion_gate_state(discovery) == "risk_off":
         return 0
     if status == "caution":
         return min(max_core_items, 1)
@@ -596,6 +602,7 @@ def _replay_core_block_reason(
 
 def _market_stress_core_block_reason(
     discovery: dict[str, Any],
+    item: dict[str, Any],
     *,
     selected_core_count: int,
     max_core_items: int,
@@ -609,6 +616,10 @@ def _market_stress_core_block_reason(
     if status == "risk_off":
         action_text = action or "停止扩散，只做观察和风控"
         return f"大盘压力大：{action_text}{reason_suffix}。"
+    if _emotion_gate_state(discovery) == "risk_off":
+        if _market_beta_core_block_reason(discovery, item):
+            return None
+        return "情绪阀门risk_off：长回放显示弱情绪阶段适合少推不硬上，先降级观察。"
     if status == "caution" and selected_core_count >= max_core_items:
         action_text = action or "降低频率，等盘中确认"
         return f"大盘谨慎：只保留最强一只，其余{action_text}{reason_suffix}。"
@@ -984,6 +995,8 @@ def _core_block_reason(
     if blocked_core_reasons:
         if any("大盘压力大" in reason for reason in blocked_core_reasons):
             return "没有核心行动：大盘压力大，停止扩散，只做观察和风控。"
+        if any("情绪阀门risk_off" in reason for reason in blocked_core_reasons):
+            return "没有核心行动：情绪阀门risk_off，先按弱市降级观察。"
         if any("市场弹性" in reason and "弱市缩量" in reason for reason in blocked_core_reasons):
             return "没有核心行动：市场弹性候选遇到弱市缩量，先降为观察。"
         return blocked_core_reasons[0]
@@ -1038,6 +1051,7 @@ def build_candidate_tiers(
     for item in core_source_items:
         block_reason = _market_stress_core_block_reason(
             discovery,
+            item,
             selected_core_count=len(filtered_core_source),
             max_core_items=market_core_limit,
         )

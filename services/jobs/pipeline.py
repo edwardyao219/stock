@@ -464,6 +464,24 @@ def _load_star_symbols(db: Session) -> list[str]:
     return [str(item[0]) for item in rows]
 
 
+def _filter_star_focus_candidates(
+    star_discovery: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    focus_sectors = {
+        str(item.get("sector") or "").strip()
+        for item in star_discovery.get("sector_focus") or []
+        if str(item.get("sector") or "").strip()
+    }
+    if not focus_sectors:
+        return candidates
+    return [
+        item
+        for item in candidates
+        if str(item.get("sector") or "").strip() in focus_sectors
+    ]
+
+
 def _is_expansion_confirm_candidate(item: dict[str, Any]) -> bool:
     mode = str(item.get("selection_mode") or "").strip()
     if mode not in {"potential_watch", "exploration"}:
@@ -772,6 +790,8 @@ def _discover_next_session_candidates_step(
             pool_name="experiment",
             limit=candidate_limit,
         )
+        star_symbols = _load_star_symbols(db)
+        star_scan_kwargs: dict[str, Any] = {"symbols": star_symbols} if star_symbols else {}
         star_discovery = discover_next_session_candidates(
             db,
             feature_date=trade_date,
@@ -779,6 +799,7 @@ def _discover_next_session_candidates_step(
             pool_name="experiment_star",
             limit=10,
             include_growth_board=True,
+            **star_scan_kwargs,
         )
         normal_candidates = filter_hot_sector_candidates(
             discovery,
@@ -796,6 +817,7 @@ def _discover_next_session_candidates_step(
                 if str(item.get("symbol") or "").startswith("688")
             ],
         )[:10]
+        star_candidates = _filter_star_focus_candidates(star_discovery, star_candidates)[:10]
         action_candidates = select_action_candidates(
             discovery,
             normal_candidates,

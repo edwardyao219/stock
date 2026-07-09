@@ -876,6 +876,45 @@ def test_build_candidate_tiers_blocks_all_core_when_market_stress_is_risk_off() 
     )
 
 
+def test_build_candidate_tiers_blocks_core_when_emotion_gate_is_risk_off() -> None:
+    candidate = {
+        "symbol": "603061",
+        "name": "金海通",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "suggested_horizon_days": 10,
+        "horizon_reason": "风格周期：growth_cycle偏10日观察，科技成长先看承接延续",
+        "selection_mode": "formal_strategy",
+        "score": 88.0,
+        "selected_strategy_type": "long_term",
+        "reasons": ["低维主线：板块趋势和个股强度共振"],
+        "risk_flags": [],
+    }
+    discovery = {
+        "candidates": [candidate],
+        "long_action_candidates": [candidate],
+        "market_regime": "weak_trend",
+        "market_regime_snapshot": {
+            "emotion_gate": "risk_off",
+            "breadth_score": 33.0,
+        },
+        "emotion_gate": {
+            "state": "risk_off",
+            "notes": ["市场情绪偏弱，不新开仓或只保留观察。"],
+        },
+    }
+
+    tiers = build_candidate_tiers(discovery)
+
+    assert tiers["core_action"] == []
+    assert [item["symbol"] for item in tiers["watch_wait"]] == ["603061"]
+    assert "情绪阀门risk_off" in tiers["watch_wait"][0]["tier_reason"]
+    assert "先降级观察" in tiers["watch_wait"][0]["tier_reason"]
+    assert tiers["summary"]["core_block_reason"] == (
+        "没有核心行动：情绪阀门risk_off，先按弱市降级观察。"
+    )
+
+
 def test_build_candidate_tiers_adds_sector_watch_basket_when_market_stress_is_risk_off() -> None:
     core = {
         "symbol": "603061",
