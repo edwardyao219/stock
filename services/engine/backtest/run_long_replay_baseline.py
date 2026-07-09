@@ -30,6 +30,16 @@ DRAWDOWN15_GUARD_PARAMETERS = {
     "startup_confirmed": (0.03, 0.06),
 }
 
+DEFAULT_RANK_SCOPES = (
+    "action",
+    "action_long",
+    "sector_watch",
+    "potential_watch",
+    "startup_preheat",
+    "startup_confirmed",
+)
+DEFAULT_RANK_PRESETS = ("adaptive", "drawdown15")
+
 
 def resolve_guard_parameters(
     *,
@@ -219,6 +229,81 @@ def run_replay_baseline(
     )
 
 
+def rank_replay_baselines(
+    *,
+    start_date: str,
+    end_date: str,
+    horizon: int,
+    limit: int,
+    candidate_scopes: list[str],
+    guard_presets: list[str],
+    guarded: bool,
+    min_coverage_ratio: float,
+    include_fundamentals: bool,
+    stop_loss_pct: float,
+    trailing_drawdown_pct: float,
+    max_drawdown_limit_pct: float,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for candidate_scope in candidate_scopes:
+        for guard_preset in guard_presets:
+            summary = run_replay_baseline(
+                start_date=start_date,
+                end_date=end_date,
+                horizon=horizon,
+                limit=limit,
+                candidate_scope=candidate_scope,
+                guarded=guarded,
+                min_coverage_ratio=min_coverage_ratio,
+                include_fundamentals=include_fundamentals,
+                stop_loss_pct=stop_loss_pct,
+                trailing_drawdown_pct=trailing_drawdown_pct,
+                guard_preset=guard_preset,
+                max_drawdown_limit_pct=max_drawdown_limit_pct,
+            )
+            rows.append(
+                {
+                    **summary,
+                    "candidate_scope": candidate_scope,
+                    "guard_preset": guard_preset,
+                }
+            )
+    return sorted(
+        rows,
+        key=lambda item: (
+            not bool(item["max_drawdown_passed"]),
+            -float(item["total_return"]),
+            float(item["max_drawdown"]),
+        ),
+    )
+
+
+def format_ranked_replay_baselines(rows: list[dict[str, Any]]) -> str:
+    lines = [
+        "回撤约束排名",
+        "范围 | 预设 | 回撤目标 | 总收益 | 最大回撤 | 止损/回撤 | 候选 | 月份",
+    ]
+    for item in rows:
+        lines.append(
+            " | ".join(
+                [
+                    str(item["candidate_scope"]),
+                    str(item["guard_preset"]),
+                    "达标" if item.get("max_drawdown_passed") else "超标",
+                    _pct(float(item["total_return"])),
+                    _pct(float(item["max_drawdown"])),
+                    (
+                        f"{_pct(float(item.get('stop_loss_pct') or 0.0))}/"
+                        f"{_pct(float(item.get('trailing_drawdown_pct') or 0.0))}"
+                    ),
+                    str(item["candidate_count"]),
+                    str(item["month_count"]),
+                ]
+            )
+        )
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run long walk-forward baseline.")
     parser.add_argument("--start-date", required=True, help="YYYY-MM-DD")
@@ -249,9 +334,30 @@ def main() -> None:
     parser.add_argument("--stop-loss-pct", type=float, default=0.06)
     parser.add_argument("--trailing-drawdown-pct", type=float, default=0.08)
     parser.add_argument("--max-drawdown-limit-pct", type=float, default=0.15)
+    parser.add_argument("--rank-presets", action="store_true")
     args = parser.parse_args()
 
     require_primary_database("long_replay_baseline")
+    if args.rank_presets:
+        print(
+            format_ranked_replay_baselines(
+                rank_replay_baselines(
+                    start_date=args.start_date,
+                    end_date=args.end_date,
+                    horizon=args.horizon,
+                    limit=args.limit,
+                    candidate_scopes=list(DEFAULT_RANK_SCOPES),
+                    guard_presets=list(DEFAULT_RANK_PRESETS),
+                    guarded=True,
+                    min_coverage_ratio=args.min_coverage_ratio,
+                    include_fundamentals=not args.disable_fundamentals,
+                    stop_loss_pct=args.stop_loss_pct,
+                    trailing_drawdown_pct=args.trailing_drawdown_pct,
+                    max_drawdown_limit_pct=args.max_drawdown_limit_pct,
+                )
+            )
+        )
+        return
     print(
         format_replay_baseline(
             run_replay_baseline(

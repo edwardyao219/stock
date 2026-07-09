@@ -1,6 +1,8 @@
 from services.engine.backtest import run_long_replay_baseline as baseline
 from services.engine.backtest.run_long_replay_baseline import (
     annotate_drawdown_limit,
+    format_ranked_replay_baselines,
+    rank_replay_baselines,
     resolve_guard_parameters,
     run_replay_baseline,
     summarize_replay_baseline,
@@ -256,3 +258,84 @@ def test_run_replay_baseline_reports_drawdown_limit(monkeypatch) -> None:
     assert summary["trailing_drawdown_pct"] == 0.05
     assert summary["max_drawdown"] == -0.16
     assert summary["max_drawdown_passed"] is False
+
+
+def test_rank_replay_baselines_prioritizes_drawdown_passes(monkeypatch) -> None:
+    summaries = {
+        ("sector_watch", "adaptive"): {
+            "total_return": 0.50,
+            "max_drawdown": -0.18,
+            "max_drawdown_passed": False,
+        },
+        ("sector_watch", "drawdown15"): {
+            "total_return": 0.35,
+            "max_drawdown": -0.09,
+            "max_drawdown_passed": True,
+        },
+        ("action", "drawdown15"): {
+            "total_return": 0.20,
+            "max_drawdown": -0.07,
+            "max_drawdown_passed": True,
+        },
+        ("action", "adaptive"): {
+            "total_return": 0.10,
+            "max_drawdown": -0.06,
+            "max_drawdown_passed": True,
+        },
+    }
+
+    def fake_run_replay_baseline(**kwargs):
+        return {
+            "candidate_scope": kwargs["candidate_scope"],
+            "guard_preset": kwargs["guard_preset"],
+            "stop_loss_pct": 0.05,
+            "trailing_drawdown_pct": 0.05,
+            "candidate_count": 10,
+            "month_count": 3,
+            **summaries[(kwargs["candidate_scope"], kwargs["guard_preset"])],
+        }
+
+    monkeypatch.setattr(baseline, "run_replay_baseline", fake_run_replay_baseline)
+
+    ranked = rank_replay_baselines(
+        start_date="2026-01-01",
+        end_date="2026-03-31",
+        horizon=20,
+        limit=15,
+        candidate_scopes=["sector_watch", "action"],
+        guard_presets=["adaptive", "drawdown15"],
+        guarded=True,
+        min_coverage_ratio=0.8,
+        include_fundamentals=False,
+        stop_loss_pct=0.06,
+        trailing_drawdown_pct=0.08,
+        max_drawdown_limit_pct=0.15,
+    )
+
+    assert [(item["candidate_scope"], item["guard_preset"]) for item in ranked] == [
+        ("sector_watch", "drawdown15"),
+        ("action", "drawdown15"),
+        ("action", "adaptive"),
+        ("sector_watch", "adaptive"),
+    ]
+
+
+def test_format_ranked_replay_baselines_uses_compact_chinese_table() -> None:
+    text = format_ranked_replay_baselines(
+        [
+            {
+                "candidate_scope": "sector_watch",
+                "guard_preset": "drawdown15",
+                "stop_loss_pct": 0.05,
+                "trailing_drawdown_pct": 0.05,
+                "total_return": 0.3556,
+                "max_drawdown": -0.0884,
+                "max_drawdown_passed": True,
+                "candidate_count": 54,
+                "month_count": 14,
+            }
+        ]
+    )
+
+    assert "回撤约束排名" in text
+    assert "sector_watch | drawdown15 | 达标 | 35.56% | -8.84%" in text
