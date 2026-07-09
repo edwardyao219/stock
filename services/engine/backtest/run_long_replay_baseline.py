@@ -21,6 +21,15 @@ ADAPTIVE_GUARD_PARAMETERS = {
     "startup_confirmed": (0.04, 0.06),
 }
 
+DRAWDOWN15_GUARD_PARAMETERS = {
+    "action": (0.04, 0.05),
+    "action_long": (0.04, 0.06),
+    "sector_watch": (0.05, 0.05),
+    "potential_watch": (0.06, 0.08),
+    "startup_preheat": (0.04, 0.06),
+    "startup_confirmed": (0.03, 0.06),
+}
+
 
 def resolve_guard_parameters(
     *,
@@ -33,6 +42,11 @@ def resolve_guard_parameters(
         return stop_loss_pct, trailing_drawdown_pct
     if guard_preset == "adaptive":
         return ADAPTIVE_GUARD_PARAMETERS.get(
+            candidate_scope,
+            (stop_loss_pct, trailing_drawdown_pct),
+        )
+    if guard_preset == "drawdown15":
+        return DRAWDOWN15_GUARD_PARAMETERS.get(
             candidate_scope,
             (stop_loss_pct, trailing_drawdown_pct),
         )
@@ -111,6 +125,20 @@ def summarize_replay_baseline(
     }
 
 
+def annotate_drawdown_limit(
+    summary: dict[str, Any],
+    *,
+    max_drawdown_limit_pct: float,
+) -> dict[str, Any]:
+    limit = abs(max_drawdown_limit_pct)
+    max_drawdown = float(summary["max_drawdown"])
+    return {
+        **summary,
+        "max_drawdown_limit_pct": limit,
+        "max_drawdown_passed": max_drawdown >= -limit,
+    }
+
+
 def _pct(value: float) -> str:
     return f"{value * 100:.2f}%"
 
@@ -125,7 +153,9 @@ def format_replay_baseline(summary: dict[str, Any]) -> str:
         ),
         (
             f"总收益(不复利) {_pct(float(summary['total_return']))} | "
-            f"最大回撤 {_pct(float(summary['max_drawdown']))} | "
+            f"最大回撤 {_pct(float(summary['max_drawdown']))} "
+            f"(目标≤{_pct(float(summary.get('max_drawdown_limit_pct') or 0.15))} "
+            f"{'达标' if summary.get('max_drawdown_passed') else '超标'}) | "
             f"候选 {summary['candidate_count']} | 月份 {summary['month_count']}"
         ),
         "月份 | 信号日 | 候选 | 胜率 | 月收益",
@@ -158,6 +188,7 @@ def run_replay_baseline(
     stop_loss_pct: float,
     trailing_drawdown_pct: float,
     guard_preset: str = "fixed",
+    max_drawdown_limit_pct: float = 0.15,
 ) -> dict[str, Any]:
     effective_stop_loss_pct, effective_trailing_drawdown_pct = resolve_guard_parameters(
         candidate_scope=candidate_scope,
@@ -176,12 +207,16 @@ def run_replay_baseline(
         stop_loss_pct=effective_stop_loss_pct,
         trailing_drawdown_pct=effective_trailing_drawdown_pct,
     )
-    return {
+    summary = {
         **summarize_replay_baseline(result, horizon=horizon, guarded=guarded),
         "guard_preset": guard_preset,
         "stop_loss_pct": effective_stop_loss_pct,
         "trailing_drawdown_pct": effective_trailing_drawdown_pct,
     }
+    return annotate_drawdown_limit(
+        summary,
+        max_drawdown_limit_pct=max_drawdown_limit_pct,
+    )
 
 
 def main() -> None:
@@ -206,9 +241,14 @@ def main() -> None:
     parser.add_argument("--guarded", action="store_true")
     parser.add_argument("--min-coverage-ratio", type=float, default=0.70)
     parser.add_argument("--disable-fundamentals", action="store_true")
-    parser.add_argument("--guard-preset", choices=["fixed", "adaptive"], default="fixed")
+    parser.add_argument(
+        "--guard-preset",
+        choices=["fixed", "adaptive", "drawdown15"],
+        default="fixed",
+    )
     parser.add_argument("--stop-loss-pct", type=float, default=0.06)
     parser.add_argument("--trailing-drawdown-pct", type=float, default=0.08)
+    parser.add_argument("--max-drawdown-limit-pct", type=float, default=0.15)
     args = parser.parse_args()
 
     require_primary_database("long_replay_baseline")
@@ -226,6 +266,7 @@ def main() -> None:
                 stop_loss_pct=args.stop_loss_pct,
                 trailing_drawdown_pct=args.trailing_drawdown_pct,
                 guard_preset=args.guard_preset,
+                max_drawdown_limit_pct=args.max_drawdown_limit_pct,
             )
         )
     )

@@ -1,5 +1,6 @@
 from services.engine.backtest import run_long_replay_baseline as baseline
 from services.engine.backtest.run_long_replay_baseline import (
+    annotate_drawdown_limit,
     resolve_guard_parameters,
     run_replay_baseline,
     summarize_replay_baseline,
@@ -145,6 +146,36 @@ def test_resolve_guard_parameters_can_adapt_by_candidate_scope() -> None:
     ) == (0.05, 0.07)
 
 
+def test_resolve_guard_parameters_can_use_drawdown15_preset() -> None:
+    assert resolve_guard_parameters(
+        candidate_scope="sector_watch",
+        guard_preset="drawdown15",
+        stop_loss_pct=0.06,
+        trailing_drawdown_pct=0.08,
+    ) == (0.05, 0.05)
+    assert resolve_guard_parameters(
+        candidate_scope="action",
+        guard_preset="drawdown15",
+        stop_loss_pct=0.06,
+        trailing_drawdown_pct=0.08,
+    ) == (0.04, 0.05)
+    assert resolve_guard_parameters(
+        candidate_scope="startup_confirmed",
+        guard_preset="drawdown15",
+        stop_loss_pct=0.06,
+        trailing_drawdown_pct=0.08,
+    ) == (0.03, 0.06)
+
+
+def test_annotate_drawdown_limit_marks_pass_or_fail() -> None:
+    passed = annotate_drawdown_limit({"max_drawdown": -0.12}, max_drawdown_limit_pct=0.15)
+    failed = annotate_drawdown_limit({"max_drawdown": -0.18}, max_drawdown_limit_pct=0.15)
+
+    assert passed["max_drawdown_limit_pct"] == 0.15
+    assert passed["max_drawdown_passed"] is True
+    assert failed["max_drawdown_passed"] is False
+
+
 def test_run_replay_baseline_uses_adaptive_guard_parameters(monkeypatch) -> None:
     captured = {}
     result = WalkForwardReplayResult(
@@ -183,3 +214,45 @@ def test_run_replay_baseline_uses_adaptive_guard_parameters(monkeypatch) -> None
     assert summary["trailing_drawdown_pct"] == 0.06
     assert captured["stop_loss_pct"] == 0.04
     assert captured["trailing_drawdown_pct"] == 0.06
+
+
+def test_run_replay_baseline_reports_drawdown_limit(monkeypatch) -> None:
+    result = WalkForwardReplayResult(
+        start_date="2026-01-01",
+        end_date="2026-02-28",
+        processed_days=2,
+        days=[
+            _day("2026-01-02", [_candidate("600001", 0.10, guarded=0.03)]),
+            _day("2026-02-02", [_candidate("600002", -0.20, guarded=-0.16)]),
+        ],
+    )
+
+    def fake_run_candidate_walk_forward_replay(**kwargs):
+        return result
+
+    monkeypatch.setattr(
+        baseline,
+        "run_candidate_walk_forward_replay",
+        fake_run_candidate_walk_forward_replay,
+    )
+
+    summary = run_replay_baseline(
+        start_date="2026-01-01",
+        end_date="2026-02-28",
+        horizon=5,
+        limit=3,
+        candidate_scope="sector_watch",
+        guarded=True,
+        min_coverage_ratio=0.8,
+        include_fundamentals=False,
+        stop_loss_pct=0.06,
+        trailing_drawdown_pct=0.08,
+        guard_preset="drawdown15",
+        max_drawdown_limit_pct=0.15,
+    )
+
+    assert summary["guard_preset"] == "drawdown15"
+    assert summary["stop_loss_pct"] == 0.05
+    assert summary["trailing_drawdown_pct"] == 0.05
+    assert summary["max_drawdown"] == -0.16
+    assert summary["max_drawdown_passed"] is False
