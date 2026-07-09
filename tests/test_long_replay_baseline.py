@@ -1,8 +1,10 @@
 from services.engine.backtest import run_long_replay_baseline as baseline
 from services.engine.backtest.run_long_replay_baseline import (
+    diagnose_ranked_replay_losses,
     annotate_drawdown_limit,
     format_ranked_replay_months,
     format_ranked_replay_baselines,
+    format_replay_loss_diagnostics,
     rank_replay_baselines,
     resolve_guard_parameters,
     run_replay_baseline,
@@ -382,3 +384,60 @@ def test_format_ranked_replay_months_shows_top_month_breakdown() -> None:
     assert "sector_watch/drawdown15 总收益35.56% 最大回撤-8.84%" in text
     assert "2025-06 | 1 | 2 | 100.00% | 20.13%" in text
     assert "action/drawdown15" not in text
+
+
+def test_diagnose_ranked_replay_losses_flags_streaks_and_drawdown_failures() -> None:
+    diagnostics = diagnose_ranked_replay_losses(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "max_drawdown_passed": True,
+                "months": [
+                    {"month": "2024-04", "month_return": -0.01},
+                    {"month": "2024-05", "month_return": -0.02},
+                    {"month": "2024-06", "month_return": -0.0573},
+                    {"month": "2024-07", "month_return": 0.02},
+                ],
+            },
+            {
+                "candidate_scope": "sector_watch",
+                "guard_preset": "drawdown15",
+                "max_drawdown_passed": False,
+                "months": [
+                    {"month": "2024-06", "month_return": -0.12},
+                    {"month": "2024-07", "month_return": 0.05},
+                ],
+            },
+        ]
+    )
+
+    assert diagnostics[0] == {
+        "candidate_scope": "action",
+        "guard_preset": "drawdown15",
+        "negative_month_count": 3,
+        "worst_month": "2024-06",
+        "worst_month_return": -0.0573,
+        "max_loss_streak": 3,
+        "recommendation": "需要行情门控",
+    }
+    assert diagnostics[1]["recommendation"] == "降级观察"
+
+
+def test_format_replay_loss_diagnostics_uses_compact_chinese_table() -> None:
+    text = format_replay_loss_diagnostics(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "negative_month_count": 3,
+                "worst_month": "2024-06",
+                "worst_month_return": -0.0573,
+                "max_loss_streak": 3,
+                "recommendation": "需要行情门控",
+            }
+        ]
+    )
+
+    assert "亏损月诊断" in text
+    assert "action | drawdown15 | 3 | 2024-06 -5.73% | 3 | 需要行情门控" in text

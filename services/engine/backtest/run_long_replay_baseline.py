@@ -334,6 +334,68 @@ def format_ranked_replay_months(
     return "\n".join(lines)
 
 
+def _max_loss_streak(months: list[dict[str, Any]]) -> int:
+    longest = 0
+    current = 0
+    for month in months:
+        if float(month.get("month_return") or 0.0) < 0:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
+def diagnose_ranked_replay_losses(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    for item in rows:
+        months = list(item.get("months") or [])
+        negative_months = [
+            month for month in months if float(month.get("month_return") or 0.0) < 0
+        ]
+        worst = min(months, key=lambda month: float(month.get("month_return") or 0.0), default={})
+        max_loss_streak = _max_loss_streak(months)
+        if not item.get("max_drawdown_passed"):
+            recommendation = "降级观察"
+        elif max_loss_streak >= 3:
+            recommendation = "需要行情门控"
+        else:
+            recommendation = "继续跟踪"
+        diagnostics.append(
+            {
+                "candidate_scope": item["candidate_scope"],
+                "guard_preset": item["guard_preset"],
+                "negative_month_count": len(negative_months),
+                "worst_month": worst.get("month"),
+                "worst_month_return": float(worst.get("month_return") or 0.0),
+                "max_loss_streak": max_loss_streak,
+                "recommendation": recommendation,
+            }
+        )
+    return diagnostics
+
+
+def format_replay_loss_diagnostics(rows: list[dict[str, Any]]) -> str:
+    lines = [
+        "亏损月诊断",
+        "范围 | 预设 | 负收益月 | 最差月 | 连续亏损月 | 建议",
+    ]
+    for item in rows:
+        lines.append(
+            " | ".join(
+                [
+                    str(item["candidate_scope"]),
+                    str(item["guard_preset"]),
+                    str(item["negative_month_count"]),
+                    f"{item['worst_month']} {_pct(float(item['worst_month_return']))}",
+                    str(item["max_loss_streak"]),
+                    str(item["recommendation"]),
+                ]
+            )
+        )
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run long walk-forward baseline.")
     parser.add_argument("--start-date", required=True, help="YYYY-MM-DD")
@@ -367,6 +429,7 @@ def main() -> None:
     parser.add_argument("--rank-presets", action="store_true")
     parser.add_argument("--rank-months", action="store_true")
     parser.add_argument("--rank-months-top", type=int, default=3)
+    parser.add_argument("--loss-diagnostics", action="store_true")
     args = parser.parse_args()
 
     require_primary_database("long_replay_baseline")
@@ -391,6 +454,9 @@ def main() -> None:
         if args.rank_months:
             print()
             print(format_ranked_replay_months(ranked, top_n=args.rank_months_top))
+        if args.loss_diagnostics:
+            print()
+            print(format_replay_loss_diagnostics(diagnose_ranked_replay_losses(ranked)))
         return
     print(
         format_replay_baseline(
