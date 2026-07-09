@@ -53,6 +53,9 @@ _LIVE_MARKET_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ma
 SECTOR_CATALYST_CACHE_SECONDS = 300.0
 _SECTOR_CATALYST_CACHE: tuple[float, int, "SectorCatalystResponse"] | None = None
 _SECTOR_CATALYST_LOCK = Lock()
+SECTOR_OVERVIEW_CACHE_SECONDS = 15.0
+_SECTOR_OVERVIEW_CACHE: tuple[float, int | None, "SectorOverviewResponse"] | None = None
+_SECTOR_OVERVIEW_LOCK = Lock()
 SECTOR_FEATURE_MIN_COVERAGE_RATIO = 0.80
 MARKET_DAILY_MIN_COVERAGE_RATIO = 0.80
 TARGET_INDEXES = (
@@ -1076,6 +1079,37 @@ def _sector_gate_summary(items: list[SectorOverviewItem]) -> SectorGateSummaryRe
     )
 
 
+def _sector_overview_cache_key(db: Session) -> int | None:
+    try:
+        return id(db.get_bind())
+    except Exception:
+        return None
+
+
+def _cached_stored_sector_overview(db: Session) -> SectorOverviewResponse:
+    global _SECTOR_OVERVIEW_CACHE
+    current = monotonic()
+    cache_key = _sector_overview_cache_key(db)
+    if (
+        _SECTOR_OVERVIEW_CACHE is not None
+        and _SECTOR_OVERVIEW_CACHE[1] == cache_key
+        and current - _SECTOR_OVERVIEW_CACHE[0] <= SECTOR_OVERVIEW_CACHE_SECONDS
+    ):
+        return _SECTOR_OVERVIEW_CACHE[2]
+
+    with _SECTOR_OVERVIEW_LOCK:
+        current = monotonic()
+        if (
+            _SECTOR_OVERVIEW_CACHE is not None
+            and _SECTOR_OVERVIEW_CACHE[1] == cache_key
+            and current - _SECTOR_OVERVIEW_CACHE[0] <= SECTOR_OVERVIEW_CACHE_SECONDS
+        ):
+            return _SECTOR_OVERVIEW_CACHE[2]
+        overview = _stored_sector_overview(db)
+        _SECTOR_OVERVIEW_CACHE = (monotonic(), cache_key, overview)
+        return overview
+
+
 def _stored_sector_overview(db: Session) -> SectorOverviewResponse:
     latest_sector_daily_date = db.execute(
         select(func.max(SectorDaily.trade_date))
@@ -1278,7 +1312,7 @@ def get_market_overview(db: DbSession, live: bool = False) -> MarketOverviewResp
 
 @router.get("/sectors/overview", response_model=SectorOverviewResponse)
 def get_sector_overview(db: DbSession) -> SectorOverviewResponse:
-    return _stored_sector_overview(db)
+    return _cached_stored_sector_overview(db)
 
 
 @router.get("/sectors/catalysts", response_model=SectorCatalystResponse)

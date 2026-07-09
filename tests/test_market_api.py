@@ -876,6 +876,30 @@ def test_get_sector_overview_maps_common_tech_subindustries_to_local_features() 
     assert items["光伏设备"].sector_strength_score == 69.0
 
 
+def test_get_sector_overview_reuses_short_cache(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    def stored_overview(db) -> market.SectorOverviewResponse:
+        calls["count"] += 1
+        return market.SectorOverviewResponse(
+            trade_date=date(2026, 7, 8),
+            month_start_date=date(2026, 7, 1),
+            feature_trade_date=date(2026, 7, 8),
+            moneyflow_trade_date=date(2026, 7, 8),
+            sectors=[],
+        )
+
+    monkeypatch.setattr(market, "_SECTOR_OVERVIEW_CACHE", None, raising=False)
+    monkeypatch.setattr(market, "_stored_sector_overview", stored_overview)
+    monkeypatch.setattr(market, "monotonic", lambda: 1000.0)
+
+    first = get_sector_overview(db=object())
+    second = get_sector_overview(db=object())
+
+    assert calls["count"] == 1
+    assert second.trade_date == first.trade_date
+
+
 def test_get_sector_overview_uses_latest_well_covered_feature_date() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
