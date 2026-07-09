@@ -974,7 +974,7 @@ button {
 .stock-table-head,
 .stock-row {
   display: grid;
-  grid-template-columns: minmax(170px, 1.35fr) 96px minmax(150px, 1fr) minmax(220px, 1.45fr);
+  grid-template-columns: minmax(170px, 1.25fr) minmax(130px, 0.85fr) minmax(150px, 1fr) minmax(220px, 1.35fr);
   gap: 12px;
   align-items: center;
 }
@@ -1146,7 +1146,7 @@ button {
 .source-stack {
   flex-direction: column;
   gap: 5px;
-  width: fit-content;
+  width: 100%;
 }
 
 .source-stack small {
@@ -1214,7 +1214,7 @@ button {
 
 .source-stack .tier-reason {
   color: #475569;
-  max-width: 210px;
+  max-width: 100%;
   white-space: normal;
 }
 

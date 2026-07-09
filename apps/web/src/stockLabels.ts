@@ -81,6 +81,8 @@ const displayTokenLabels: Record<string, string> = {
   core_candidate: "核心候选",
   low_sample: "样本不足",
   observe_only: "只观察",
+  risk_off: "弱市防守",
+  risk_on: "风险偏好",
   simple_sum_no_compounding: "简单相加不复利",
   stand_down: "休息",
   startup_confirmed: "启动确认池",

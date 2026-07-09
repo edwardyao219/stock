@@ -112,6 +112,14 @@ assertEqual(
   "后端原因里的风格枚举也要显示成中文",
 );
 assertEqual(
+  manualTagTextForStock(
+    "candidate_summary:没有核心行动：情绪阀门risk_off，先按弱市降级观察。",
+    startupPreheatCandidate,
+  ),
+  "没有核心行动：情绪阀门弱市防守，先按弱市降级观察。",
+  "候选摘要里的风险枚举不能露出英文",
+);
+assertEqual(
   manualTagTextForStock("mode:potential_watch", startupPreheatCandidate),
   "潜力观察",
   "候选模式标签不能露出英文枚举",
