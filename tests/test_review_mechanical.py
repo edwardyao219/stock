@@ -134,7 +134,15 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
             {
                 "symbol": "603083",
                 "note": "候选理由：趋势强，量能健康。",
-                "tags": ["after_close_candidate", "2026-06-23", "rank:1", "score:86.4"],
+                "tags": [
+                    "after_close_candidate",
+                    "2026-06-23",
+                    "rank:1",
+                    "score:86.4",
+                    "tier:core_action",
+                    "tier_reason:弱情绪阶段只保留少量长期主线：板块连续性和量能确认同时达标；盘中仍看承接，不追高。",
+                    "candidate_summary:没有核心行动：大盘压力大，停止扩散，只做观察和风控。",
+                ],
                 "status": "active",
             }
         ],
@@ -224,6 +232,9 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
     assert "数据日期 2026-06-23（已过期）" in review.content_md
     assert "## 昨日候选今日回看" in review.content_md
     assert "第1名 / 86.4分" in review.content_md
+    assert "分层: 核心行动" in review.content_md
+    assert "弱情绪阶段只保留少量长期主线" in review.content_md
+    assert "候选池提示: 没有核心行动：大盘压力大，停止扩散，只做观察和风控。" in review.content_md
     assert "K线 O10.00 H10.50 L9.80 C10.20" in review.content_md
     assert "## 明日候选计划" not in review.content_md
 

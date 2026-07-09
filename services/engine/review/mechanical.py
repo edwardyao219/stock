@@ -70,6 +70,24 @@ def _tag_number(tags: list[str], prefix: str, cast: Any) -> int | float | None:
     return None
 
 
+def _tag_text(tags: list[str], prefix: str) -> str | None:
+    for tag in tags:
+        if str(tag).startswith(prefix):
+            value = str(tag).removeprefix(prefix).strip()
+            return value or None
+    return None
+
+
+def _candidate_tier_label(tags: list[str]) -> str | None:
+    tier = _tag_text(tags, "tier:")
+    return {
+        "core_action": "核心行动",
+        "sector_watch": "板块观察",
+        "watch_wait": "观察等待",
+        "risk_reject": "淘汰/风险",
+    }.get(str(tier or ""), None)
+
+
 def _sector_line(item: dict[str, object]) -> str:
     net_amount = item.get("fund_flow_net_amount")
     flow_label = "资金净流入"
@@ -546,6 +564,19 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                     note = _short_text(item.get("note"))
                     if note:
                         lines.append(f"  - 备注: {note}")
+                    tags = [str(tag) for tag in item.get("tags") or []]
+                    tier_label = _candidate_tier_label(tags)
+                    tier_reason = _short_text(_tag_text(tags, "tier_reason:"), limit=140)
+                    candidate_summary = _short_text(
+                        _tag_text(tags, "candidate_summary:"),
+                        limit=140,
+                    )
+                    if tier_label:
+                        lines.append(f"  - 分层: {tier_label}")
+                    if tier_reason:
+                        lines.append(f"  - 分层原因: {tier_reason}")
+                    if candidate_summary:
+                        lines.append(f"  - 候选池提示: {candidate_summary}")
             else:
                 lines.append("- 暂无可回看的盘后候选")
 
