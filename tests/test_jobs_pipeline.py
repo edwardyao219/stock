@@ -220,10 +220,26 @@ def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) ->
     from datetime import datetime
 
     captured = {}
+    written = []
 
     class _Result:
         def to_dict(self):
-            return {"status": "ok"}
+            return {
+                "trade_date": "2026-06-30",
+                "next_trade_date": "2026-07-01",
+                "stage": "after_close",
+                "steps": [
+                    {
+                        "name": "discover_next_session_candidates",
+                        "status": "ok",
+                        "detail": (
+                            "明日候选完成：扫描 3000 只股票，"
+                            "写入 12 只股票，生成 1 条交易计划。"
+                        ),
+                        "details": ["钉钉提醒：dingtalk:ok"],
+                    }
+                ],
+            }
 
     def fake_run_after_close_session(trade_date, next_trade_date, **kwargs):
         captured.update(
@@ -240,13 +256,19 @@ def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) ->
     monkeypatch.setattr(tasks, "run_after_close_session", fake_run_after_close_session)
     monkeypatch.setattr(
         tasks,
+        "write_after_close_status",
+        lambda result: written.append(result),
+    )
+    monkeypatch.setattr(
+        tasks,
         "_acquire_daily_task_lock",
         lambda task_name, trade_date: (True, "stock:daily-task:after-close:2026-06-30"),
     )
 
     result = tasks.run_after_close_session_task()
 
-    assert result == {"status": "ok"}
+    assert result["stage"] == "after_close"
+    assert written == [result]
     assert captured["trade_date"] == "2026-06-30"
     assert captured["next_trade_date"] == "2026-07-01"
     assert captured["full_market_sync"] is True

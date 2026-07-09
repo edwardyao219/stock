@@ -15,6 +15,7 @@ from services.jobs.pipeline import (
     run_daily_research_pipeline,
     run_intraday_trade_session,
 )
+from services.jobs.status import write_after_close_status
 from services.notifications.dispatcher import dispatch_monthly_trade_summary
 from services.shared.database import SessionLocal
 from services.shared.time import now_local
@@ -238,11 +239,13 @@ def run_after_close_session_task(force: bool = False) -> dict[str, object]:
                 "lock_key": lock_key,
             }
     next_trade_date = resolve_next_trade_date(today.isoformat())
-    return run_after_close_session(
+    result = run_after_close_session(
         today.isoformat(),
         next_trade_date,
         full_market_sync=True,
     ).to_dict()
+    write_after_close_status(result)
+    return result
 
 
 @celery_app.task(name="services.jobs.tasks.run_daily_research_pipeline_task")

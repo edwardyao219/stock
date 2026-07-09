@@ -16,6 +16,7 @@ from services.jobs.pipeline import (
     run_daily_research_pipeline,
     run_intraday_trade_session,
 )
+from services.jobs.status import read_after_close_status
 from services.shared.database import get_db
 from services.shared.models import BacktestTradeRecord, RulePerformanceDaily
 from services.shared.time import now_local
@@ -127,6 +128,19 @@ class RuleRegressionStatusResponse(BaseModel):
     message: str
 
 
+class AfterCloseStatusResponse(BaseModel):
+    trade_date: str
+    next_trade_date: str | None = None
+    status: str
+    message: str
+    updated_at: str | None = None
+    candidate_count: int = 0
+    plan_count: int = 0
+    dingtalk_statuses: list[str] = []
+    market_summary: str | None = None
+    source: str = "cache"
+
+
 def _today() -> str:
     return now_local().date().isoformat()
 
@@ -223,6 +237,20 @@ def run_historical_replay_job(payload: HistoricalReplayRunRequest) -> Historical
         dry_run=payload.dry_run,
     )
     return HistoricalReplayRunResponse(**result.to_dict())
+
+
+@router.get("/after-close/status", response_model=AfterCloseStatusResponse)
+def get_after_close_status(trade_date: str | None = None) -> AfterCloseStatusResponse:
+    target_date = trade_date or _today()
+    cached = read_after_close_status(target_date)
+    if cached:
+        return AfterCloseStatusResponse(**cached)
+    return AfterCloseStatusResponse(
+        trade_date=target_date,
+        status="unknown",
+        message=f"{target_date} 还没有收盘推送记录；如果刚重启过服务，请以钉钉和候选池为准。",
+        source="empty",
+    )
 
 
 @router.get("/rule-regression/status", response_model=RuleRegressionStatusResponse)

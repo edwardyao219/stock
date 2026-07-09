@@ -10,11 +10,13 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  AfterCloseStatus,
   Candle,
   CandidateReplayEffectQuery,
   CandidateReplayEffectReport,
   DataHealth,
   addManualStock,
+  fetchAfterCloseStatus,
   fetchCandidateReplayEffect,
   fetchCandles,
   fetchDataHealth,
@@ -1053,6 +1055,30 @@ function ruleRegressionStatusLabel(status: RuleRegressionStatus["status"] | unde
   return "待确认";
 }
 
+function afterCloseStatusLabel(status: string | undefined) {
+  if (status === "ok") return "已完成";
+  if (status === "warning") return "需关注";
+  if (status === "failed") return "失败";
+  if (status === "skipped") return "已跳过";
+  if (status === "unknown") return "未记录";
+  return "待确认";
+}
+
+function afterCloseStatusTone(status: string | undefined) {
+  if (status === "ok") return "ok";
+  if (status === "warning" || status === "skipped") return "warn";
+  if (status === "failed") return "failed";
+  return "unknown";
+}
+
+function afterCloseDingText(status: AfterCloseStatus | null) {
+  const statuses = status?.dingtalk_statuses ?? [];
+  if (!statuses.length) return "钉钉未记录";
+  const okCount = statuses.filter((item) => item.endsWith(":ok")).length;
+  if (okCount === statuses.length) return `钉钉已发送 ${okCount} 条`;
+  return statuses.join(" / ");
+}
+
 function uiText(value: string | null | undefined) {
   return cleanDisplayText(value);
 }
@@ -1087,6 +1113,8 @@ export function App() {
   const [dataHealth, setDataHealth] = useState<DataHealth | null>(null);
   const [selectedSectorCode, setSelectedSectorCode] = useState<string | null>(null);
   const [mechanicalReview, setMechanicalReview] = useState<MechanicalReview | null>(null);
+  const [afterCloseStatus, setAfterCloseStatus] = useState<AfterCloseStatus | null>(null);
+  const [afterCloseStatusError, setAfterCloseStatusError] = useState<string | null>(null);
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummary | null>(null);
   const [lowDimensionalReplay, setLowDimensionalReplay] =
     useState<LowDimensionalReplayReport | null>(null);
@@ -1379,6 +1407,16 @@ export function App() {
     }
   }
 
+  async function loadAfterCloseStatus(tradeDate?: string | null) {
+    try {
+      setAfterCloseStatus(await fetchAfterCloseStatus(tradeDate));
+      setAfterCloseStatusError(null);
+    } catch (exc) {
+      setAfterCloseStatus(null);
+      setAfterCloseStatusError(exc instanceof Error ? exc.message : "6点推送状态加载失败");
+    }
+  }
+
   async function addManualFocus() {
     const symbol = manualSymbol.trim();
     if (!symbol) return;
@@ -1420,6 +1458,7 @@ export function App() {
     loadSectorCatalysts();
     loadDataHealth();
     loadMechanicalReview();
+    loadAfterCloseStatus();
     loadMonthlySummary();
     loadCandidateReplayEffect(initialCandidateReplayQuery);
     loadRuleRegressionStatus();
@@ -1769,10 +1808,35 @@ export function App() {
                     : "收盘后会展示大盘、板块和候选回看"}
                 </small>
               </div>
-              <button type="button" onClick={loadMechanicalReview} aria-label="刷新收盘复盘">
+              <button
+                type="button"
+                onClick={() => {
+                  loadMechanicalReview();
+                  loadAfterCloseStatus(marketOverview?.trade_date);
+                }}
+                aria-label="刷新收盘复盘"
+              >
                 <RefreshCw size={14} />
               </button>
             </div>
+            {afterCloseStatus || afterCloseStatusError ? (
+              <div className={`after-close-push-status ${afterCloseStatusTone(afterCloseStatus?.status)}`}>
+                <div>
+                  <span>6点推送</span>
+                  <strong>{afterCloseStatusLabel(afterCloseStatus?.status)}</strong>
+                  <small>{uiText(afterCloseStatus?.message ?? afterCloseStatusError)}</small>
+                </div>
+                {afterCloseStatus ? (
+                  <div className="after-close-push-metrics">
+                    <span>日期 {afterCloseStatus.trade_date}</span>
+                    <span>候选 {afterCloseStatus.candidate_count}</span>
+                    <span>计划 {afterCloseStatus.plan_count}</span>
+                    <span>{afterCloseDingText(afterCloseStatus)}</span>
+                    <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {mechanicalReview?.found ? (
               <>
                 <div className="post-close-review-grid">

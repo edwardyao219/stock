@@ -989,6 +989,19 @@ export interface RuleRegressionStatus {
   message: string;
 }
 
+export interface AfterCloseStatus {
+  trade_date: string;
+  next_trade_date: string | null;
+  status: string;
+  message: string;
+  updated_at: string | null;
+  candidate_count: number;
+  plan_count: number;
+  dingtalk_statuses: string[];
+  market_summary: string | null;
+  source: string;
+}
+
 function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
   return {
     ...item,
@@ -1204,4 +1217,10 @@ export function runHistoricalReplay(payload: HistoricalReplayPayload) {
 
 export function fetchRuleRegressionStatus() {
   return request<RuleRegressionStatus>("/jobs/rule-regression/status");
+}
+
+export function fetchAfterCloseStatus(tradeDate?: string | null) {
+  const params = new URLSearchParams();
+  if (tradeDate) params.set("trade_date", tradeDate);
+  return request<AfterCloseStatus>(`/jobs/after-close/status${params.size ? `?${params.toString()}` : ""}`);
 }

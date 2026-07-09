@@ -270,6 +270,66 @@ button {
   width: 34px;
 }
 
+.after-close-push-status {
+  align-items: start;
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(170px, 0.8fr) minmax(0, 1.2fr);
+  padding: 9px 10px;
+}
+
+.after-close-push-status.ok {
+  background: #f3fbf5;
+  border-color: #bde4ca;
+}
+
+.after-close-push-status.warn {
+  background: #fffaf0;
+  border-color: #f5d99c;
+}
+
+.after-close-push-status.failed {
+  background: #fff5f3;
+  border-color: #f5c2bd;
+}
+
+.after-close-push-status div,
+.after-close-push-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  min-width: 0;
+}
+
+.after-close-push-status div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.after-close-push-status span,
+.after-close-push-status small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.after-close-push-status strong {
+  color: #17202b;
+  font-size: 14px;
+}
+
+.after-close-push-metrics span {
+  background: #fff;
+  border: 1px solid #dbe4ee;
+  border-radius: 999px;
+  color: #334155;
+  font-weight: 800;
+  line-height: 1.35;
+  padding: 5px 8px;
+}
+
 .post-close-review-grid {
   display: grid;
   gap: 8px;

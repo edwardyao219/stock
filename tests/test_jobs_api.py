@@ -27,6 +27,43 @@ def test_jobs_routes_are_registered() -> None:
     assert "/jobs/pipeline/run" in schema["paths"]
     assert "/jobs/historical-replay/run" in schema["paths"]
     assert "/jobs/rule-regression/status" in schema["paths"]
+    assert "/jobs/after-close/status" in schema["paths"]
+
+
+def test_after_close_status_reads_cached_status(monkeypatch) -> None:
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "next_trade_date": "2026-07-10",
+            "status": "ok",
+            "message": "收盘推送已完成：写入 12 只股票，生成 0 条交易计划。",
+            "updated_at": "2026-07-09T18:24:22+08:00",
+            "candidate_count": 12,
+            "plan_count": 0,
+            "dingtalk_statuses": ["dingtalk:ok", "dingtalk:ok"],
+            "market_summary": "市场 weak_trend / 压力大",
+            "source": "cache",
+        },
+    )
+
+    payload = jobs.get_after_close_status(trade_date="2026-07-09")
+
+    assert payload.status == "ok"
+    assert payload.candidate_count == 12
+    assert payload.dingtalk_statuses == ["dingtalk:ok", "dingtalk:ok"]
+    assert payload.market_summary == "市场 weak_trend / 压力大"
+
+
+def test_after_close_status_returns_unknown_without_cache(monkeypatch) -> None:
+    monkeypatch.setattr(jobs, "read_after_close_status", lambda trade_date: None)
+
+    payload = jobs.get_after_close_status(trade_date="2026-07-09")
+
+    assert payload.status == "unknown"
+    assert payload.trade_date == "2026-07-09"
+    assert "还没有收盘推送记录" in payload.message
 
 
 def test_rule_regression_status_reads_latest_persisted_run(monkeypatch) -> None:
