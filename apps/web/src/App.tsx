@@ -1263,9 +1263,9 @@ export function App() {
     }
   }
 
-  async function loadStrategyFit() {
+  async function loadStrategyFit(symbol?: string | null) {
     try {
-      setStrategyFit(await fetchStrategyFit());
+      setStrategyFit(await fetchStrategyFit(symbol));
       setStrategyFitError(null);
     } catch (exc) {
       setStrategyFit(null);
@@ -1421,10 +1421,13 @@ export function App() {
     loadDataHealth();
     loadMechanicalReview();
     loadMonthlySummary();
-    loadStrategyFit();
     loadCandidateReplayEffect(initialCandidateReplayQuery);
     loadRuleRegressionStatus();
   }, []);
+
+  useEffect(() => {
+    loadStrategyFit(selectedSymbolValue);
+  }, [selectedSymbolValue]);
 
   useEffect(() => {
     if (!autoRefresh) return undefined;

@@ -2198,6 +2198,8 @@ def get_strategy_fit(
     db: DbSession,
     report_date: str | None = None,
     rule_id: str | None = None,
+    symbol: str | None = None,
+    include_symbols: bool = True,
     min_samples: Annotated[int, Query(ge=1, le=100)] = 1,
     per_scope_limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> dict:
@@ -2205,6 +2207,8 @@ def get_strategy_fit(
         db,
         report_date=report_date,
         rule_id=rule_id,
+        include_symbols=include_symbols,
+        symbol=symbol,
         min_samples=min_samples,
         per_scope_limit=per_scope_limit,
     ).to_dict()

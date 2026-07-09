@@ -205,6 +205,87 @@ def test_get_strategy_fit_returns_rule_sector_symbol_metrics_and_reasons() -> No
     assert symbol_payload["trade_count"] == 2
 
 
+def test_get_strategy_fit_can_skip_symbol_details_for_compact_payload() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(
+            Security(
+                symbol="603083",
+                name="剑桥科技",
+                exchange="SH",
+                list_date=None,
+                industry="通信设备",
+                is_active=True,
+            )
+        )
+        db.add_all(
+            [
+                _trade("R007", "603083", 1, "0.05"),
+                _trade("R007", "603083", 2, "-0.02"),
+            ]
+        )
+        db.commit()
+
+        payload = get_strategy_fit(
+            db=db,
+            report_date="2026-06-24",
+            rule_id="R007",
+            include_symbols=False,
+        )
+
+    assert payload["rules"][0]["overall"]["trade_count"] == 2
+    assert payload["rules"][0]["sectors"]
+    assert payload["rules"][0]["symbols"] == []
+
+
+def test_get_strategy_fit_can_limit_symbol_details_to_selected_symbol() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="603083",
+                    name="剑桥科技",
+                    exchange="SH",
+                    list_date=None,
+                    industry="通信设备",
+                    is_active=True,
+                ),
+                Security(
+                    symbol="600183",
+                    name="生益科技",
+                    exchange="SH",
+                    list_date=None,
+                    industry="PCB",
+                    is_active=True,
+                ),
+            ]
+        )
+        db.add_all(
+            [
+                _trade("R007", "603083", 1, "0.05"),
+                _trade("R007", "603083", 2, "-0.02"),
+                _trade("R007", "600183", 3, "0.04"),
+            ]
+        )
+        db.commit()
+
+        payload = get_strategy_fit(
+            db=db,
+            report_date="2026-06-24",
+            rule_id="R007",
+            symbol="603083",
+        )
+
+    assert [item["scope_value"] for item in payload["rules"][0]["symbols"]] == ["603083"]
+
+
 def test_get_strategy_fit_ignores_corrupt_learning_report_metrics() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

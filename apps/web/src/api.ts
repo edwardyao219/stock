@@ -1131,8 +1131,14 @@ export function fetchIntradayCandidateSnapshots(
   );
 }
 
-export function fetchStrategyFit() {
-  return request<StrategyFitReport>("/rules/strategy-fit?min_samples=1&per_scope_limit=20");
+export function fetchStrategyFit(symbol?: string | null) {
+  const params = new URLSearchParams({ min_samples: "1", per_scope_limit: "12" });
+  if (symbol) {
+    params.set("symbol", symbol);
+  } else {
+    params.set("include_symbols", "false");
+  }
+  return request<StrategyFitReport>(`/rules/strategy-fit?${params.toString()}`);
 }
 
 export function fetchLowDimensionalReplay() {

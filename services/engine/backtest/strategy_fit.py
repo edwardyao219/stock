@@ -356,6 +356,8 @@ def load_strategy_fit_report(
     rule_id: str | None = None,
     min_samples: int = 1,
     per_scope_limit: int = 20,
+    include_symbols: bool = True,
+    symbol: str | None = None,
 ) -> StrategyFitReport:
     parsed_date = date.fromisoformat(report_date) if report_date else _latest_backtest_run_date(db)
     if parsed_date is None:
@@ -380,12 +382,15 @@ def load_strategy_fit_report(
     overall: dict[str, list[BacktestTradeRecord]] = defaultdict(list)
     by_sector: dict[tuple[str, str], list[BacktestTradeRecord]] = defaultdict(list)
     by_symbol: dict[tuple[str, str], list[BacktestTradeRecord]] = defaultdict(list)
+    selected_symbol = symbol.strip() if symbol else None
+    should_include_symbols = include_symbols or selected_symbol is not None
     for trade in trades:
         sector = securities.get(trade.symbol).industry if securities.get(trade.symbol) else None
         sector = sector or "unknown"
         overall[trade.rule_id].append(trade)
         by_sector[(trade.rule_id, sector)].append(trade)
-        by_symbol[(trade.rule_id, trade.symbol)].append(trade)
+        if should_include_symbols and (selected_symbol is None or trade.symbol == selected_symbol):
+            by_symbol[(trade.rule_id, trade.symbol)].append(trade)
 
     rules = []
     for current_rule_id in sorted(overall):
