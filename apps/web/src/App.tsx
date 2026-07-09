@@ -77,6 +77,7 @@ import {
   manualTagTextForStock,
   styleLabelForValue,
 } from "./stockLabels";
+import { buildAutoRefreshPlan } from "./refreshPlan";
 
 const AUTO_REFRESH_MS = 15_000;
 
@@ -1339,6 +1340,11 @@ export function App() {
 
   function switchPage(page: PageKey) {
     setActivePage(page);
+    if (page === "sectors") {
+      loadSectorOverview();
+      loadSectorCatalysts();
+      loadDataHealth(marketOverview?.trade_date);
+    }
   }
 
   useEffect(() => {
@@ -1360,16 +1366,21 @@ export function App() {
   useEffect(() => {
     if (!autoRefresh) return undefined;
     const timer = window.setInterval(() => {
-      loadWorkspace({ refreshQuotes: true, silent: true });
-      loadMarketOverview();
-      loadIntradayCandidates();
-      loadSectorOverview();
-      loadSectorCatalysts();
-      loadDataHealth(marketOverview?.trade_date);
-      if (selectedSymbol) loadCandles(selectedSymbol);
+      const plan = buildAutoRefreshPlan({
+        activePage,
+        selectedSymbol,
+        isDocumentVisible: document.visibilityState !== "hidden",
+      });
+      if (plan.workspace) loadWorkspace({ refreshQuotes: true, silent: true });
+      if (plan.marketOverview) loadMarketOverview();
+      if (plan.intradayCandidates) loadIntradayCandidates();
+      if (plan.sectorOverview) loadSectorOverview();
+      if (plan.sectorCatalysts) loadSectorCatalysts();
+      if (plan.dataHealth) loadDataHealth(marketOverview?.trade_date);
+      if (plan.candles && selectedSymbol) loadCandles(selectedSymbol);
     }, AUTO_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [autoRefresh, selectedSymbol, includeGrowthBoard]);
+  }, [activePage, autoRefresh, selectedSymbol, includeGrowthBoard, marketOverview?.trade_date]);
 
   useEffect(() => {
     if (selected?.symbol) loadCandles(selected.symbol);
