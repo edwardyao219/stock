@@ -193,6 +193,29 @@ def test_celery_after_close_screening_runs_at_six_pm() -> None:
     assert schedule.minute == {0}
 
 
+def test_celery_daily_jobs_use_documented_wall_clock_times() -> None:
+    expected = {
+        "pre-market-check": ({8}, {30}),
+        "sync-daily-market-data": ({15}, {30}),
+        "compute-daily-features": ({16}, {30}),
+        "run-rule-regression": ({21}, {0}),
+        "generate-daily-review": ({22}, {30}),
+    }
+
+    for job_name, (hour, minute) in expected.items():
+        schedule = celery_app.conf.beat_schedule[job_name]["schedule"]
+        assert schedule.hour == hour
+        assert schedule.minute == minute
+
+
+def test_celery_does_not_auto_run_legacy_trade_plan_task() -> None:
+    assert "generate-trade-plans" not in celery_app.conf.beat_schedule
+
+
+def test_celery_beat_does_not_catch_up_stale_cron_tasks() -> None:
+    assert celery_app.conf.beat_cron_starting_deadline == 120
+
+
 def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) -> None:
     from datetime import datetime
 
@@ -215,6 +238,11 @@ def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) ->
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 30, 18, 0))
     monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-01")
     monkeypatch.setattr(tasks, "run_after_close_session", fake_run_after_close_session)
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_daily_task_lock",
+        lambda task_name, trade_date: (True, "stock:daily-task:after-close:2026-06-30"),
+    )
 
     result = tasks.run_after_close_session_task()
 
@@ -222,6 +250,31 @@ def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) ->
     assert captured["trade_date"] == "2026-06-30"
     assert captured["next_trade_date"] == "2026-07-01"
     assert captured["full_market_sync"] is True
+
+
+def test_after_close_task_skips_duplicate_daily_push(monkeypatch) -> None:
+    from datetime import datetime
+
+    calls = []
+
+    def fake_run_after_close_session(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("duplicate after-close push should not run")
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 30, 18, 0))
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-01")
+    monkeypatch.setattr(tasks, "run_after_close_session", fake_run_after_close_session)
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_daily_task_lock",
+        lambda task_name, trade_date: (False, "stock:daily-task:after-close:2026-06-30"),
+    )
+
+    result = tasks.run_after_close_session_task()
+
+    assert result["status"] == "skipped"
+    assert "already running" in result["message"]
+    assert calls == []
 
 
 def test_celery_intraday_schedule_matches_trading_windows() -> None:

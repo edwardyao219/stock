@@ -12,30 +12,27 @@ celery_app = Celery(
 )
 
 celery_app.conf.timezone = settings.timezone
+celery_app.conf.beat_cron_starting_deadline = 120
 celery_app.conf.beat_schedule = {
     "pre-market-check": {
         "task": "services.jobs.tasks.pre_market_check",
-        "schedule": 60 * 60 * 24,
+        "schedule": crontab(minute=30, hour=8),
     },
     "sync-daily-market-data": {
         "task": "services.jobs.tasks.sync_daily_market_data_task",
-        "schedule": 60 * 60 * 24,
+        "schedule": crontab(minute=30, hour=15),
     },
     "compute-daily-features": {
         "task": "services.jobs.tasks.compute_daily_features_task",
-        "schedule": 60 * 60 * 24,
-    },
-    "generate-trade-plans": {
-        "task": "services.jobs.tasks.generate_trade_plans_task",
-        "schedule": 60 * 60 * 24,
+        "schedule": crontab(minute=30, hour=16),
     },
     "run-rule-regression": {
         "task": "services.jobs.tasks.run_rule_regression_task",
-        "schedule": 60 * 60 * 24,
+        "schedule": crontab(minute=0, hour=21),
     },
     "generate-daily-review": {
         "task": "services.jobs.tasks.generate_daily_review_task",
-        "schedule": 60 * 60 * 24,
+        "schedule": crontab(minute=30, hour=22),
     },
     "paper-intraday-screening": {
         "task": "services.jobs.tasks.monitor_paper_positions_realtime_task",

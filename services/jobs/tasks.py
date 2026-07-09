@@ -19,6 +19,22 @@ from services.notifications.dispatcher import dispatch_monthly_trade_summary
 from services.shared.database import SessionLocal
 from services.shared.time import now_local
 
+_DAILY_TASK_LOCK_TTL_SECONDS = 6 * 60 * 60
+
+
+def _acquire_daily_task_lock(task_name: str, trade_date: date) -> tuple[bool, str]:
+    key = f"stock:daily-task:{task_name}:{trade_date.isoformat()}"
+    try:
+        acquired = celery_app.backend.client.set(
+            key,
+            "1",
+            ex=_DAILY_TASK_LOCK_TTL_SECONDS,
+            nx=True,
+        )
+    except Exception:
+        return True, key
+    return bool(acquired), key
+
 
 @celery_app.task(name="services.jobs.tasks.pre_market_check")
 def pre_market_check() -> dict[str, str]:
@@ -199,8 +215,17 @@ def send_monthly_trade_summary_task(month: str = "2026-06") -> dict[str, str]:
 
 
 @celery_app.task(name="services.jobs.tasks.run_after_close_session_task")
-def run_after_close_session_task() -> dict[str, object]:
+def run_after_close_session_task(force: bool = False) -> dict[str, object]:
     today = now_local().date()
+    if not force:
+        acquired, lock_key = _acquire_daily_task_lock("after-close", today)
+        if not acquired:
+            return {
+                "trade_date": today.isoformat(),
+                "status": "skipped",
+                "message": f"after-close task already running or sent for {today.isoformat()}",
+                "lock_key": lock_key,
+            }
     next_trade_date = resolve_next_trade_date(today.isoformat())
     return run_after_close_session(
         today.isoformat(),
