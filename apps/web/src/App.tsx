@@ -2374,11 +2374,21 @@ export function App() {
                       <span>近月策略线</span>
                       {visualMonthlyRows.map((row) => (
                         <div className={`replay-visual-month ${row.tone}`} key={row.month}>
-                          <strong>{row.month}</strong>
-                          <small>{row.postureLabel}</small>
-                          <em>{row.leaderLabel}</em>
-                          <div className="replay-visual-bar">
-                            <span style={{ width: `${replayBarWidth(row.leaderTotalReturn)}%` }} />
+                          <div className="replay-visual-month-head">
+                            <strong>{row.month}</strong>
+                            <small>{row.postureLabel}</small>
+                            <em>领先：{row.leaderLabel}</em>
+                          </div>
+                          <div className="replay-visual-month-lines">
+                            {row.lines.map((line) => (
+                              <div className={`replay-visual-month-line ${line.tone}`} key={`${row.month}-${line.scope}`}>
+                                <span>{line.label}</span>
+                                <strong>{pct(line.metric?.total_return)}</strong>
+                                <div className="replay-visual-bar">
+                                  <span style={{ width: `${replayBarWidth(line.metric?.total_return)}%` }} />
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       ))}
