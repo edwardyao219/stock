@@ -171,6 +171,40 @@ def _candidate_change_values(
     return values
 
 
+def _sector_matches(industry: str | None, sector_names: set[str]) -> bool:
+    text = str(industry or "").strip()
+    return any(name and (name == text or name in text or text in name) for name in sector_names)
+
+
+def _candidate_recap_hint(
+    *,
+    change_pct: float,
+    market_avg_change_pct: object,
+    up_ratio: object,
+    industry: str | None,
+    strong_sector_names: set[str],
+    weak_sector_names: set[str],
+) -> str:
+    parts: list[str] = []
+    delta: float | None = None
+    if market_avg_change_pct is not None:
+        delta = change_pct - float(market_avg_change_pct)
+        if delta >= 0:
+            parts.append(f"跑赢市场 {delta * 100:.2f} 个百分点")
+        else:
+            parts.append(f"跑输市场 {abs(delta) * 100:.2f} 个百分点")
+    if _sector_matches(industry, strong_sector_names):
+        parts.append("处在当日相对强板块")
+    elif _sector_matches(industry, weak_sector_names):
+        parts.append("处在当日承压板块")
+    if up_ratio is not None and float(up_ratio) <= 0.18:
+        if delta is not None and delta >= 0:
+            parts.append("极端宽度日先记为抗跌样本，次日仍看承接")
+        else:
+            parts.append("极端宽度日先控制仓位，等市场宽度修复")
+    return "；".join(parts)
+
+
 def _candidate_divergence_lines(
     *,
     market_summary: dict[str, object],
@@ -533,6 +567,16 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                 retired_count = sum(
                     1 for item in candidate_items if item.get("status") == "retired"
                 )
+                strong_sector_names = {
+                    str(item.get("sector") or "").strip()
+                    for item in strong_sectors
+                    if str(item.get("sector") or "").strip()
+                }
+                weak_sector_names = {
+                    str(item.get("sector") or "").strip()
+                    for item in weak_sectors
+                    if str(item.get("sector") or "").strip()
+                }
                 lines.append(
                     f"- 昨日候选 {len(candidate_items)} 只，活跃 {active_count} 只，"
                     f"已退休 {retired_count} 只"
@@ -570,6 +614,17 @@ def generate_daily_mechanical_review(report_date: str) -> MechanicalReview:
                         f"L{float(bar.low):.2f} C{float(bar.close):.2f}，"
                         f"成交额 {_amount(bar.amount)}，状态 {status}"
                     )
+                    if change_pct is not None:
+                        recap_hint = _candidate_recap_hint(
+                            change_pct=change_pct,
+                            market_avg_change_pct=market_summary.get("avg_change_pct"),
+                            up_ratio=market_summary.get("up_ratio"),
+                            industry=industry,
+                            strong_sector_names=strong_sector_names,
+                            weak_sector_names=weak_sector_names,
+                        )
+                        if recap_hint:
+                            lines.append(f"  - 复盘判断: {recap_hint}")
                     note = _short_text(item.get("note"))
                     if note:
                         lines.append(f"  - 备注: {note}")

@@ -236,6 +236,7 @@ def test_generate_daily_mechanical_review_focuses_on_market_and_candidate_recap(
     assert "弱情绪阶段只保留少量长期主线" in review.content_md
     assert "候选池提示: 没有核心行动：大盘压力大，停止扩散，只做观察和风控。" in review.content_md
     assert "K线 O10.00 H10.50 L9.80 C10.20" in review.content_md
+    assert "复盘判断: 跑赢市场 1.00 个百分点" in review.content_md
     assert "## 明日候选计划" not in review.content_md
 
 
@@ -283,3 +284,19 @@ def test_candidate_divergence_describes_relative_strength_in_weak_market() -> No
     assert "弱市里相对抗跌先看 半导体、银行" in text
     assert "不等于主线确认" in text
     assert "主线先看 半导体、银行" not in text
+
+
+def test_candidate_recap_hint_explains_resilience_in_extreme_market() -> None:
+    hint = review_mechanical._candidate_recap_hint(
+        change_pct=-0.005,
+        market_avg_change_pct=-0.0263,
+        up_ratio=0.1256,
+        industry="半导体",
+        strong_sector_names={"半导体", "银行"},
+        weak_sector_names={"黄金"},
+    )
+
+    assert "跑赢市场 2.13 个百分点" in hint
+    assert "处在当日相对强板块" in hint
+    assert "极端宽度日先记为抗跌样本" in hint
+    assert "次日仍看承接" in hint
