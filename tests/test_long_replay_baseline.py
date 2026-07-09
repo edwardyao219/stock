@@ -8,6 +8,7 @@ from services.engine.backtest.run_long_replay_baseline import (
     format_ranked_replay_market_state_gate_simulation,
     format_ranked_replay_market_state_gate_validation,
     format_ranked_replay_market_state_returns,
+    format_ranked_replay_market_state_scope_matrix,
     format_ranked_replay_months,
     format_replay_loss_diagnostics,
     rank_replay_baselines,
@@ -16,6 +17,7 @@ from services.engine.backtest.run_long_replay_baseline import (
     simulate_ranked_replay_market_state_gates,
     summarize_market_context_by_month,
     summarize_ranked_replay_market_state_returns,
+    summarize_ranked_replay_market_state_scope_matrix,
     summarize_replay_baseline,
     validate_ranked_replay_fixed_market_state_gates,
     validate_ranked_replay_market_state_gates,
@@ -678,6 +680,113 @@ def test_format_ranked_replay_market_state_returns_uses_chinese_table() -> None:
     assert "行情状态收益拆解 Top 1" in text
     assert "action/drawdown15" in text
     assert "risk_on | 2 | 2.00% | 1.00% | 50.00% | 2024-02 -1.00%" in text
+
+
+def test_summarize_ranked_replay_market_state_scope_matrix_compares_lines() -> None:
+    matrix = summarize_ranked_replay_market_state_scope_matrix(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "candidate_returns": [
+                    {"signal_date": "2024-06-03", "month": "2024-06", "return": 0.05},
+                    {"signal_date": "2024-07-03", "month": "2024-07", "return": -0.03},
+                ],
+            },
+            {
+                "candidate_scope": "sector_watch",
+                "guard_preset": "drawdown15",
+                "candidate_returns": [
+                    {"signal_date": "2024-06-03", "month": "2024-06", "return": 0.02},
+                    {"signal_date": "2024-06-04", "month": "2024-06", "return": 0.04},
+                    {"signal_date": "2024-07-03", "month": "2024-07", "return": 0.01},
+                ],
+            },
+        ],
+        {
+            "2024-06-03": {"market_state": "risk_on"},
+            "2024-06-04": {"market_state": "risk_on"},
+            "2024-07-03": {"market_state": "risk_off"},
+        },
+    )
+
+    assert matrix == [
+        {
+            "market_state": "risk_on",
+            "rows": [
+                {
+                    "candidate_scope": "action",
+                    "guard_preset": "drawdown15",
+                    "candidate_count": 1,
+                    "month_count": 1,
+                    "total_return": 0.05,
+                    "max_drawdown": 0.0,
+                },
+                {
+                    "candidate_scope": "sector_watch",
+                    "guard_preset": "drawdown15",
+                    "candidate_count": 2,
+                    "month_count": 1,
+                    "total_return": 0.03,
+                    "max_drawdown": 0.0,
+                },
+            ],
+        },
+        {
+            "market_state": "risk_off",
+            "rows": [
+                {
+                    "candidate_scope": "sector_watch",
+                    "guard_preset": "drawdown15",
+                    "candidate_count": 1,
+                    "month_count": 1,
+                    "total_return": 0.01,
+                    "max_drawdown": 0.0,
+                },
+                {
+                    "candidate_scope": "action",
+                    "guard_preset": "drawdown15",
+                    "candidate_count": 1,
+                    "month_count": 1,
+                    "total_return": -0.03,
+                    "max_drawdown": -0.03,
+                },
+            ],
+        },
+    ]
+
+
+def test_format_ranked_replay_market_state_scope_matrix_uses_chinese_table() -> None:
+    text = format_ranked_replay_market_state_scope_matrix(
+        [
+            {
+                "candidate_scope": "action",
+                "guard_preset": "drawdown15",
+                "candidate_returns": [
+                    {"signal_date": "2024-06-03", "month": "2024-06", "return": 0.05},
+                    {"signal_date": "2024-07-03", "month": "2024-07", "return": -0.03},
+                ],
+            },
+            {
+                "candidate_scope": "sector_watch",
+                "guard_preset": "drawdown15",
+                "candidate_returns": [
+                    {"signal_date": "2024-06-03", "month": "2024-06", "return": 0.02},
+                    {"signal_date": "2024-07-03", "month": "2024-07", "return": 0.01},
+                ],
+            },
+        ],
+        {
+            "2024-06-03": {"market_state": "risk_on"},
+            "2024-07-03": {"market_state": "risk_off"},
+        },
+        top_n=2,
+    )
+
+    assert "行情状态候选线对比 Top 2" in text
+    assert "状态 | 范围/预设 | 总收益 | 最大回撤 | 候选 | 月份" in text
+    assert "risk_on | action/drawdown15 | 5.00% | 0.00% | 1 | 1" in text
+    assert "risk_off | sector_watch/drawdown15 | 1.00% | 0.00% | 1 | 1" in text
 
 
 def test_simulate_ranked_replay_market_state_gates_rebuilds_month_returns() -> None:

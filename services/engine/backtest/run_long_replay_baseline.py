@@ -49,6 +49,7 @@ MARKET_STATE_GATE_PRESETS: tuple[tuple[str, set[str] | None], ...] = (
     ("risk_on+neutral", {"risk_on", "neutral"}),
     ("仅risk_on", {"risk_on"}),
 )
+MARKET_STATE_ORDER = {"risk_on": 0, "neutral": 1, "risk_off": 2, "缺数据": 3}
 
 
 def resolve_guard_parameters(
@@ -563,7 +564,6 @@ def summarize_ranked_replay_market_state_returns(
     rows: list[dict[str, Any]],
     market_context_by_month: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    state_order = {"risk_on": 0, "neutral": 1, "risk_off": 2, "缺数据": 3}
     summaries: list[dict[str, Any]] = []
     for item in rows:
         month_state_values: dict[tuple[str, str], list[float]] = defaultdict(list)
@@ -600,7 +600,10 @@ def summarize_ranked_replay_market_state_returns(
             )
 
         states: list[dict[str, Any]] = []
-        for state, months in sorted(grouped.items(), key=lambda pair: state_order.get(pair[0], 99)):
+        for state, months in sorted(
+            grouped.items(),
+            key=lambda pair: MARKET_STATE_ORDER.get(pair[0], 99),
+        ):
             returns = [float(month.get("month_return") or 0.0) for month in months]
             worst = min(months, key=lambda month: float(month.get("month_return") or 0.0))
             states.append(
@@ -622,6 +625,58 @@ def summarize_ranked_replay_market_state_returns(
             }
         )
     return summaries
+
+
+def summarize_ranked_replay_market_state_scope_matrix(
+    rows: list[dict[str, Any]],
+    market_context_by_period: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in rows:
+        candidate_returns = list(item.get("candidate_returns") or [])
+        states = sorted(
+            {
+                _candidate_market_state(candidate_return, market_context_by_period)
+                for candidate_return in candidate_returns
+            },
+            key=lambda state: MARKET_STATE_ORDER.get(state, 99),
+        )
+        for state in states:
+            filtered = [
+                candidate_return
+                for candidate_return in candidate_returns
+                if _candidate_market_state(candidate_return, market_context_by_period) == state
+            ]
+            if not filtered:
+                continue
+            summary = _summarize_candidate_return_rows(filtered)
+            grouped[state].append(
+                {
+                    "candidate_scope": item["candidate_scope"],
+                    "guard_preset": item["guard_preset"],
+                    **summary,
+                }
+            )
+
+    matrix: list[dict[str, Any]] = []
+    for state, state_rows in sorted(
+        grouped.items(),
+        key=lambda pair: MARKET_STATE_ORDER.get(pair[0], 99),
+    ):
+        matrix.append(
+            {
+                "market_state": state,
+                "rows": sorted(
+                    state_rows,
+                    key=lambda row: (
+                        -float(row["total_return"]),
+                        -float(row["max_drawdown"]),
+                        str(row["candidate_scope"]),
+                    ),
+                ),
+            }
+        )
+    return matrix
 
 
 def _candidate_market_state(
@@ -1046,6 +1101,36 @@ def format_ranked_replay_market_state_returns(
     return "\n".join(lines)
 
 
+def format_ranked_replay_market_state_scope_matrix(
+    rows: list[dict[str, Any]],
+    market_context_by_period: dict[str, dict[str, Any]],
+    *,
+    top_n: int,
+) -> str:
+    lines = [
+        f"行情状态候选线对比 Top {top_n}",
+        "状态 | 范围/预设 | 总收益 | 最大回撤 | 候选 | 月份",
+    ]
+    for state_group in summarize_ranked_replay_market_state_scope_matrix(
+        rows[: max(0, top_n)],
+        market_context_by_period,
+    ):
+        for row in state_group["rows"]:
+            lines.append(
+                " | ".join(
+                    [
+                        str(state_group["market_state"]),
+                        f"{row['candidate_scope']}/{row['guard_preset']}",
+                        _pct(float(row["total_return"])),
+                        _pct(float(row["max_drawdown"])),
+                        str(row["candidate_count"]),
+                        str(row["month_count"]),
+                    ]
+                )
+            )
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run long walk-forward baseline.")
     parser.add_argument("--start-date", required=True, help="YYYY-MM-DD")
@@ -1135,6 +1220,14 @@ def main() -> None:
             print()
             print(
                 format_ranked_replay_market_state_returns(
+                    ranked,
+                    market_context_by_signal_date,
+                    top_n=args.rank_months_top,
+                )
+            )
+            print()
+            print(
+                format_ranked_replay_market_state_scope_matrix(
                     ranked,
                     market_context_by_signal_date,
                     top_n=args.rank_months_top,
