@@ -788,6 +788,12 @@ function reviewSectorLine(item: Record<string, unknown>) {
   return `${name} / 均涨 ${pct(avg)} / 上涨 ${ratioPct(upRatio)} / 资金 ${fundFlowRateText(flow)}`;
 }
 
+function reviewSectorBarWidth(item: Record<string, unknown>) {
+  const avg = objectNumber(item, ["avg_change_pct"]);
+  if (avg === null) return 0;
+  return Math.min(100, Math.max(10, Math.abs(avg) * 1800));
+}
+
 function factorInsightLabel(item: Record<string, unknown>) {
   const name = objectText(item, ["factor_name", "factor_id", "name"]);
   const avgReturn = objectNumber(item, ["avg_return", "return", "avg_pnl"]);
@@ -2013,49 +2019,96 @@ export function App() {
                 ) : null}
                 {mechanicalReview?.found ? (
                   <>
-                    <div className="post-close-review-grid">
-                      <div className={`post-close-review-card ${reviewBreadthTone(reviewUpRatio)}`}>
-                        <span>盘面宽度</span>
-                        <strong>
-                          {objectNumber(reviewDisplayMarketSummary, ["up_count"]) ?? "-"}涨{" "}
-                          {objectNumber(reviewDisplayMarketSummary, ["down_count"]) ?? "-"}跌
-                        </strong>
-                        <small>上涨占比 {pct(reviewUpRatio)} / 均值 {pct(objectNumber(reviewDisplayMarketSummary, ["avg_change_pct"]))}</small>
-                      </div>
-                      <div className={`post-close-review-card ${(reviewAmountChange ?? 0) >= 0 ? "up" : "down"}`}>
-                        <span>成交变化</span>
-                        <strong>{pct(reviewAmountChange)}</strong>
-                        <small>成交额 {amountText(objectNumber(reviewDisplayMarketSummary, ["total_amount"]))}</small>
-                      </div>
-                      <div className={`post-close-review-card ${reviewHealthTone(reviewHealthStatus)}`}>
-                        <span>数据健康</span>
-                        <strong>{reviewHealthLabel(reviewHealthStatus)}</strong>
-                        <small>
-                          日线 {objectNumber(reviewDataHealth ?? {}, ["daily_bar_count"]) ?? "-"} / 特征{" "}
-                          {objectNumber(reviewDataHealth ?? {}, ["feature_count"]) ?? "-"}
-                        </small>
-                      </div>
-                      <div className={`post-close-review-card ${(objectNumber(reviewIndexes[0] ?? {}, ["change_pct"]) ?? 0) >= 0 ? "up" : "down"}`}>
-                        <span>指数状态</span>
-                        <strong>
-                          {objectText(reviewIndexes[0] ?? {}, ["name"])} {pct(objectNumber(reviewIndexes[0] ?? {}, ["change_pct"]))}
-                        </strong>
-                        <small>{objectText(reviewIndexes[0] ?? {}, ["trade_date"])}</small>
-                      </div>
-                      <div className="post-close-review-card wide up">
-                        <span>相对强势</span>
-                        {reviewStrongSectors.slice(0, 2).map((item) => (
-                          <small key={`strong-${objectText(item, ["sector"])}`}>{reviewSectorLine(item)}</small>
-                        ))}
-                        {!reviewStrongSectors.length ? <small>暂无强势板块样本</small> : null}
-                      </div>
-                      <div className="post-close-review-card wide down">
-                        <span>主要承压</span>
-                        {reviewWeakSectors.slice(0, 2).map((item) => (
-                          <small key={`weak-${objectText(item, ["sector"])}`}>{reviewSectorLine(item)}</small>
-                        ))}
-                        {!reviewWeakSectors.length ? <small>暂无承压板块样本</small> : null}
-                      </div>
+                    <div className="post-close-review-board">
+                      <section className="post-close-review-column market">
+                        <div className="post-close-review-column-head">
+                          <span>大盘</span>
+                          <strong className={reviewBreadthTone(reviewUpRatio)}>
+                            {objectNumber(reviewDisplayMarketSummary, ["up_count"]) ?? "-"}涨{" "}
+                            {objectNumber(reviewDisplayMarketSummary, ["down_count"]) ?? "-"}跌
+                          </strong>
+                        </div>
+                        <div className="post-close-review-meter">
+                          <span style={{ width: `${Math.max(3, (reviewUpRatio ?? 0) * 100)}%` }} />
+                        </div>
+                        <div className="post-close-review-facts">
+                          <span>上涨占比 {ratioPct(reviewUpRatio)}</span>
+                          <span>平均涨跌 {pct(objectNumber(reviewDisplayMarketSummary, ["avg_change_pct"]))}</span>
+                          <span>成交变化 {pct(reviewAmountChange)}</span>
+                          <span>成交额 {amountText(objectNumber(reviewDisplayMarketSummary, ["total_amount"]))}</span>
+                        </div>
+                        <div className="post-close-review-index">
+                          <b>{objectText(reviewIndexes[0] ?? {}, ["name"])}</b>
+                          <strong className={(objectNumber(reviewIndexes[0] ?? {}, ["change_pct"]) ?? 0) >= 0 ? "up" : "down"}>
+                            {pct(objectNumber(reviewIndexes[0] ?? {}, ["change_pct"]))}
+                          </strong>
+                          <small>{objectText(reviewIndexes[0] ?? {}, ["trade_date"])}</small>
+                        </div>
+                      </section>
+
+                      <section className="post-close-review-column sectors">
+                        <div className="post-close-review-column-head">
+                          <span>板块</span>
+                          <strong>强弱分层</strong>
+                        </div>
+                        <div className="post-close-sector-bars">
+                          {reviewStrongSectors.slice(0, 3).map((item) => (
+                            <div className="post-close-sector-bar up" key={`strong-${objectText(item, ["sector"])}`}>
+                              <div>
+                                <b>{objectText(item, ["sector", "sector_name"])}</b>
+                                <small>均涨 {pct(objectNumber(item, ["avg_change_pct"]))} / 上涨 {ratioPct(objectNumber(item, ["up_ratio"]))}</small>
+                              </div>
+                              <span><i style={{ width: `${reviewSectorBarWidth(item)}%` }} /></span>
+                            </div>
+                          ))}
+                          {reviewWeakSectors.slice(0, 3).map((item) => (
+                            <div className="post-close-sector-bar down" key={`weak-${objectText(item, ["sector"])}`}>
+                              <div>
+                                <b>{objectText(item, ["sector", "sector_name"])}</b>
+                                <small>均涨 {pct(objectNumber(item, ["avg_change_pct"]))} / 上涨 {ratioPct(objectNumber(item, ["up_ratio"]))}</small>
+                              </div>
+                              <span><i style={{ width: `${reviewSectorBarWidth(item)}%` }} /></span>
+                            </div>
+                          ))}
+                          {!reviewStrongSectors.length && !reviewWeakSectors.length ? (
+                            <div className="post-close-review-empty">暂无板块强弱样本</div>
+                          ) : null}
+                        </div>
+                      </section>
+
+                      <section className="post-close-review-column candidates">
+                        <div className="post-close-review-column-head">
+                          <span>候选</span>
+                          <strong>{candidateCount} 只</strong>
+                        </div>
+                        <div className="post-close-candidate-grid">
+                          <div>
+                            <span>今日可买</span>
+                            <strong>{tradableCount}</strong>
+                          </div>
+                          <div>
+                            <span>当前持仓</span>
+                            <strong>{openTradeCount}</strong>
+                          </div>
+                          <div>
+                            <span>6点候选</span>
+                            <strong>{afterCloseStatus?.candidate_count ?? "-"}</strong>
+                          </div>
+                          <div>
+                            <span>交易计划</span>
+                            <strong>{afterCloseStatus?.plan_count ?? "-"}</strong>
+                          </div>
+                        </div>
+                        <div className={`post-close-review-card ${reviewHealthTone(reviewHealthStatus)}`}>
+                          <span>数据健康</span>
+                          <strong>{reviewHealthLabel(reviewHealthStatus)}</strong>
+                          <small>
+                            日线 {objectNumber(reviewDataHealth ?? {}, ["daily_bar_count"]) ?? "-"} / 特征{" "}
+                            {objectNumber(reviewDataHealth ?? {}, ["feature_count"]) ?? "-"}
+                          </small>
+                        </div>
+                        <p>{uiText(afterCloseStatus?.market_summary ?? "盘后总结未记录市场结论")}</p>
+                      </section>
                     </div>
                     {mechanicalReview.content_md ? (
                       <details className="post-close-review-details">

@@ -21,3 +21,8 @@ assert(!panelMarkup.includes("after-close-push-status"), "6点推送明细不能
 assert(/body\s*\{[^}]*overflow:\s*auto/s.test(styles), "页面需要允许纵向滚动，避免工作区被顶部模块压扁");
 assert(/\.app-shell\s*\{[^}]*height:\s*auto/s.test(styles), "桌面外壳不能固定 100vh 后隐藏主工作区");
 assert(/\.workspace-layout\s*\{[^}]*min-height:\s*min\(520px,\s*calc\(100vh - 180px\)\)/s.test(styles), "股票工作区需要保留可用高度");
+assert(app.includes('className="post-close-review-board"'), "收盘复盘抽屉需要三段式看板");
+assert(app.includes('className="post-close-review-column market"'), "看板需要大盘段");
+assert(app.includes('className="post-close-review-column sectors"'), "看板需要板块段");
+assert(app.includes('className="post-close-review-column candidates"'), "看板需要候选段");
+assert(styles.includes(".post-close-sector-bar"), "板块强弱需要条形表达，减少文字墙");
