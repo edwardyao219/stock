@@ -1,6 +1,6 @@
 // @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
-import { buildStockTrackingProfile, sortStockTrackingProfiles } from "./stockTracking.ts";
-import type { WorkspaceStock } from "./api.ts";
+import { buildCandleTrendPath, buildStockTrackingProfile, sortStockTrackingProfiles } from "./stockTracking.ts";
+import type { Candle, WorkspaceStock } from "./api.ts";
 
 function assert(condition: boolean, message: string) {
   if (!condition) throw new Error(message);
@@ -133,3 +133,41 @@ const sorted = sortStockTrackingProfiles([
 
 assert(sorted[0].symbol === "002558", "排序应优先展示值得中长期持续追踪的票");
 assert(sorted[2].symbol === "300999", "风险复核票应排到后面");
+
+function candle(index: number, close: number, amount = 1000): Candle {
+  return {
+    time: `2026-06-${String(index + 1).padStart(2, "0")}`,
+    open: close * 0.99,
+    high: close * 1.02,
+    low: close * 0.98,
+    close,
+    volume: amount / close,
+    amount,
+    ma5: close * 0.99,
+    ma10: close * 0.97,
+    ma20: close * 0.94,
+    ma60: null,
+  };
+}
+
+const trendCandles = Array.from({ length: 24 }, (_, index) => candle(index, 10 + index * 0.12, 1000 + index * 20));
+const trendPath = buildCandleTrendPath(trendCandles);
+
+assert(trendPath.verdictLabel === "趋势延续", "中长期强趋势要识别为趋势延续");
+assert(trendPath.metrics.some((item) => item.label === "20日收益"), "趋势路径需要展示20日收益");
+assert(trendPath.points.some((item) => item.includes("20日线上方")), "趋势路径要说明是否守住20日线");
+assert(trendPath.points.some((item) => item.includes("量能")), "趋势路径要包含量能承接");
+
+const weakCandles = trendCandles.map((item, index) => ({
+  ...item,
+  close: index < 18 ? item.close : 12.5 - (index - 17) * 0.45,
+  high: index < 18 ? item.high : 12.7 - (index - 17) * 0.35,
+  low: index < 18 ? item.low : 12.1 - (index - 17) * 0.5,
+  ma20: 11.9,
+  amount: index >= 18 ? 1800 : item.amount,
+}));
+const weakPath = buildCandleTrendPath(weakCandles);
+
+assert(weakPath.verdictLabel === "趋势转弱", "跌破20日线且回撤扩大时要识别为趋势转弱");
+assert(weakPath.risks.some((item) => item.includes("20日线")), "趋势转弱要提示20日线风险");
+assert(weakPath.risks.some((item) => item.includes("回撤")), "趋势转弱要提示回撤风险");

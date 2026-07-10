@@ -1,4 +1,4 @@
-import type { WorkspaceStock } from "./api";
+import type { Candle, WorkspaceStock } from "./api";
 
 export type TrackingStage =
   | "trend_holding"
@@ -33,6 +33,20 @@ export interface StockTrackingProfile {
   risks: string[];
   metrics: TrackingMetric[];
   timeline: TrackingTimelineItem[];
+}
+
+export interface CandleTrendMetric {
+  label: string;
+  value: string;
+  tone: "good" | "warn" | "bad" | "neutral";
+}
+
+export interface CandleTrendPath {
+  verdictLabel: "趋势延续" | "回踩承接" | "趋势转弱" | "样本不足";
+  tone: "good" | "warn" | "bad" | "neutral";
+  metrics: CandleTrendMetric[];
+  points: string[];
+  risks: string[];
 }
 
 const stageLabels: Record<TrackingStage, string> = {
@@ -88,6 +102,39 @@ function average(values: Array<number | null | undefined>) {
   );
   if (!usable.length) return null;
   return usable.reduce((total, item) => total + item, 0) / usable.length;
+}
+
+function numberAverage(values: number[]) {
+  if (!values.length) return null;
+  return values.reduce((total, item) => total + item, 0) / values.length;
+}
+
+function closeReturn(candles: Candle[], days: number) {
+  if (candles.length <= days) return null;
+  const latest = candles[candles.length - 1];
+  const base = candles[candles.length - 1 - days];
+  if (!latest || !base || base.close <= 0) return null;
+  return latest.close / base.close - 1;
+}
+
+function recentHighDrawdown(candles: Candle[], windowSize: number) {
+  const latest = candles[candles.length - 1];
+  if (!latest) return null;
+  const window = candles.slice(-windowSize);
+  const high = Math.max(...window.map((item) => item.high));
+  if (!Number.isFinite(high) || high <= 0) return null;
+  return latest.close / high - 1;
+}
+
+function recentAmountRatio(candles: Candle[]) {
+  const amounts = candles
+    .map((item) => item.amount)
+    .filter((item): item is number => item !== null && item !== undefined && item > 0);
+  if (amounts.length < 6) return null;
+  const recent = numberAverage(amounts.slice(-5));
+  const baseline = numberAverage(amounts.slice(-20));
+  if (recent === null || baseline === null || baseline <= 0) return null;
+  return recent / baseline;
 }
 
 function primaryTrade(stock: WorkspaceStock) {
@@ -317,4 +364,81 @@ export function sortStockTrackingProfiles(profiles: StockTrackingProfile[]) {
     if (stageDelta) return stageDelta;
     return right.score - left.score || left.symbol.localeCompare(right.symbol);
   });
+}
+
+export function buildCandleTrendPath(candles: Candle[]): CandleTrendPath {
+  const latest = candles[candles.length - 1] ?? null;
+  if (!latest || candles.length < 8) {
+    return {
+      verdictLabel: "样本不足",
+      tone: "neutral",
+      metrics: [],
+      points: ["K线样本不足，先看当前候选和板块证据。"],
+      risks: ["缺少足够历史K线，不能判断中长期路径。"],
+    };
+  }
+
+  const ret5 = closeReturn(candles, 5);
+  const ret10 = closeReturn(candles, 10);
+  const ret20 = closeReturn(candles, 20);
+  const drawdown20 = recentHighDrawdown(candles, Math.min(20, candles.length));
+  const amountRatio = recentAmountRatio(candles);
+  const ma20Distance = latest.ma20 && latest.ma20 > 0 ? latest.close / latest.ma20 - 1 : null;
+  const aboveMa20 = ma20Distance === null ? null : ma20Distance >= 0;
+  const ma20Slope =
+    candles.length > 5 && latest.ma20 && candles[candles.length - 6]?.ma20
+      ? latest.ma20 / (candles[candles.length - 6].ma20 as number) - 1
+      : null;
+
+  const weak =
+    aboveMa20 === false &&
+    ((drawdown20 !== null && drawdown20 <= -0.1) || (ret10 !== null && ret10 < -0.04));
+  const strong =
+    aboveMa20 !== false &&
+    (ret20 ?? ret10 ?? 0) >= 0.08 &&
+    (drawdown20 === null || drawdown20 > -0.08);
+  const pullback =
+    aboveMa20 !== false &&
+    (drawdown20 !== null && drawdown20 <= -0.04) &&
+    (ret20 ?? 0) >= 0.03;
+  const verdictLabel = weak ? "趋势转弱" : strong ? "趋势延续" : pullback ? "回踩承接" : "回踩承接";
+  const tone = weak ? "bad" : strong ? "good" : "warn";
+
+  const points = [
+    aboveMa20 === null
+      ? "20日线数据不足，先看价格路径。"
+      : aboveMa20
+        ? `收盘在20日线上方 ${pct(ma20Distance)}，趋势底线暂时还在。`
+        : `收盘跌破20日线 ${pct(ma20Distance)}，趋势需要复核。`,
+    ma20Slope === null
+      ? "20日线斜率样本不足。"
+      : ma20Slope >= 0
+        ? `20日线仍向上 ${pct(ma20Slope)}，中期结构未坏。`
+        : `20日线转弱 ${pct(ma20Slope)}，不能只按普通回调看。`,
+    amountRatio === null
+      ? "量能样本不足，暂不判断承接。"
+      : amountRatio >= 1.12
+        ? `量能放大 ${amountRatio.toFixed(2)}倍，若价格站稳可视为承接。`
+        : `量能 ${amountRatio.toFixed(2)}倍，承接还不算强。`,
+  ];
+
+  const risks = [
+    aboveMa20 === false ? "跌破20日线，趋势持有需要降级观察。" : null,
+    drawdown20 !== null && drawdown20 <= -0.1 ? `近20日高点回撤 ${pct(drawdown20)}，回撤已经偏深。` : null,
+    ret20 !== null && ret20 >= 0.3 ? `20日收益 ${pct(ret20)}，主升后追高风险升高。` : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    verdictLabel,
+    tone,
+    metrics: [
+      { label: "5日收益", value: pct(ret5), tone: (ret5 ?? 0) >= 0 ? "good" : "bad" },
+      { label: "10日收益", value: pct(ret10), tone: (ret10 ?? 0) >= 0 ? "good" : "bad" },
+      { label: "20日收益", value: pct(ret20), tone: (ret20 ?? 0) >= 0 ? "good" : "bad" },
+      { label: "高点回撤", value: pct(drawdown20), tone: (drawdown20 ?? 0) <= -0.1 ? "bad" : "neutral" },
+      { label: "5日量能", value: amountRatio === null ? "-" : `${amountRatio.toFixed(2)}倍`, tone: (amountRatio ?? 1) >= 1.12 ? "good" : "neutral" },
+    ],
+    points,
+    risks: risks.length ? risks : ["暂未看到K线层面的硬风险，继续看板块和量能是否延续。"],
+  };
 }

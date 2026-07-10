@@ -87,6 +87,7 @@ import {
   styleLabelForValue,
 } from "./stockLabels";
 import {
+  buildCandleTrendPath,
   buildStockTrackingProfile,
   sortStockTrackingProfiles,
   StockTrackingProfile,
@@ -1240,6 +1241,7 @@ export function App() {
       null,
     [selectedSymbol, trackingProfiles],
   );
+  const selectedCandleTrendPath = useMemo(() => buildCandleTrendPath(candles), [candles]);
 
   const selectedIndustry = selected?.industry ?? null;
   const selectedSymbolValue = selected?.symbol ?? null;
@@ -2697,11 +2699,11 @@ export function App() {
                 <span>阶段</span>
                 <span>追踪分</span>
               </div>
-              {loading ? <div className="empty">加载中</div> : null}
+              {loading && !trackingProfiles.length ? <div className="empty">加载中</div> : null}
               {!loading && !trackingProfiles.length ? (
                 <div className="empty">暂无可追踪股票</div>
               ) : null}
-              {!loading ? trackingProfiles.map(renderTrackingRow) : null}
+              {trackingProfiles.map(renderTrackingRow)}
             </div>
 
             <aside className="tracking-detail">
@@ -2726,6 +2728,37 @@ export function App() {
                       </div>
                     ))}
                   </div>
+
+                  <section className={`tracking-candle-path ${selectedCandleTrendPath.tone}`}>
+                    <div className="section-title">
+                      <ClipboardList size={16} />
+                      <h3>K线趋势路径</h3>
+                    </div>
+                    <div className="tracking-candle-path-head">
+                      <strong>{selectedCandleTrendPath.verdictLabel}</strong>
+                      <span>{candles.length ? `${candles.length} 根K线` : "暂无K线"}</span>
+                    </div>
+                    <div className="tracking-candle-metrics">
+                      {selectedCandleTrendPath.metrics.map((metric) => (
+                        <span className={metric.tone} key={metric.label}>
+                          <b>{metric.label}</b>
+                          {metric.value}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="tracking-candle-path-body">
+                      <ul>
+                        {selectedCandleTrendPath.points.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                      <ul>
+                        {selectedCandleTrendPath.risks.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </section>
 
                   <div className="tracking-two-column">
                     <section>
