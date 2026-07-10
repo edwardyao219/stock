@@ -106,12 +106,13 @@ const strategyLabels: Record<string, string> = {
 
 const pageItems = [
   { key: "stocks", label: "股票" },
+  { key: "paper", label: "实盘模拟" },
   { key: "sectors", label: "板块" },
 ] as const;
 
 type PageKey = (typeof pageItems)[number]["key"];
 type PaperTrade = WorkspaceStock["recent_paper_trades"][number];
-type StockView = "focus" | "tradable" | "holding" | "candidate" | "manual";
+type StockView = "focus" | "tradable" | "candidate" | "manual";
 type StockSortMode = "priority" | "day_return";
 
 type ReviewSummaryItem = {
@@ -123,7 +124,6 @@ type ReviewSummaryItem = {
 const stockViewLabels: Record<StockView, string> = {
   focus: "重点",
   tradable: "可买",
-  holding: "持仓",
   candidate: "明日候选",
   manual: "手动关注",
 };
@@ -131,7 +131,6 @@ const stockViewLabels: Record<StockView, string> = {
 const stockViewTestIds: Record<StockView, string> = {
   focus: "stock-view-focus",
   tradable: "stock-view-tradable",
-  holding: "stock-view-holding",
   candidate: "stock-view-candidate",
   manual: "stock-view-manual",
 };
@@ -297,7 +296,7 @@ function isGrowthBoardStock(stock: WorkspaceStock) {
 }
 
 function isFocusStock(stock: WorkspaceStock) {
-  return hasTradablePlan(stock) || hasOpenAutoTrade(stock) || isNextSessionCandidate(stock);
+  return hasTradablePlan(stock) || isNextSessionCandidate(stock);
 }
 
 function stockSourceLabel(stock: WorkspaceStock) {
@@ -306,7 +305,6 @@ function stockSourceLabel(stock: WorkspaceStock) {
 }
 
 function stockActionLabel(stock: WorkspaceStock) {
-  if (hasOpenAutoTrade(stock)) return "持仓";
   if (hasTradablePlan(stock)) return "可买";
   if (isNextSessionCandidate(stock)) return "明日观察";
   if (latestPlan(stock)) return "等待触发";
@@ -315,7 +313,6 @@ function stockActionLabel(stock: WorkspaceStock) {
 }
 
 function stockActionClass(stock: WorkspaceStock) {
-  if (hasOpenAutoTrade(stock)) return "holding";
   if (hasTradablePlan(stock)) return "tradable";
   if (isNextSessionCandidate(stock)) return "candidate";
   if (latestPlan(stock)) return "planned";
@@ -702,7 +699,6 @@ function buildStockReviewItems(
 }
 
 function stockPriority(stock: WorkspaceStock) {
-  if (hasOpenAutoTrade(stock)) return 0;
   if (hasTradablePlan(stock)) return 1;
   if (isNextSessionCandidate(stock)) return 2 + (stock.candidate_rank ?? 99) / 1000;
   if (latestPlan(stock)) return 3;
@@ -1172,11 +1168,9 @@ export function App() {
           ? isFocusStock(item)
           : stockView === "tradable"
             ? hasTradablePlan(item)
-            : stockView === "holding"
-              ? hasOpenAutoTrade(item)
-              : stockView === "candidate"
-                ? isNextSessionCandidate(item)
-                : isManualFocus(item);
+            : stockView === "candidate"
+              ? isNextSessionCandidate(item)
+              : isManualFocus(item);
       const matchKeyword =
         !keyword ||
         item.symbol.includes(keyword) ||
@@ -1210,6 +1204,23 @@ export function App() {
       return left.symbol.localeCompare(right.symbol);
     });
   }, [boardFilteredStocks, query, stockSortMode, stockView]);
+
+  const paperTradeStocks = useMemo(() => {
+    return boardFilteredStocks
+      .filter((item) => item.recent_paper_trades.length > 0)
+      .sort((left, right) => {
+        const leftTrade = primaryPaperTrade(left);
+        const rightTrade = primaryPaperTrade(right);
+        const openDelta =
+          Number(rightTrade?.status === "open") - Number(leftTrade?.status === "open");
+        if (openDelta) return openDelta;
+        const leftTime = leftTrade?.quote_time ?? leftTrade?.exit_date ?? leftTrade?.entry_date ?? "";
+        const rightTime = rightTrade?.quote_time ?? rightTrade?.exit_date ?? rightTrade?.entry_date ?? "";
+        const timeDelta = rightTime.localeCompare(leftTime);
+        if (timeDelta) return timeDelta;
+        return left.symbol.localeCompare(right.symbol);
+      });
+  }, [boardFilteredStocks]);
 
   const selectedIndustry = selected?.industry ?? null;
   const selectedSymbolValue = selected?.symbol ?? null;
@@ -1533,6 +1544,14 @@ export function App() {
   const tradableCount = boardFilteredStocks.filter(hasTradablePlan).length;
   const openTradeCount = boardFilteredStocks.filter(hasOpenAutoTrade).length;
   const candidateCount = boardFilteredStocks.filter(isNextSessionCandidate).length;
+  const paperOpenStocks = paperTradeStocks.filter(hasOpenAutoTrade);
+  const paperFloatingReturn = paperOpenStocks.reduce((total, item) => {
+    return total + (tradeReturnPct(primaryPaperTrade(item), item.latest_close) ?? 0);
+  }, 0);
+  const paperClosedTodayCount = paperTradeStocks.filter((item) => {
+    const trade = primaryPaperTrade(item);
+    return trade?.status === "closed" && trade.exit_date === marketOverview?.trade_date;
+  }).length;
   const selectedTrade = selected ? primaryPaperTrade(selected) : null;
   const selectedTradeReturn = selected
     ? tradeReturnPct(selectedTrade, selected.latest_close)
@@ -1652,24 +1671,20 @@ export function App() {
   ];
 
   function renderStockRow(item: WorkspaceStock) {
-    const rowTrade = primaryPaperTrade(item);
     const rowPlan = latestPlan(item);
-    const rowReturn = tradeReturnPct(rowTrade, item.latest_close);
     const tierMeta = isNextSessionCandidate(item) ? candidateTierMeta(item) : null;
     const poolReason = isNextSessionCandidate(item) ? candidatePoolReason(item) : null;
     return (
       <button
         key={item.symbol}
-        className={`stock-row ${selected?.symbol === item.symbol ? "selected" : ""} ${
-          hasOpenAutoTrade(item) ? "has-open-trade" : ""
-        }`}
+        className={`stock-row ${selected?.symbol === item.symbol ? "selected" : ""}`}
         type="button"
         onClick={() => setSelectedSymbol(item.symbol)}
       >
         <span>
           <strong>{item.symbol}</strong>
           <small>{item.name ?? "未命名"} {item.industry ? ` / ${item.industry}` : ""}</small>
-          <small>{styleLabelForValue(item.sector_style)} / 胜率 {pct(paperWinRate(item))}</small>
+          <small>{styleLabelForValue(item.sector_style)} / 分数 {scoreText(item.candidate_score)}</small>
         </span>
         <span className="source-stack">
           <span className={`source-pill ${stockActionClass(item)}`}>
@@ -1703,24 +1718,67 @@ export function App() {
           <small>现价 {price(displayPrice(item))}</small>
         </span>
         <span className="trade-cell">
-          <strong className={(rowReturn ?? 0) >= 0 ? "up" : "down"}>
-            {rowTrade ? `${rowTradeLabel(rowTrade)} ${pct(rowReturn)}` : rowPlan ? planStatusText(rowPlan.status) : "-"}
-          </strong>
+          <strong>{rowPlan ? planStatusText(rowPlan.status) : "-"}</strong>
           <small>
-            {rowTrade
-              ? `实时 ${price(rowTrade.current_price)} / 买入 ${price(rowTrade.entry_price)}`
-              : rowPlan
-                ? `触发 ${price(rowPlan.entry_trigger_price)} / 仓位 ${(rowPlan.position_size * 100).toFixed(1)}%`
+            {rowPlan
+              ? `触发 ${price(rowPlan.entry_trigger_price)} / 仓位 ${(rowPlan.position_size * 100).toFixed(1)}%`
+              : isNextSessionCandidate(item)
+                ? "等待次日计划"
                 : "无交易计划"}
           </small>
           <small>
-            {rowTrade
-              ? `止损 ${price(rowTrade.current_stop)} / 止盈 ${price(rowTrade.take_profit_1)}`
-              : rowPlan
-                ? `置信 ${price(rowPlan.confidence_score)} / 止损 ${price(rowPlan.initial_stop)}`
-                : `已平 ${paperClosedCount(item)}笔`}
+            {rowPlan
+              ? `置信 ${price(rowPlan.confidence_score)} / 止损 ${price(rowPlan.initial_stop)}`
+              : `候选分数 ${scoreText(item.candidate_score)}`}
           </small>
         </span>
+      </button>
+    );
+  }
+
+  function renderPaperTradeRow(item: WorkspaceStock) {
+    const trade = primaryPaperTrade(item);
+    if (!trade) return null;
+    const rowReturn = tradeReturnPct(trade, item.latest_close);
+    const isOpen = trade.status === "open";
+    const currentOrExitPrice = isOpen ? trade.current_price : trade.exit_price;
+    return (
+      <button
+        key={`${item.symbol}-${trade.id}`}
+        className={`paper-trade-row ${isOpen ? "open" : "closed"} ${
+          selected?.symbol === item.symbol ? "selected" : ""
+        }`}
+        type="button"
+        onClick={() => {
+          setSelectedSymbol(item.symbol);
+          setActivePage("stocks");
+        }}
+      >
+        <span>
+          <strong>{item.symbol} {item.name ?? ""}</strong>
+          <small>{item.industry ?? "暂无行业"} / {styleLabelForValue(item.sector_style)}</small>
+          <small>{trade.rule_id} / {strategyText(trade.status === "open" ? latestPlan(item)?.strategy_type : null)}</small>
+        </span>
+        <span>
+          <strong>{isOpen ? "持仓中" : tradeStatusText(trade.status)}</strong>
+          <small>买入 {trade.entry_date} @ {price(trade.entry_price)}</small>
+          <small>
+            {isOpen
+              ? `报价 ${trade.quote_time ?? item.quote_time ?? "-"}`
+              : `卖出 ${trade.exit_date ?? "-"} @ ${price(trade.exit_price)}`}
+          </small>
+        </span>
+        <span>
+          <strong className={(rowReturn ?? 0) >= 0 ? "up" : "down"}>{pct(rowReturn)}</strong>
+          <small>当前/卖出 {price(currentOrExitPrice)}</small>
+          <small>今日 {pct(item.day_change_pct)} / 持有 {trade.holding_days}天</small>
+        </span>
+        <span>
+          <strong>{isOpen ? "风控跟踪" : exitReasonText(trade.exit_reason)}</strong>
+          <small>止损 {price(trade.current_stop)} / 止盈 {price(trade.take_profit_1)}</small>
+          <small>顶峰 {pct(trade.mfe_pct)} / 最大浮亏 {pct(trade.mae_pct)}</small>
+        </span>
+        <span className="paper-trade-action">查看个股</span>
       </button>
     );
   }
@@ -2545,6 +2603,61 @@ export function App() {
         </aside>
       </section>
         </>
+      ) : null}
+
+      {activePage === "paper" ? (
+        <section className="page-panel paper-workspace-panel">
+          <div className="panel-head">
+            <div>
+              <span>实盘模拟</span>
+              <h3>当前持仓和最近交易</h3>
+            </div>
+            <span>
+              {marketOverview?.trade_date ? `交易日 ${marketOverview.trade_date}` : "暂无交易日"}
+              {lastRefreshedAt ? ` / 更新 ${timeText(lastRefreshedAt)}` : ""}
+            </span>
+          </div>
+
+          <div className="paper-summary-grid">
+            <div>
+              <span>模拟持仓</span>
+              <strong>{paperOpenStocks.length}</strong>
+              <small>当前仍在跟踪</small>
+            </div>
+            <div>
+              <span>浮动合计</span>
+              <strong className={paperFloatingReturn >= 0 ? "up" : "down"}>
+                {pct(paperFloatingReturn)}
+              </strong>
+              <small>不算复利</small>
+            </div>
+            <div>
+              <span>今日结束</span>
+              <strong>{paperClosedTodayCount}</strong>
+              <small>{marketOverview?.trade_date ?? "-"}</small>
+            </div>
+            <div>
+              <span>最近记录</span>
+              <strong>{paperTradeStocks.length}</strong>
+              <small>含已结束交易</small>
+            </div>
+          </div>
+
+          <div className="paper-trade-list">
+            <div className="paper-trade-head">
+              <span>股票</span>
+              <span>模拟状态</span>
+              <span>收益</span>
+              <span>风控</span>
+              <span>动作</span>
+            </div>
+            {loading ? <div className="empty">加载中</div> : null}
+            {!loading && !paperTradeStocks.length ? (
+              <div className="empty">暂无实盘模拟记录</div>
+            ) : null}
+            {!loading ? paperTradeStocks.map(renderPaperTradeRow) : null}
+          </div>
+        </section>
       ) : null}
 
       {tradeDialogOpen && selected ? (
