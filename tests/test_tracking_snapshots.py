@@ -177,6 +177,10 @@ def test_summarize_tracking_signal_alignment_counts_divergence() -> None:
         assert summary.aligned_count == 1
         assert summary.divergent_count == 1
         assert summary.insufficient_count == 1
+        assert summary.mature_count == 2
+        assert summary.maturity_ratio == 0.6667
+        assert summary.maturity_label == "可验证"
+        assert "2/3" in summary.maturity_note
         assert summary.items[0].symbol == "000002"
         assert summary.items[0].signal_alignment_label == "分涨价弱"
         assert summary.items[1].symbol == "000001"
@@ -329,5 +333,7 @@ def test_workspace_api_returns_tracking_signal_summary() -> None:
         assert summary.symbol_count == 2
         assert summary.aligned_count == 1
         assert summary.divergent_count == 1
+        assert summary.mature_count == 2
+        assert summary.maturity_label == "可验证"
         assert summary.items[0].symbol == "000002"
         assert summary.items[0].signal_alignment_label == "分涨价弱"

@@ -52,6 +52,10 @@ class TrackingSignalAlignmentSummary:
     aligned_count: int
     divergent_count: int
     insufficient_count: int
+    mature_count: int
+    maturity_ratio: float
+    maturity_label: str
+    maturity_note: str
     items: list[TrackingSignalAlignmentItem]
 
 
@@ -326,6 +330,25 @@ def _alignment_sort_rank(item: TrackingSignalAlignmentItem) -> tuple[int, float]
     )
 
 
+def _maturity_label(mature_count: int, symbol_count: int) -> str:
+    if symbol_count == 0 or mature_count == 0:
+        return "样本不足"
+    if mature_count / symbol_count < 0.6:
+        return "沉淀中"
+    return "可验证"
+
+
+def _maturity_note(mature_count: int, symbol_count: int, label: str) -> str:
+    if symbol_count == 0:
+        return "暂无追踪股票，先生成收盘快照"
+    base = f"{mature_count}/{symbol_count} 只达到至少 2 条有效快照"
+    if label == "可验证":
+        return f"{base}，可以开始看分价验证"
+    if label == "沉淀中":
+        return f"{base}，结论先只做观察"
+    return f"{base}，先继续沉淀"
+
+
 def summarize_tracking_signal_alignment(
     db: Session,
     *,
@@ -334,7 +357,17 @@ def summarize_tracking_signal_alignment(
     item_limit: int = 20,
 ) -> TrackingSignalAlignmentSummary:
     if symbols is not None and not symbols:
-        return TrackingSignalAlignmentSummary(0, 0, 0, 0, [])
+        return TrackingSignalAlignmentSummary(
+            symbol_count=0,
+            aligned_count=0,
+            divergent_count=0,
+            insufficient_count=0,
+            mature_count=0,
+            maturity_ratio=0.0,
+            maturity_label="样本不足",
+            maturity_note="暂无追踪股票，先生成收盘快照",
+            items=[],
+        )
 
     stmt = select(StockTrackingSnapshot).order_by(
         StockTrackingSnapshot.symbol,
@@ -394,10 +427,17 @@ def summarize_tracking_signal_alignment(
         if item.signal_alignment_key in {"score_up_price_weak", "score_down_price_strong"}
     )
     insufficient_count = sum(1 for item in items if item.signal_alignment_key == "insufficient")
+    mature_count = sum(1 for item in items if item.sample_count >= 2)
+    maturity_ratio = round(mature_count / len(items), 4) if items else 0.0
+    maturity_label = _maturity_label(mature_count, len(items))
     return TrackingSignalAlignmentSummary(
         symbol_count=len(items),
         aligned_count=aligned_count,
         divergent_count=divergent_count,
         insufficient_count=insufficient_count,
+        mature_count=mature_count,
+        maturity_ratio=maturity_ratio,
+        maturity_label=maturity_label,
+        maturity_note=_maturity_note(mature_count, len(items), maturity_label),
         items=sorted(items, key=_alignment_sort_rank)[:item_limit],
     )

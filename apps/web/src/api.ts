@@ -356,6 +356,10 @@ export interface TrackingSignalSummary {
   aligned_count: number;
   divergent_count: number;
   insufficient_count: number;
+  mature_count: number;
+  maturity_ratio: number;
+  maturity_label: string;
+  maturity_note: string;
   items: TrackingSignalItem[];
 }
 

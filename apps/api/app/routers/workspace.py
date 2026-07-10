@@ -469,6 +469,10 @@ class TrackingSignalSummaryResponse(BaseModel):
     aligned_count: int
     divergent_count: int
     insufficient_count: int
+    mature_count: int
+    maturity_ratio: float
+    maturity_label: str
+    maturity_note: str
     items: list[TrackingSignalItemResponse]
 
 
@@ -1127,6 +1131,10 @@ def list_tracking_signal_summary(
         aligned_count=summary.aligned_count,
         divergent_count=summary.divergent_count,
         insufficient_count=summary.insufficient_count,
+        mature_count=summary.mature_count,
+        maturity_ratio=summary.maturity_ratio,
+        maturity_label=summary.maturity_label,
+        maturity_note=summary.maturity_note,
         items=[_tracking_signal_item_response(item) for item in summary.items],
     )
 

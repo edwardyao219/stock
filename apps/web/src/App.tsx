@@ -2821,6 +2821,11 @@ export function App() {
                   <strong>{trackingSignalSummary.insufficient_count}</strong>
                   <small>继续等收盘快照</small>
                 </div>
+                <div>
+                  <span>数据成熟度</span>
+                  <strong>{trackingSignalSummary.maturity_label}</strong>
+                  <small>{trackingSignalSummary.maturity_note}</small>
+                </div>
               </div>
               {trackingSignalSummary.items.length ? (
                 <div className="tracking-signal-samples">

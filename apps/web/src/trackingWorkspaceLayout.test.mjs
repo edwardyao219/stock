@@ -15,6 +15,7 @@ assert(app.includes("tracking-candle-path"), "个股追踪页需要单独展示K
 assert(app.includes("trackingHistory"), "个股追踪页需要读取真实追踪快照历史");
 assert(app.includes("tracking-history-panel"), "个股追踪页需要独立展示追踪分变化");
 assert(app.includes("信号汇总"), "个股追踪页需要展示多票分价验证汇总");
+assert(app.includes("数据成熟度"), "个股追踪页需要提示追踪快照是否足够验证");
 assert(app.includes("追踪路径"), "个股追踪页需要用路径视图表达单票跟踪质量");
 assert(app.includes("跟踪收益"), "个股追踪页需要展示真实价格表现，避免只看追踪分自循环");
 assert(app.includes("信号验证"), "个股追踪页需要展示追踪分和真实收益是否同向");
