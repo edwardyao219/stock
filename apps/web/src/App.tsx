@@ -624,6 +624,28 @@ function dataHealthStatusText(health: DataHealth | null) {
   return "需要关注";
 }
 
+function latestIndexDate(overview: MarketOverview | null) {
+  const dates = (overview?.indexes ?? [])
+    .map((item) => item.quote_date)
+    .filter((item): item is string => Boolean(item));
+  const sortedDates = dates.sort();
+  return sortedDates.length ? sortedDates[sortedDates.length - 1] : null;
+}
+
+function dataPipelineStatusText(health: DataHealth | null, overview: MarketOverview | null) {
+  if (!health?.trade_date) return "等待数据";
+  const indexDate = latestIndexDate(overview);
+  if (indexDate && indexDate > health.trade_date) return "等待收盘";
+  if (health.status === "ok") return "收盘可用";
+  return "需要复核";
+}
+
+function dataPipelineDetailText(health: DataHealth | null, overview: MarketOverview | null) {
+  const dailyDate = health?.trade_date ?? "-";
+  const indexDate = latestIndexDate(overview) ?? "-";
+  return `日线日期 ${dailyDate} / 指数日期 ${indexDate}`;
+}
+
 function planEvidenceSummary(plan: WorkspaceStock["plans"][number] | null) {
   if (!plan?.evidence.length) return [];
   return plan.evidence.slice(0, 3).map((item) => `${item.category}·${item.label} ${item.value}`);
@@ -4080,6 +4102,18 @@ export function App() {
                 <span>量能确认</span>
                 <strong>{scoreText(dataHealth?.volume_confirmation_median ?? null)}</strong>
                 <small>样本稳定性</small>
+              </div>
+            </div>
+            <div className="data-health-schedule">
+              <div>
+                <span>数据链路</span>
+                <strong>{dataPipelineStatusText(dataHealth, marketOverview)}</strong>
+                <small>{dataPipelineDetailText(dataHealth, marketOverview)}</small>
+              </div>
+              <div>
+                <span>收盘任务</span>
+                <strong>18:00</strong>
+                <small>回归 21:00 / 日报 22:30</small>
               </div>
             </div>
             <div className="data-health-issues">

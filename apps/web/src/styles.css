@@ -4003,7 +4003,11 @@ button {
   border-radius: 8px;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(160px, 0.7fr) minmax(280px, 1.4fr) minmax(260px, 1.2fr);
+  grid-template-columns:
+    minmax(160px, 0.7fr)
+    minmax(280px, 1.25fr)
+    minmax(220px, 0.95fr)
+    minmax(260px, 1.1fr);
   margin-bottom: 14px;
   padding: 12px;
 }
@@ -4025,6 +4029,7 @@ button {
 
 .data-health-main,
 .data-health-metrics div,
+.data-health-schedule div,
 .data-health-issues {
   min-width: 0;
 }
@@ -4033,6 +4038,8 @@ button {
 .data-health-main small,
 .data-health-metrics span,
 .data-health-metrics small,
+.data-health-schedule span,
+.data-health-schedule small,
 .data-health-issues span {
   color: #64748b;
   font-size: 12px;
@@ -4059,6 +4066,26 @@ button {
 }
 
 .data-health-metrics strong {
+  color: #17202b;
+  display: block;
+  font-size: 15px;
+  margin: 2px 0;
+}
+
+.data-health-schedule {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.data-health-schedule div {
+  background: rgb(255 255 255 / 70%);
+  border: 1px solid #e1e8ef;
+  border-radius: 7px;
+  padding: 8px 9px;
+}
+
+.data-health-schedule strong {
   color: #17202b;
   display: block;
   font-size: 15px;
@@ -4751,6 +4778,7 @@ textarea {
   .summary-strip,
   .data-health-panel,
   .data-health-metrics,
+  .data-health-schedule,
   .sector-catalyst-list,
   .sector-radar-grid,
   .monthly-summary-grid,
