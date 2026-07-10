@@ -11,6 +11,11 @@ from sqlalchemy.orm import Session
 from services.collector.daily import sync_daily_market_data
 from services.collector.sync import sync_recent_tushare_sector_moneyflow
 from services.engine.review.mechanical import generate_daily_mechanical_review
+from services.engine.tracking.repository import (
+    build_tracking_snapshot_payload,
+    upsert_tracking_snapshot,
+)
+from services.engine.workspace.repository import load_stock_workspace_items
 from services.shared.database import SessionLocal
 from services.shared.models import ResearchPoolItem, Security, TradingCalendar
 from services.shared.time import now_local
@@ -409,6 +414,32 @@ def _prewarm_candidate_replay_effect_step(trade_date: str) -> PipelineStepResult
             f"分片命中：{result.get('shard_hits') or 0}",
             f"分片重算：{result.get('shard_misses') or 0}",
         ],
+    )
+
+
+def _record_tracking_snapshots_step(trade_date: str, limit: int = 200) -> PipelineStepResult:
+    target_date = date.fromisoformat(trade_date)
+    with SessionLocal() as db:
+        items = load_stock_workspace_items(
+            db,
+            pool_name="experiment",
+            limit=limit,
+            include_growth_board=False,
+        )
+        rows = [
+            upsert_tracking_snapshot(
+                db,
+                build_tracking_snapshot_payload(item, snapshot_date=target_date),
+            )
+            for item in items
+        ]
+        db.commit()
+    return PipelineStepResult(
+        name="record_tracking_snapshots",
+        status="ok",
+        detail=f"追踪快照已记录：{trade_date}，写入 {len(rows)} 只股票。",
+        summary=f"追踪快照 {len(rows)} 只",
+        details=[row.symbol for row in rows[:20]],
     )
 
 
@@ -1077,6 +1108,10 @@ def run_after_close_session(
                 limit,
                 use_learning_adjustments,
             ),
+        ),
+        _run_step(
+            "record_tracking_snapshots",
+            lambda: _record_tracking_snapshots_step(trade_date, limit),
         ),
         _run_step(
             "run_daily_paper_simulation",

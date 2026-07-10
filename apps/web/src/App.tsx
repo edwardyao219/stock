@@ -95,6 +95,7 @@ import {
   sortStockTrackingProfiles,
   StockTrackingProfile,
 } from "./stockTracking";
+import { buildTrackingHistorySummary } from "./trackingHistory";
 import { buildAutoRefreshPlan } from "./refreshPlan";
 
 const AUTO_REFRESH_MS = 15_000;
@@ -1275,6 +1276,10 @@ export function App() {
   );
   const selectedCandleTrendPath = useMemo(() => buildCandleTrendPath(candles), [candles]);
   const trackingHistoryOldestFirst = useMemo(() => [...trackingHistory].reverse(), [trackingHistory]);
+  const trackingHistorySummary = useMemo(
+    () => buildTrackingHistorySummary(trackingHistory),
+    [trackingHistory],
+  );
   const trackingHistoryLatest = trackingHistory[0] ?? null;
   const trackingHistoryPrevious = trackingHistory[1] ?? null;
 
@@ -2841,23 +2846,36 @@ export function App() {
                     ) : null}
                     {trackingHistoryLoading ? <div className="empty compact">追踪历史加载中</div> : null}
                     {!trackingHistoryLoading && trackingHistoryOldestFirst.length ? (
-                      <div className="tracking-history-bars">
-                        {trackingHistoryOldestFirst.slice(-18).map((item) => (
-                          <div
-                            className={`tracking-history-row ${trackingSnapshotTone(item)}`}
-                            key={`${item.symbol}-${item.snapshot_date}`}
-                          >
-                            <span>{item.snapshot_date.slice(5)}</span>
-                            <b>
-                              <i style={{ width: `${trackingHistoryBarWidth(item.tracking_score)}%` }} />
-                            </b>
-                            <strong>
-                              {item.tracking_score === null ? "-" : item.tracking_score.toFixed(1)}
-                            </strong>
-                            <small>{item.stage_label}</small>
-                          </div>
-                        ))}
-                      </div>
+                      <>
+                        <div className="tracking-history-summary-grid">
+                          {trackingHistorySummary.map((item) => (
+                            <div className={`tracking-history-summary ${item.tone}`} key={item.horizon}>
+                              <span>{item.label}</span>
+                              <strong>
+                                {item.delta === null ? "-" : `${item.delta >= 0 ? "+" : ""}${item.delta.toFixed(1)}`}
+                              </strong>
+                              <small>{item.summary}</small>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="tracking-history-bars">
+                          {trackingHistoryOldestFirst.slice(-18).map((item) => (
+                            <div
+                              className={`tracking-history-row ${trackingSnapshotTone(item)}`}
+                              key={`${item.symbol}-${item.snapshot_date}`}
+                            >
+                              <span>{item.snapshot_date.slice(5)}</span>
+                              <b>
+                                <i style={{ width: `${trackingHistoryBarWidth(item.tracking_score)}%` }} />
+                              </b>
+                              <strong>
+                                {item.tracking_score === null ? "-" : item.tracking_score.toFixed(1)}
+                              </strong>
+                              <small>{item.stage_label}</small>
+                            </div>
+                          ))}
+                        </div>
+                      </>
                     ) : null}
                     {!trackingHistoryLoading && !trackingHistoryOldestFirst.length ? (
                       <div className="empty compact">还没有真实追踪快照</div>

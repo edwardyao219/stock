@@ -1949,6 +1949,47 @@ button {
   margin-top: 8px;
 }
 
+.tracking-history-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tracking-history-summary {
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 9px;
+}
+
+.tracking-history-summary span,
+.tracking-history-summary small {
+  color: #64748b;
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.tracking-history-summary strong {
+  color: #17202b;
+  display: block;
+  font-size: 18px;
+  margin: 3px 0;
+}
+
+.tracking-history-summary.good strong {
+  color: #c73535;
+}
+
+.tracking-history-summary.bad strong {
+  color: #1f8a55;
+}
+
+.tracking-history-summary.warn strong {
+  color: #b76b00;
+}
+
 .tracking-history-bars {
   display: grid;
   gap: 7px;
@@ -4466,6 +4507,7 @@ textarea {
   .tracking-summary-grid,
   .tracking-list-head,
   .tracking-row,
+  .tracking-history-summary-grid,
   .tracking-history-row,
   .tracking-metric-grid,
   .tracking-candle-metrics,

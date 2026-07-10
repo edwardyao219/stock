@@ -583,6 +583,15 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
             detail=f"prewarm:{trade_date}",
         ),
     )
+    monkeypatch.setattr(
+        pipeline,
+        "_record_tracking_snapshots_step",
+        lambda trade_date, limit: pipeline.PipelineStepResult(
+            name="record_tracking_snapshots",
+            status="ok",
+            detail=f"tracking:{trade_date}:{limit}",
+        ),
+    )
     monkeypatch.setattr(pipeline, "_generate_daily_review_step", lambda trade_date: "daily")
     monkeypatch.setattr(
         pipeline,
@@ -614,6 +623,7 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         "sync_sector_moneyflow",
         "prepare_market_feature_universe",
         "discover_next_session_candidates",
+        "record_tracking_snapshots",
         "run_daily_paper_simulation",
         "generate_paper_trading_review",
         "run_rule_regression",
@@ -622,8 +632,9 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         "generate_daily_review",
     ]
     assert result.steps[2].detail == "candidates:2026-06-25:False"
+    assert result.steps[3].detail == "tracking:2026-06-24:200"
     assert captured["sync_daily"] is True
-    assert result.steps[4].detail == "reviews"
+    assert result.steps[5].detail == "reviews"
     assert result.steps[-1].detail == "daily"
     assert result.steps[-2].detail == "prewarm:2026-06-24"
 

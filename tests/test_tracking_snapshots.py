@@ -14,7 +14,13 @@ from services.engine.tracking.repository import (
 )
 from services.engine.workspace.repository import WorkspaceItem
 from services.shared.database import Base
-from services.shared.models import DailyBar, ResearchPoolItem, Security, StockFeatureDaily, StockTrackingSnapshot
+from services.shared.models import (
+    DailyBar,
+    ResearchPoolItem,
+    Security,
+    StockFeatureDaily,
+    StockTrackingSnapshot,
+)
 
 
 def _workspace_item(**overrides) -> WorkspaceItem:
