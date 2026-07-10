@@ -201,6 +201,16 @@ export interface MonthlyStrategyPkRow {
   tone: ReplayTone;
 }
 
+export interface MonthlyPerformanceRow {
+  month: string;
+  label: string;
+  monthlyReturn: number | null;
+  cumulativeReturn: number;
+  drawdown: number;
+  sampleCount: number;
+  tone: ReplayTone;
+}
+
 const scopeOrder = [
   "action_long",
   "action",
@@ -364,6 +374,42 @@ function monthlyScopeMetric(
     ?? summary?.monthly_horizons[horizon]?.[month]?.guarded
     ?? null
   );
+}
+
+export function monthlyPerformanceRows(
+  report: CandidateReplayEffectReport | null,
+  scope: MonthlyStrategyPkScope = "action_long",
+  horizon = 20,
+  limit = 8,
+): MonthlyPerformanceRow[] {
+  const summary = report?.scopes[scope];
+  if (!summary) return [];
+  const portfolioMonths = summary.monthly_portfolio_horizons[horizon] ?? {};
+  const singleMonths = summary.monthly_horizons[horizon] ?? {};
+  const months = [...new Set([...Object.keys(singleMonths), ...Object.keys(portfolioMonths)])].sort();
+  const rows: MonthlyPerformanceRow[] = [];
+  let cumulativeReturn = 0;
+  let peakReturn = 0;
+
+  for (const month of months) {
+    const metric = portfolioMonths[month]?.guarded ?? singleMonths[month]?.guarded ?? null;
+    const sampleCount = metric?.sample_count ?? 0;
+    if (sampleCount <= 0) continue;
+    const monthlyReturn = metric?.total_return ?? null;
+    cumulativeReturn += monthlyReturn ?? 0;
+    peakReturn = Math.max(peakReturn, cumulativeReturn);
+    rows.push({
+      month,
+      label: scopeLabels[scope] ?? "策略线",
+      monthlyReturn,
+      cumulativeReturn,
+      drawdown: cumulativeReturn - peakReturn,
+      sampleCount,
+      tone: toneFor(monthlyReturn),
+    });
+  }
+
+  return rows.reverse().slice(0, limit);
 }
 
 function hasPositiveMetric(metric: ReplayReturnSummary | null | undefined) {

@@ -4,6 +4,7 @@ import {
   dualLineLongReplaySummary,
   initialCandidateReplayQuery,
   longCandidateReplayQuery,
+  monthlyPerformanceRows,
   monthlyStrategyPkRows,
   replayScopeRows,
   replayBreakdownRows,
@@ -638,6 +639,7 @@ const startupRows = startupPreheatRows(candidateReplay);
 const monthlyStyleRows = replayMonthlyStyleRows(candidateReplay.scopes.all, 10);
 const strategyRows = strategyPkRows(candidateReplay);
 const dualLineSummary = dualLineLongReplaySummary(candidateReplay);
+const monthlyPerformance = monthlyPerformanceRows(candidateReplay, "action_long", 20);
 const monthlyPkRows = monthlyStrategyPkRows(candidateReplay, 20);
 const startupSignalRows = startupSignalReplayRows(candidateReplay);
 const startupSignalStyleRows = startupSignalStyleReplayRows(candidateReplay, 20);
@@ -664,6 +666,10 @@ dualLineSummary.mainLine.label satisfies "长期行动池";
 dualLineSummary.supportLine.label satisfies "启动前夜池";
 dualLineSummary.guidance satisfies string;
 dualLineSummary.qualityLeader satisfies "main" | "support" | "none";
+monthlyPerformance[0].monthlyReturn satisfies number | null;
+monthlyPerformance[0].cumulativeReturn satisfies number;
+monthlyPerformance[0].drawdown satisfies number;
+monthlyPerformance[0].sampleCount satisfies number;
 monthlyPkRows[0].month satisfies "2026-06" | string;
 monthlyPkRows[0].postureLabel satisfies string;
 monthlyPkRows[0].leaderLabel satisfies string;

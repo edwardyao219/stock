@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Search,
   TrendingUp,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -63,6 +64,7 @@ import {
   initialCandidateReplayQuery,
   lineStatusText,
   longCandidateReplayQuery,
+  monthlyPerformanceRows,
   monthlyStrategyPkRows,
   replayBreakdownRows,
   replayMonthlyStyleRows,
@@ -1130,6 +1132,7 @@ export function App() {
   const [ruleRegressionStatusError, setRuleRegressionStatusError] = useState<string | null>(null);
   const [strategyFit, setStrategyFit] = useState<StrategyFitReport | null>(null);
   const [strategyFitError, setStrategyFitError] = useState<string | null>(null);
+  const [postCloseDrawerOpen, setPostCloseDrawerOpen] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1549,6 +1552,12 @@ export function App() {
     ? [candidateDualLineLongSummary.mainLine, candidateDualLineLongSummary.supportLine]
     : [];
   const visualMonthlyRows = candidateMonthlyStrategyPkRows.slice(0, 4);
+  const mainLineMonthlyPerformance = monthlyPerformanceRows(
+    candidateReplayEffect,
+    "action_long",
+    20,
+    8,
+  );
   const candidateReplayCacheText = replayCacheText(candidateReplayEffect);
   const candidateReplayWindowLabel = candidateReplayEffect
     ? (
@@ -1808,91 +1817,53 @@ export function App() {
                     : "收盘后会展示大盘、板块和候选回看"}
                 </small>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  loadMechanicalReview();
-                  loadAfterCloseStatus(marketOverview?.trade_date);
-                }}
-                aria-label="刷新收盘复盘"
-              >
-                <RefreshCw size={14} />
-              </button>
-            </div>
-            {afterCloseStatus || afterCloseStatusError ? (
-              <div className={`after-close-push-status ${afterCloseStatusTone(afterCloseStatus?.status)}`}>
-                <div>
-                  <span>6点推送</span>
-                  <strong>{afterCloseStatusLabel(afterCloseStatus?.status)}</strong>
-                  <small>{uiText(afterCloseStatus?.message ?? afterCloseStatusError)}</small>
-                </div>
-                {afterCloseStatus ? (
-                  <div className="after-close-push-metrics">
-                    <span>日期 {afterCloseStatus.trade_date}</span>
-                    <span>候选 {afterCloseStatus.candidate_count}</span>
-                    <span>计划 {afterCloseStatus.plan_count}</span>
-                    <span>{afterCloseDingText(afterCloseStatus)}</span>
-                    <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>
-                  </div>
-                ) : null}
+              <div className="post-close-review-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    loadMechanicalReview();
+                    loadAfterCloseStatus(marketOverview?.trade_date);
+                  }}
+                  aria-label="刷新收盘复盘"
+                >
+                  <RefreshCw size={14} />
+                </button>
+                <button
+                  className="post-close-review-open"
+                  type="button"
+                  onClick={() => setPostCloseDrawerOpen(true)}
+                  aria-label="打开收盘复盘抽屉"
+                >
+                  <ClipboardList size={14} />
+                  <span>查看复盘</span>
+                </button>
               </div>
-            ) : null}
-            {mechanicalReview?.found ? (
-              <>
-                <div className="post-close-review-grid">
-                  <div className={`post-close-review-card ${reviewBreadthTone(reviewUpRatio)}`}>
-                    <span>盘面宽度</span>
-                    <strong>
-                      {objectNumber(reviewDisplayMarketSummary, ["up_count"]) ?? "-"}涨{" "}
-                      {objectNumber(reviewDisplayMarketSummary, ["down_count"]) ?? "-"}跌
-                    </strong>
-                    <small>上涨占比 {pct(reviewUpRatio)} / 均值 {pct(objectNumber(reviewDisplayMarketSummary, ["avg_change_pct"]))}</small>
-                  </div>
-                  <div className={`post-close-review-card ${(reviewAmountChange ?? 0) >= 0 ? "up" : "down"}`}>
-                    <span>成交变化</span>
-                    <strong>{pct(reviewAmountChange)}</strong>
-                    <small>成交额 {amountText(objectNumber(reviewDisplayMarketSummary, ["total_amount"]))}</small>
-                  </div>
-                  <div className={`post-close-review-card ${reviewHealthTone(reviewHealthStatus)}`}>
-                    <span>数据健康</span>
-                    <strong>{reviewHealthLabel(reviewHealthStatus)}</strong>
-                    <small>
-                      日线 {objectNumber(reviewDataHealth ?? {}, ["daily_bar_count"]) ?? "-"} / 特征{" "}
-                      {objectNumber(reviewDataHealth ?? {}, ["feature_count"]) ?? "-"}
-                    </small>
-                  </div>
-                  <div className={`post-close-review-card ${(objectNumber(reviewIndexes[0] ?? {}, ["change_pct"]) ?? 0) >= 0 ? "up" : "down"}`}>
-                    <span>指数状态</span>
-                    <strong>
-                      {objectText(reviewIndexes[0] ?? {}, ["name"])} {pct(objectNumber(reviewIndexes[0] ?? {}, ["change_pct"]))}
-                    </strong>
-                    <small>{objectText(reviewIndexes[0] ?? {}, ["trade_date"])}</small>
-                  </div>
-                  <div className="post-close-review-card wide up">
-                    <span>相对强势</span>
-                    {reviewStrongSectors.slice(0, 2).map((item) => (
-                      <small key={`strong-${objectText(item, ["sector"])}`}>{reviewSectorLine(item)}</small>
-                    ))}
-                    {!reviewStrongSectors.length ? <small>暂无强势板块样本</small> : null}
-                  </div>
-                  <div className="post-close-review-card wide down">
-                    <span>主要承压</span>
-                    {reviewWeakSectors.slice(0, 2).map((item) => (
-                      <small key={`weak-${objectText(item, ["sector"])}`}>{reviewSectorLine(item)}</small>
-                    ))}
-                    {!reviewWeakSectors.length ? <small>暂无承压板块样本</small> : null}
-                  </div>
-                </div>
-                {mechanicalReview.content_md ? (
-                  <details className="post-close-review-details">
-                    <summary>查看完整收盘复盘</summary>
-                    <pre>{mechanicalReview.content_md}</pre>
-                  </details>
-                ) : null}
-              </>
-            ) : (
-              <div className="empty compact">暂无收盘复盘报告，收盘任务完成后会自动出现在这里。</div>
-            )}
+            </div>
+            <div className="post-close-review-brief">
+              <span>
+                <b>6点推送</b>
+                {afterCloseStatus || afterCloseStatusError
+                  ? `${afterCloseStatusLabel(afterCloseStatus?.status)} / ${afterCloseDingText(afterCloseStatus)}`
+                  : "未记录"}
+              </span>
+              <span>
+                <b>盘面宽度</b>
+                {mechanicalReview?.found
+                  ? `${objectNumber(reviewDisplayMarketSummary, ["up_count"]) ?? "-"}涨 ${objectNumber(
+                    reviewDisplayMarketSummary,
+                    ["down_count"],
+                  ) ?? "-"}跌`
+                  : "等待收盘复盘"}
+              </span>
+              <span>
+                <b>强弱板块</b>
+                {reviewStrongSectors[0]
+                  ? `${objectText(reviewStrongSectors[0], ["sector"])} 强 / ${
+                    reviewWeakSectors[0] ? `${objectText(reviewWeakSectors[0], ["sector"])} 弱` : "弱势待确认"
+                  }`
+                  : "样本不足"}
+              </span>
+            </div>
           </section>
 
           <section className="intraday-watch-strip">
@@ -1982,6 +1953,123 @@ export function App() {
               </div>
             </div>
           </section>
+
+          {postCloseDrawerOpen ? (
+            <div className="post-close-review-overlay" onClick={() => setPostCloseDrawerOpen(false)}>
+              <aside
+                className={`post-close-review-drawer ${afterCloseStatusTone(afterCloseStatus?.status)}`}
+                role="dialog"
+                aria-modal="true"
+                aria-label="收盘复盘"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="post-close-review-drawer-head">
+                  <div>
+                    <span>收盘复盘</span>
+                    <strong>{mechanicalReview?.found ? mechanicalReview.title : "暂无收盘总体复盘"}</strong>
+                    <small>
+                      {mechanicalReview?.found
+                        ? `报告 ${mechanicalReview.report_date ?? "-"} / 数据 ${objectText(reviewDisplayMarketSummary, ["trade_date"])}`
+                        : "收盘后会展示大盘、板块和候选回看"}
+                    </small>
+                  </div>
+                  <div className="post-close-review-actions">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        loadMechanicalReview();
+                        loadAfterCloseStatus(marketOverview?.trade_date);
+                      }}
+                      aria-label="刷新收盘复盘"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPostCloseDrawerOpen(false)}
+                      aria-label="关闭收盘复盘"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                </div>
+                {afterCloseStatus || afterCloseStatusError ? (
+                  <div className={`after-close-push-status ${afterCloseStatusTone(afterCloseStatus?.status)}`}>
+                    <div>
+                      <span>6点推送</span>
+                      <strong>{afterCloseStatusLabel(afterCloseStatus?.status)}</strong>
+                      <small>{uiText(afterCloseStatus?.message ?? afterCloseStatusError)}</small>
+                    </div>
+                    {afterCloseStatus ? (
+                      <div className="after-close-push-metrics">
+                        <span>日期 {afterCloseStatus.trade_date}</span>
+                        <span>候选 {afterCloseStatus.candidate_count}</span>
+                        <span>计划 {afterCloseStatus.plan_count}</span>
+                        <span>{afterCloseDingText(afterCloseStatus)}</span>
+                        <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {mechanicalReview?.found ? (
+                  <>
+                    <div className="post-close-review-grid">
+                      <div className={`post-close-review-card ${reviewBreadthTone(reviewUpRatio)}`}>
+                        <span>盘面宽度</span>
+                        <strong>
+                          {objectNumber(reviewDisplayMarketSummary, ["up_count"]) ?? "-"}涨{" "}
+                          {objectNumber(reviewDisplayMarketSummary, ["down_count"]) ?? "-"}跌
+                        </strong>
+                        <small>上涨占比 {pct(reviewUpRatio)} / 均值 {pct(objectNumber(reviewDisplayMarketSummary, ["avg_change_pct"]))}</small>
+                      </div>
+                      <div className={`post-close-review-card ${(reviewAmountChange ?? 0) >= 0 ? "up" : "down"}`}>
+                        <span>成交变化</span>
+                        <strong>{pct(reviewAmountChange)}</strong>
+                        <small>成交额 {amountText(objectNumber(reviewDisplayMarketSummary, ["total_amount"]))}</small>
+                      </div>
+                      <div className={`post-close-review-card ${reviewHealthTone(reviewHealthStatus)}`}>
+                        <span>数据健康</span>
+                        <strong>{reviewHealthLabel(reviewHealthStatus)}</strong>
+                        <small>
+                          日线 {objectNumber(reviewDataHealth ?? {}, ["daily_bar_count"]) ?? "-"} / 特征{" "}
+                          {objectNumber(reviewDataHealth ?? {}, ["feature_count"]) ?? "-"}
+                        </small>
+                      </div>
+                      <div className={`post-close-review-card ${(objectNumber(reviewIndexes[0] ?? {}, ["change_pct"]) ?? 0) >= 0 ? "up" : "down"}`}>
+                        <span>指数状态</span>
+                        <strong>
+                          {objectText(reviewIndexes[0] ?? {}, ["name"])} {pct(objectNumber(reviewIndexes[0] ?? {}, ["change_pct"]))}
+                        </strong>
+                        <small>{objectText(reviewIndexes[0] ?? {}, ["trade_date"])}</small>
+                      </div>
+                      <div className="post-close-review-card wide up">
+                        <span>相对强势</span>
+                        {reviewStrongSectors.slice(0, 2).map((item) => (
+                          <small key={`strong-${objectText(item, ["sector"])}`}>{reviewSectorLine(item)}</small>
+                        ))}
+                        {!reviewStrongSectors.length ? <small>暂无强势板块样本</small> : null}
+                      </div>
+                      <div className="post-close-review-card wide down">
+                        <span>主要承压</span>
+                        {reviewWeakSectors.slice(0, 2).map((item) => (
+                          <small key={`weak-${objectText(item, ["sector"])}`}>{reviewSectorLine(item)}</small>
+                        ))}
+                        {!reviewWeakSectors.length ? <small>暂无承压板块样本</small> : null}
+                      </div>
+                    </div>
+                    {mechanicalReview.content_md ? (
+                      <details className="post-close-review-details">
+                        <summary>查看完整收盘复盘</summary>
+                        <pre>{mechanicalReview.content_md}</pre>
+                      </details>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="empty compact">暂无收盘复盘报告，收盘任务完成后会自动出现在这里。</div>
+                )}
+              </aside>
+            </div>
+          ) : null}
 
           <section className="workspace-layout">
         <div className="stock-list-panel">
@@ -2645,6 +2733,28 @@ export function App() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  ) : null}
+                  {mainLineMonthlyPerformance.length ? (
+                    <div className="replay-monthly-performance">
+                      <div className="replay-monthly-performance-head">
+                        <span>固定主线月度表现</span>
+                        <strong>{mainLineMonthlyPerformance[0].label}</strong>
+                        <small>20日 / 简单相加 / 不复利</small>
+                      </div>
+                      <div className="replay-monthly-performance-list">
+                        {mainLineMonthlyPerformance.map((row) => (
+                          <div className={`replay-monthly-performance-row ${row.tone}`} key={row.month}>
+                            <span>{row.month}</span>
+                            <strong>{pct(row.monthlyReturn)}</strong>
+                            <small>总 {pct(row.cumulativeReturn)}</small>
+                            <small className={row.drawdown <= -0.15 ? "risk" : ""}>
+                              回撤 {pct(row.drawdown)}
+                            </small>
+                            <small>样本 {row.sampleCount}</small>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                   {visualMonthlyRows.length ? (
