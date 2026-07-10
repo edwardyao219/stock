@@ -1,5 +1,5 @@
 // @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
-import { monthlyPerformanceRows } from "./replayInsights.ts";
+import { monthlyPerformanceHealth, monthlyPerformanceRows } from "./replayInsights.ts";
 import type { CandidateReplayEffectReport } from "./api";
 
 function assertClose(actual: number | null, expected: number, message: string) {
@@ -43,3 +43,15 @@ assertClose(rows[0].cumulativeReturn, 0.09, "总收益使用简单相加");
 assertClose(rows[0].drawdown, -0.01, "回撤基于历史峰值");
 assertEqual(rows[0].sampleCount, 4, "保留样本数");
 assertClose(rows[1].drawdown, -0.04, "弱月回撤需要看得见");
+
+const healthy = monthlyPerformanceHealth(rows, 0.15);
+assertClose(healthy.totalReturn, 0.09, "健康条总收益用最新累计简单收益");
+assertClose(healthy.maxDrawdown, -0.04, "健康条展示最深回撤");
+assertEqual(healthy.status, "healthy", "回撤未超过15且总收益为正");
+assertEqual(healthy.positiveMonths, 2, "统计正收益月份");
+
+const risky = monthlyPerformanceHealth([
+  { ...rows[0], cumulativeReturn: -0.08, drawdown: -0.2, monthlyReturn: -0.12 },
+  ...rows.slice(1),
+], 0.15);
+assertEqual(risky.status, "risk", "超过15回撤线要标风险");

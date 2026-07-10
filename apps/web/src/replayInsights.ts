@@ -211,6 +211,16 @@ export interface MonthlyPerformanceRow {
   tone: ReplayTone;
 }
 
+export interface MonthlyPerformanceHealth {
+  totalReturn: number | null;
+  maxDrawdown: number | null;
+  positiveMonths: number;
+  monthCount: number;
+  drawdownLimit: number;
+  status: "empty" | "healthy" | "weak" | "risk";
+  statusLabel: string;
+}
+
 const scopeOrder = [
   "action_long",
   "action",
@@ -410,6 +420,38 @@ export function monthlyPerformanceRows(
   }
 
   return rows.reverse().slice(0, limit);
+}
+
+export function monthlyPerformanceHealth(
+  rows: MonthlyPerformanceRow[],
+  drawdownLimit = 0.15,
+): MonthlyPerformanceHealth {
+  const limit = Math.abs(drawdownLimit);
+  if (!rows.length) {
+    return {
+      totalReturn: null,
+      maxDrawdown: null,
+      positiveMonths: 0,
+      monthCount: 0,
+      drawdownLimit: limit,
+      status: "empty",
+      statusLabel: "样本不足",
+    };
+  }
+
+  const totalReturn = rows[0].cumulativeReturn;
+  const maxDrawdown = Math.min(...rows.map((row) => row.drawdown));
+  const positiveMonths = rows.filter((row) => (row.monthlyReturn ?? 0) > 0).length;
+  const status = maxDrawdown < -limit ? "risk" : totalReturn > 0 ? "healthy" : "weak";
+  return {
+    totalReturn,
+    maxDrawdown,
+    positiveMonths,
+    monthCount: rows.length,
+    drawdownLimit: limit,
+    status,
+    statusLabel: status === "risk" ? "回撤超线" : status === "healthy" ? "趋势健康" : "收益偏弱",
+  };
 }
 
 function hasPositiveMetric(metric: ReplayReturnSummary | null | undefined) {

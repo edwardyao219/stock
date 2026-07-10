@@ -64,6 +64,7 @@ import {
   initialCandidateReplayQuery,
   lineStatusText,
   longCandidateReplayQuery,
+  monthlyPerformanceHealth,
   monthlyPerformanceRows,
   monthlyStrategyPkRows,
   replayBreakdownRows,
@@ -1558,12 +1559,14 @@ export function App() {
     ? [candidateDualLineLongSummary.mainLine, candidateDualLineLongSummary.supportLine]
     : [];
   const visualMonthlyRows = candidateMonthlyStrategyPkRows.slice(0, 4);
-  const mainLineMonthlyPerformance = monthlyPerformanceRows(
+  const mainLineMonthlyPerformanceAll = monthlyPerformanceRows(
     candidateReplayEffect,
     "action_long",
     20,
-    8,
+    60,
   );
+  const mainLineMonthlyPerformance = mainLineMonthlyPerformanceAll.slice(0, 8);
+  const mainLineMonthlyHealth = monthlyPerformanceHealth(mainLineMonthlyPerformanceAll, 0.15);
   const candidateReplayCacheText = replayCacheText(candidateReplayEffect);
   const candidateReplayWindowLabel = candidateReplayEffect
     ? (
@@ -2794,6 +2797,24 @@ export function App() {
                         <span>固定主线月度表现</span>
                         <strong>{mainLineMonthlyPerformance[0].label}</strong>
                         <small>20日 / 简单相加 / 不复利</small>
+                      </div>
+                      <div className={`replay-monthly-health ${mainLineMonthlyHealth.status}`}>
+                        <div>
+                          <span>策略健康</span>
+                          <strong>{mainLineMonthlyHealth.statusLabel}</strong>
+                          <small>
+                            正收益月份 {mainLineMonthlyHealth.positiveMonths}/{mainLineMonthlyHealth.monthCount}
+                          </small>
+                        </div>
+                        <div>
+                          <span>总收益</span>
+                          <strong>{pct(mainLineMonthlyHealth.totalReturn)}</strong>
+                        </div>
+                        <div>
+                          <span>最深回撤</span>
+                          <strong>{pct(mainLineMonthlyHealth.maxDrawdown)}</strong>
+                          <small>红线 -{(mainLineMonthlyHealth.drawdownLimit * 100).toFixed(0)}%</small>
+                        </div>
                       </div>
                       <div className="replay-monthly-performance-list">
                         {mainLineMonthlyPerformance.map((row) => (

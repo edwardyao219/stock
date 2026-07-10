@@ -2628,6 +2628,57 @@ button {
   font-size: 14px;
 }
 
+.replay-monthly-health {
+  align-items: stretch;
+  border: 1px solid #dbe4ee;
+  border-left: 4px solid #94a3b8;
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(160px, 1.2fr) repeat(2, minmax(100px, 0.8fr));
+  padding: 9px;
+}
+
+.replay-monthly-health.healthy {
+  background: #fff7f6;
+  border-left-color: #c73535;
+}
+
+.replay-monthly-health.weak {
+  background: #fffaf0;
+  border-left-color: #d9921c;
+}
+
+.replay-monthly-health.risk {
+  background: #fff1ef;
+  border-left-color: #9f2d20;
+}
+
+.replay-monthly-health div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.replay-monthly-health span,
+.replay-monthly-health small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.replay-monthly-health strong {
+  color: #17202b;
+  font-size: 15px;
+}
+
+.replay-monthly-health.healthy strong {
+  color: #c73535;
+}
+
+.replay-monthly-health.risk strong {
+  color: #9f2d20;
+}
+
 .replay-monthly-performance-list {
   display: grid;
   gap: 5px;
