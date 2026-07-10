@@ -64,6 +64,7 @@ import {
   initialCandidateReplayQuery,
   lineStatusText,
   longCandidateReplayQuery,
+  monthlyDefenseSignals,
   monthlyPerformanceHealth,
   monthlyPerformanceRows,
   monthlyStrategyPkRows,
@@ -1567,6 +1568,7 @@ export function App() {
   );
   const mainLineMonthlyPerformance = mainLineMonthlyPerformanceAll.slice(0, 8);
   const mainLineMonthlyHealth = monthlyPerformanceHealth(mainLineMonthlyPerformanceAll, 0.15);
+  const mainLineDefenseSignals = monthlyDefenseSignals(mainLineMonthlyPerformanceAll, 0.1, 0.15, 6);
   const candidateReplayCacheText = replayCacheText(candidateReplayEffect);
   const candidateReplayWindowLabel = candidateReplayEffect
     ? (
@@ -2814,6 +2816,22 @@ export function App() {
                           <span>最深回撤</span>
                           <strong>{pct(mainLineMonthlyHealth.maxDrawdown)}</strong>
                           <small>红线 -{(mainLineMonthlyHealth.drawdownLimit * 100).toFixed(0)}%</small>
+                        </div>
+                      </div>
+                      <div className="replay-monthly-defense">
+                        <div className="replay-monthly-defense-head">
+                          <span>回撤防守信号</span>
+                          <strong>预警 -10% / 风险 -15%</strong>
+                        </div>
+                        <div className="replay-monthly-defense-list">
+                          {mainLineDefenseSignals.map((signal) => (
+                            <div className={`replay-monthly-defense-row ${signal.status}`} key={signal.month}>
+                              <span>{signal.month}</span>
+                              <strong>{signal.statusLabel}</strong>
+                              <small>{signal.actionLabel}</small>
+                              <small>{signal.reason}</small>
+                            </div>
+                          ))}
                         </div>
                       </div>
                       <div className="replay-monthly-performance-list">

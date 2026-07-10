@@ -1,5 +1,5 @@
 // @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
-import { monthlyPerformanceHealth, monthlyPerformanceRows } from "./replayInsights.ts";
+import { monthlyDefenseSignals, monthlyPerformanceHealth, monthlyPerformanceRows } from "./replayInsights.ts";
 import type { CandidateReplayEffectReport } from "./api";
 
 function assertClose(actual: number | null, expected: number, message: string) {
@@ -55,3 +55,16 @@ const risky = monthlyPerformanceHealth([
   ...rows.slice(1),
 ], 0.15);
 assertEqual(risky.status, "risk", "超过15回撤线要标风险");
+
+const defenseSignals = monthlyDefenseSignals(rows, 0.03, 0.15);
+assertEqual(defenseSignals[0].month, "2026-03", "防守信号保持最新月份在前");
+assertEqual(defenseSignals[0].status, "normal", "未触发回撤线正常运行");
+assertEqual(defenseSignals[1].status, "caution", "超过预警线进入收敛");
+assertEqual(defenseSignals[1].actionLabel, "次月核心收敛", "预警后不扩张");
+
+const riskSignals = monthlyDefenseSignals([
+  { ...rows[0], drawdown: -0.2, monthlyReturn: -0.12 },
+  ...rows.slice(1),
+]);
+assertEqual(riskSignals[0].status, "risk", "超过15回撤线进入防守");
+assertEqual(riskSignals[0].actionLabel, "次月暂停升级", "风险后暂停潜力升级");

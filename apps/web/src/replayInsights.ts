@@ -221,6 +221,17 @@ export interface MonthlyPerformanceHealth {
   statusLabel: string;
 }
 
+export interface MonthlyDefenseSignal {
+  month: string;
+  monthlyReturn: number | null;
+  drawdown: number;
+  status: "normal" | "caution" | "risk";
+  statusLabel: string;
+  actionLabel: string;
+  reason: string;
+  tone: ReplayTone;
+}
+
 const scopeOrder = [
   "action_long",
   "action",
@@ -300,6 +311,11 @@ export function lineStatusText(value: string | null | undefined) {
 function toneFor(value: number | null | undefined): ReplayTone {
   if (value === null || value === undefined || value === 0) return "neutral";
   return value > 0 ? "up" : "down";
+}
+
+function percentText(value: number | null | undefined) {
+  if (value === null || value === undefined) return "-";
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
 }
 
 function metricTotal(metric: ReplayReturnSummary | null | undefined) {
@@ -452,6 +468,29 @@ export function monthlyPerformanceHealth(
     status,
     statusLabel: status === "risk" ? "回撤超线" : status === "healthy" ? "趋势健康" : "收益偏弱",
   };
+}
+
+export function monthlyDefenseSignals(
+  rows: MonthlyPerformanceRow[],
+  warningLimit = 0.1,
+  riskLimit = 0.15,
+  limit = 6,
+): MonthlyDefenseSignal[] {
+  const warning = Math.abs(warningLimit);
+  const risk = Math.abs(riskLimit);
+  return rows.slice(0, limit).map((row) => {
+    const status = row.drawdown <= -risk ? "risk" : row.drawdown <= -warning ? "caution" : "normal";
+    return {
+      month: row.month,
+      monthlyReturn: row.monthlyReturn,
+      drawdown: row.drawdown,
+      status,
+      statusLabel: status === "risk" ? "防守" : status === "caution" ? "收敛" : "正常",
+      actionLabel: status === "risk" ? "次月暂停升级" : status === "caution" ? "次月核心收敛" : "次月正常跟随",
+      reason: `月收益 ${percentText(row.monthlyReturn)} / 回撤 ${percentText(row.drawdown)}`,
+      tone: status === "risk" ? "down" : status === "caution" ? "neutral" : row.tone,
+    };
+  });
 }
 
 function hasPositiveMetric(metric: ReplayReturnSummary | null | undefined) {

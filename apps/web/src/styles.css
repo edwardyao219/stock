@@ -2679,6 +2679,67 @@ button {
   color: #9f2d20;
 }
 
+.replay-monthly-defense {
+  border: 1px solid #dbe4ee;
+  border-radius: 7px;
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+}
+
+.replay-monthly-defense-head,
+.replay-monthly-defense-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.replay-monthly-defense-head span,
+.replay-monthly-defense-row span,
+.replay-monthly-defense-row small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.replay-monthly-defense-head strong {
+  color: #17202b;
+  font-size: 13px;
+}
+
+.replay-monthly-defense-list {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.replay-monthly-defense-row {
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 7px 8px;
+}
+
+.replay-monthly-defense-row strong {
+  color: #334155;
+  font-size: 14px;
+}
+
+.replay-monthly-defense-row.caution {
+  background: #fffaf0;
+  border-left-color: #d9921c;
+}
+
+.replay-monthly-defense-row.risk {
+  background: #fff1ef;
+  border-left-color: #9f2d20;
+}
+
+.replay-monthly-defense-row.risk strong {
+  color: #9f2d20;
+}
+
 .replay-monthly-performance-list {
   display: grid;
   gap: 5px;
