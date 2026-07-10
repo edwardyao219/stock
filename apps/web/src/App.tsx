@@ -32,6 +32,7 @@ import {
   fetchSectorCatalysts,
   fetchSectorOverview,
   fetchStrategyFit,
+  fetchTrackingSignalSummary,
   fetchTrackingSnapshots,
   fetchWorkspaceStocks,
   ManualRefresh,
@@ -51,6 +52,7 @@ import {
   StrategyFitMetric,
   StrategyFitReport,
   TrackingSnapshot,
+  TrackingSignalSummary,
   WorkspaceStock,
 } from "./api";
 import {
@@ -1179,6 +1181,8 @@ export function App() {
   const [strategyFit, setStrategyFit] = useState<StrategyFitReport | null>(null);
   const [strategyFitError, setStrategyFitError] = useState<string | null>(null);
   const [trackingHistory, setTrackingHistory] = useState<TrackingSnapshot[]>([]);
+  const [trackingSignalSummary, setTrackingSignalSummary] =
+    useState<TrackingSignalSummary | null>(null);
   const [trackingHistoryLoading, setTrackingHistoryLoading] = useState(false);
   const [trackingHistoryError, setTrackingHistoryError] = useState<string | null>(null);
   const [trackingSnapshotCreating, setTrackingSnapshotCreating] = useState(false);
@@ -1333,6 +1337,14 @@ export function App() {
     };
   }, [boardFilteredStocks, marketOverview?.trade_date]);
 
+  async function loadTrackingSignalSummary() {
+    try {
+      setTrackingSignalSummary(await fetchTrackingSignalSummary("experiment", includeGrowthBoard));
+    } catch {
+      setTrackingSignalSummary(null);
+    }
+  }
+
   async function loadWorkspace(
     options: { refreshQuotes?: boolean; silent?: boolean; focusSymbol?: string } = {},
   ) {
@@ -1357,6 +1369,7 @@ export function App() {
       setIntradaySnapshots(
         await fetchIntradayCandidateSnapshots("experiment", includeGrowthBoard),
       );
+      await loadTrackingSignalSummary();
       setSelectedSymbol((current) => {
         if (options.focusSymbol && nextStocks.some((item) => item.symbol === options.focusSymbol)) {
           return options.focusSymbol;
@@ -1518,6 +1531,7 @@ export function App() {
     try {
       await createTrackingSnapshots("experiment", includeGrowthBoard);
       setTrackingHistory(await fetchTrackingSnapshots(symbol));
+      await loadTrackingSignalSummary();
       setLastRefreshedAt(new Date());
     } catch (exc) {
       setTrackingHistoryError(exc instanceof Error ? exc.message : "追踪快照生成失败");
@@ -2786,6 +2800,48 @@ export function App() {
               <small>透明规则，不做黑箱预测</small>
             </div>
           </div>
+
+          {trackingSignalSummary ? (
+            <div className="tracking-signal-summary">
+              <div className="tracking-signal-summary-head">
+                <div>
+                  <span>信号汇总</span>
+                  <strong>
+                    {trackingSignalSummary.aligned_count}/{trackingSignalSummary.symbol_count}
+                  </strong>
+                  <small>分价同向 / 已有快照股票</small>
+                </div>
+                <div>
+                  <span>背离</span>
+                  <strong>{trackingSignalSummary.divergent_count}</strong>
+                  <small>优先复核分涨价弱</small>
+                </div>
+                <div>
+                  <span>样本不足</span>
+                  <strong>{trackingSignalSummary.insufficient_count}</strong>
+                  <small>继续等收盘快照</small>
+                </div>
+              </div>
+              {trackingSignalSummary.items.length ? (
+                <div className="tracking-signal-samples">
+                  {trackingSignalSummary.items.slice(0, 4).map((item) => (
+                    <span className={item.signal_alignment_tone} key={item.symbol}>
+                      <b>{item.symbol} {item.name ?? ""}</b>
+                      <em>{item.signal_alignment_label}</em>
+                      <small>
+                        分{" "}
+                        {item.score_delta === null
+                          ? "-"
+                          : `${item.score_delta >= 0 ? "+" : ""}${item.score_delta.toFixed(1)}`}
+                        {" / "}
+                        价 {pctPoint(item.simple_return_pct)}
+                      </small>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="tracking-workspace">
             <div className="tracking-list">

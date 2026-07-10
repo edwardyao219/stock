@@ -338,6 +338,27 @@ export interface TrackingSnapshotRun {
   symbols: string[];
 }
 
+export interface TrackingSignalItem {
+  symbol: string;
+  name: string | null;
+  industry: string | null;
+  latest_snapshot_date: string | null;
+  sample_count: number;
+  score_delta: number | null;
+  simple_return_pct: number | null;
+  signal_alignment_key: string;
+  signal_alignment_label: string;
+  signal_alignment_tone: "good" | "warn" | "bad" | "neutral" | string;
+}
+
+export interface TrackingSignalSummary {
+  symbol_count: number;
+  aligned_count: number;
+  divergent_count: number;
+  insufficient_count: number;
+  items: TrackingSignalItem[];
+}
+
 export interface IntradayCandidate {
   symbol: string;
   name: string | null;
@@ -1151,6 +1172,21 @@ export function fetchTrackingSnapshots(symbol: string, limit = 120) {
   const params = new URLSearchParams({ limit: String(limit) });
   return request<TrackingSnapshot[]>(
     `/workspace/tracking-snapshots/${encodeURIComponent(symbol)}?${params.toString()}`,
+  );
+}
+
+export function fetchTrackingSignalSummary(
+  poolName = "experiment",
+  includeGrowthBoard = false,
+  limitPerSymbol = 18,
+) {
+  const params = new URLSearchParams({
+    pool_name: poolName,
+    limit_per_symbol: String(limitPerSymbol),
+  });
+  if (includeGrowthBoard) params.set("include_growth_board", "true");
+  return request<TrackingSignalSummary>(
+    `/workspace/tracking-snapshots/summary?${params.toString()}`,
   );
 }
 

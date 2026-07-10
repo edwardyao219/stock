@@ -5,11 +5,13 @@ from sqlalchemy.orm import sessionmaker
 
 from apps.api.app.routers.workspace import (
     create_tracking_snapshots,
+    list_tracking_signal_summary,
     list_tracking_snapshot_history,
 )
 from services.engine.tracking.repository import (
     build_tracking_snapshot_payload,
     list_tracking_snapshots,
+    summarize_tracking_signal_alignment,
     upsert_tracking_snapshot,
 )
 from services.engine.workspace.repository import WorkspaceItem
@@ -135,6 +137,52 @@ def test_list_tracking_snapshots_returns_recent_first() -> None:
         assert rows[0].symbol == "002558"
 
 
+def test_summarize_tracking_signal_alignment_counts_divergence() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def row(symbol: str, day: int, score: float, price: float) -> StockTrackingSnapshot:
+        return StockTrackingSnapshot(
+            symbol=symbol,
+            snapshot_date=date(2026, 7, day),
+            stage="watching",
+            stage_label="持续观察",
+            tracking_score=score,
+            current_price=price,
+            latest_close=price,
+            name=f"{symbol}测试",
+            industry="电子",
+            metrics_json={},
+            evidence_json={"items": []},
+            risks_json={"items": []},
+            source_json={},
+        )
+
+    with session() as db:
+        db.add_all(
+            [
+                row("000001", 1, 60, 10),
+                row("000001", 2, 66, 11),
+                row("000002", 1, 58, 10),
+                row("000002", 2, 64, 9.6),
+                row("000003", 2, 70, 8),
+            ]
+        )
+        db.commit()
+
+        summary = summarize_tracking_signal_alignment(db, symbols=["000001", "000002", "000003"])
+
+        assert summary.symbol_count == 3
+        assert summary.aligned_count == 1
+        assert summary.divergent_count == 1
+        assert summary.insufficient_count == 1
+        assert summary.items[0].symbol == "000002"
+        assert summary.items[0].signal_alignment_label == "分涨价弱"
+        assert summary.items[1].symbol == "000001"
+        assert summary.items[1].signal_alignment_label == "分价同向"
+
+
 def test_workspace_api_creates_and_reads_tracking_snapshots() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -211,3 +259,75 @@ def test_workspace_api_creates_and_reads_tracking_snapshots() -> None:
         assert history[0].stage_label == "启动确认"
         assert history[0].tracking_score >= 75
         assert history[0].metrics["trend_score"] == 82
+
+
+def test_workspace_api_returns_tracking_signal_summary() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(Security(symbol="000001", name="一号股份", exchange="SZ", industry="电子"))
+        db.add(Security(symbol="000002", name="二号股份", exchange="SZ", industry="电子"))
+        for symbol in ["000001", "000002"]:
+            db.add(
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol=symbol,
+                    status="active",
+                    tags_json={"tags": ["manual_focus"]},
+                )
+            )
+        db.add_all(
+            [
+                StockTrackingSnapshot(
+                    symbol="000001",
+                    snapshot_date=date(2026, 7, 1),
+                    stage="watching",
+                    stage_label="持续观察",
+                    tracking_score=60,
+                    current_price=10,
+                    name="一号股份",
+                    industry="电子",
+                ),
+                StockTrackingSnapshot(
+                    symbol="000001",
+                    snapshot_date=date(2026, 7, 2),
+                    stage="watching",
+                    stage_label="持续观察",
+                    tracking_score=65,
+                    current_price=10.8,
+                    name="一号股份",
+                    industry="电子",
+                ),
+                StockTrackingSnapshot(
+                    symbol="000002",
+                    snapshot_date=date(2026, 7, 1),
+                    stage="watching",
+                    stage_label="持续观察",
+                    tracking_score=60,
+                    current_price=10,
+                    name="二号股份",
+                    industry="电子",
+                ),
+                StockTrackingSnapshot(
+                    symbol="000002",
+                    snapshot_date=date(2026, 7, 2),
+                    stage="watching",
+                    stage_label="持续观察",
+                    tracking_score=66,
+                    current_price=9.8,
+                    name="二号股份",
+                    industry="电子",
+                ),
+            ]
+        )
+        db.commit()
+
+        summary = list_tracking_signal_summary(db=db, pool_name="experiment")
+
+        assert summary.symbol_count == 2
+        assert summary.aligned_count == 1
+        assert summary.divergent_count == 1
+        assert summary.items[0].symbol == "000002"
+        assert summary.items[0].signal_alignment_label == "分涨价弱"

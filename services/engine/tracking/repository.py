@@ -32,6 +32,29 @@ class TrackingSnapshotPayload:
     source: dict[str, object]
 
 
+@dataclass(frozen=True)
+class TrackingSignalAlignmentItem:
+    symbol: str
+    name: str | None
+    industry: str | None
+    latest_snapshot_date: date | None
+    sample_count: int
+    score_delta: float | None
+    simple_return_pct: float | None
+    signal_alignment_key: str
+    signal_alignment_label: str
+    signal_alignment_tone: str
+
+
+@dataclass(frozen=True)
+class TrackingSignalAlignmentSummary:
+    symbol_count: int
+    aligned_count: int
+    divergent_count: int
+    insufficient_count: int
+    items: list[TrackingSignalAlignmentItem]
+
+
 STAGE_LABELS = {
     "trend_holding": "趋势持有",
     "startup_confirming": "启动确认",
@@ -108,7 +131,11 @@ def _stage(item: WorkspaceItem, tracking_score: float) -> str:
         return "risk_review"
     if _has_open_trade(item) and tracking_score >= 55:
         return "trend_holding"
-    if _has_action_plan(item) or item.candidate_tier == "core_action" or (item.startup_signal_score or 0.0) >= 75:
+    if (
+        _has_action_plan(item)
+        or item.candidate_tier == "core_action"
+        or (item.startup_signal_score or 0.0) >= 75
+    ):
         return "startup_confirming"
     if _is_next_session_candidate(item) or item.candidate_tier == "watch_wait":
         return "watching"
@@ -135,12 +162,20 @@ def _risks(item: WorkspaceItem) -> list[str]:
 def _evidence(item: WorkspaceItem) -> list[str]:
     lines = [
         f"板块 {item.industry or '-'} / 强度 {_score(item.sector_strength_score)}",
-        f"趋势 {_score(item.trend_score)} / 质量 {_score(item.trend_quality_score)} / 相对强度 {_score(item.relative_strength_score)}",
+        (
+            f"趋势 {_score(item.trend_score)} / 质量 {_score(item.trend_quality_score)}"
+            f" / 相对强度 {_score(item.relative_strength_score)}"
+        ),
         f"量能 {_score(item.volume_confirmation_score)} / 5日量比 {_score(item.amount_ratio_5d)}",
-        f"今日 {_pct(item.day_change_pct)} / 5日 {_pct(item.return_5d)} / 20日 {_pct(item.return_20d)}",
+        (
+            f"今日 {_pct(item.day_change_pct)} / 5日 {_pct(item.return_5d)}"
+            f" / 20日 {_pct(item.return_20d)}"
+        ),
     ]
     if item.candidate_score is not None:
-        lines.append(f"候选 {_score(item.candidate_score)} / 启动 {_score(item.startup_signal_score)}")
+        lines.append(
+            f"候选 {_score(item.candidate_score)} / 启动 {_score(item.startup_signal_score)}"
+        )
     if item.route_label:
         lines.append(f"路线 {item.route_label}：{item.route_reason or '-'}")
     return lines
@@ -250,4 +285,119 @@ def list_tracking_snapshots(
             .order_by(desc(StockTrackingSnapshot.snapshot_date))
             .limit(limit)
         ).scalars()
+    )
+
+
+def _snapshot_price(row: StockTrackingSnapshot) -> float | None:
+    price = row.current_price if row.current_price is not None else row.latest_close
+    return price if price is not None and price > 0 else None
+
+
+def _round_one(value: float) -> float:
+    return round(value, 1)
+
+
+def _signal_alignment(
+    score_delta: float | None,
+    simple_return_pct: float | None,
+) -> tuple[str, str, str]:
+    if score_delta is None or simple_return_pct is None:
+        return "insufficient", "样本不足", "neutral"
+    if (score_delta > 0 and simple_return_pct > 0) or (score_delta < 0 and simple_return_pct < 0):
+        return "aligned", "分价同向", "good"
+    if score_delta > 0 and simple_return_pct <= 0:
+        return "score_up_price_weak", "分涨价弱", "bad"
+    if score_delta < 0 and simple_return_pct >= 0:
+        return "score_down_price_strong", "分弱价强", "warn"
+    return "neutral", "继续观察", "neutral"
+
+
+def _alignment_sort_rank(item: TrackingSignalAlignmentItem) -> tuple[int, float]:
+    ranks = {
+        "score_up_price_weak": 0,
+        "score_down_price_strong": 1,
+        "aligned": 2,
+        "neutral": 3,
+        "insufficient": 4,
+    }
+    return (
+        ranks.get(item.signal_alignment_key, 9),
+        -(abs(item.score_delta or 0.0) + abs(item.simple_return_pct or 0.0)),
+    )
+
+
+def summarize_tracking_signal_alignment(
+    db: Session,
+    *,
+    symbols: list[str] | None = None,
+    limit_per_symbol: int = 18,
+    item_limit: int = 20,
+) -> TrackingSignalAlignmentSummary:
+    if symbols is not None and not symbols:
+        return TrackingSignalAlignmentSummary(0, 0, 0, 0, [])
+
+    stmt = select(StockTrackingSnapshot).order_by(
+        StockTrackingSnapshot.symbol,
+        desc(StockTrackingSnapshot.snapshot_date),
+    )
+    if symbols is not None:
+        stmt = stmt.where(StockTrackingSnapshot.symbol.in_(symbols))
+
+    grouped: dict[str, list[StockTrackingSnapshot]] = {}
+    for row in db.execute(stmt).scalars():
+        rows = grouped.setdefault(row.symbol, [])
+        if len(rows) < limit_per_symbol:
+            rows.append(row)
+
+    items: list[TrackingSignalAlignmentItem] = []
+    for symbol, recent_rows in grouped.items():
+        rows = list(reversed(recent_rows))
+        usable = [
+            row
+            for row in rows
+            if row.tracking_score is not None and _snapshot_price(row) is not None
+        ]
+        first = usable[0] if len(usable) >= 2 else None
+        latest = usable[-1] if len(usable) >= 2 else None
+        score_delta = (
+            None
+            if first is None or latest is None
+            else _round_one(float(latest.tracking_score) - float(first.tracking_score))
+        )
+        if first is None or latest is None:
+            simple_return_pct = None
+        else:
+            first_price = _snapshot_price(first) or 1.0
+            latest_price = _snapshot_price(latest) or 0.0
+            simple_return_pct = _round_one(((latest_price - first_price) / first_price) * 100)
+        key, label, tone = _signal_alignment(score_delta, simple_return_pct)
+        last_row = recent_rows[0]
+        items.append(
+            TrackingSignalAlignmentItem(
+                symbol=symbol,
+                name=last_row.name,
+                industry=last_row.industry,
+                latest_snapshot_date=last_row.snapshot_date,
+                sample_count=len(usable),
+                score_delta=score_delta,
+                simple_return_pct=simple_return_pct,
+                signal_alignment_key=key,
+                signal_alignment_label=label,
+                signal_alignment_tone=tone,
+            )
+        )
+
+    aligned_count = sum(1 for item in items if item.signal_alignment_key == "aligned")
+    divergent_count = sum(
+        1
+        for item in items
+        if item.signal_alignment_key in {"score_up_price_weak", "score_down_price_strong"}
+    )
+    insufficient_count = sum(1 for item in items if item.signal_alignment_key == "insufficient")
+    return TrackingSignalAlignmentSummary(
+        symbol_count=len(items),
+        aligned_count=aligned_count,
+        divergent_count=divergent_count,
+        insufficient_count=insufficient_count,
+        items=sorted(items, key=_alignment_sort_rank)[:item_limit],
     )

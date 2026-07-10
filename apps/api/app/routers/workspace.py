@@ -22,6 +22,7 @@ from services.engine.research_pool.repository import (
 from services.engine.tracking.repository import (
     build_tracking_snapshot_payload,
     list_tracking_snapshots,
+    summarize_tracking_signal_alignment,
     upsert_tracking_snapshot,
 )
 from services.engine.workspace.repository import (
@@ -450,6 +451,27 @@ class TrackingSnapshotRunResponse(BaseModel):
     symbols: list[str]
 
 
+class TrackingSignalItemResponse(BaseModel):
+    symbol: str
+    name: str | None
+    industry: str | None
+    latest_snapshot_date: str | None
+    sample_count: int
+    score_delta: float | None
+    simple_return_pct: float | None
+    signal_alignment_key: str
+    signal_alignment_label: str
+    signal_alignment_tone: str
+
+
+class TrackingSignalSummaryResponse(BaseModel):
+    symbol_count: int
+    aligned_count: int
+    divergent_count: int
+    insufficient_count: int
+    items: list[TrackingSignalItemResponse]
+
+
 class ManualStockRequest(BaseModel):
     symbol: str
     note: str | None = None
@@ -620,6 +642,24 @@ def _tracking_snapshot_response(row) -> TrackingSnapshotResponse:
         evidence=(row.evidence_json or {}).get("items", []),
         risks=(row.risks_json or {}).get("items", []),
         source=row.source_json or {},
+    )
+
+
+def _tracking_signal_item_response(item) -> TrackingSignalItemResponse:
+    latest_snapshot_date = (
+        item.latest_snapshot_date.isoformat() if item.latest_snapshot_date else None
+    )
+    return TrackingSignalItemResponse(
+        symbol=item.symbol,
+        name=item.name,
+        industry=item.industry,
+        latest_snapshot_date=latest_snapshot_date,
+        sample_count=item.sample_count,
+        score_delta=item.score_delta,
+        simple_return_pct=item.simple_return_pct,
+        signal_alignment_key=item.signal_alignment_key,
+        signal_alignment_label=item.signal_alignment_label,
+        signal_alignment_tone=item.signal_alignment_tone,
     )
 
 
@@ -1060,6 +1100,34 @@ def create_tracking_snapshots(
         snapshot_date=target_date.isoformat(),
         created_count=len(rows),
         symbols=[row.symbol for row in rows],
+    )
+
+
+@router.get("/tracking-snapshots/summary", response_model=TrackingSignalSummaryResponse)
+def list_tracking_signal_summary(
+    db: DbSession,
+    pool_name: str = "experiment",
+    limit_per_symbol: Annotated[int, Query(ge=2, le=60)] = 18,
+    item_limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    include_growth_board: bool = False,
+) -> TrackingSignalSummaryResponse:
+    symbols = load_workspace_symbols(
+        db,
+        pool_name=pool_name,
+        include_growth_board=include_growth_board,
+    )
+    summary = summarize_tracking_signal_alignment(
+        db,
+        symbols=symbols,
+        limit_per_symbol=limit_per_symbol,
+        item_limit=item_limit,
+    )
+    return TrackingSignalSummaryResponse(
+        symbol_count=summary.symbol_count,
+        aligned_count=summary.aligned_count,
+        divergent_count=summary.divergent_count,
+        insufficient_count=summary.insufficient_count,
+        items=[_tracking_signal_item_response(item) for item in summary.items],
     )
 
 

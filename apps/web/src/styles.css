@@ -1739,6 +1739,85 @@ button {
   margin: 4px 0;
 }
 
+.tracking-signal-summary {
+  border: 1px solid #e1e8ef;
+  border-radius: 8px;
+  background: #ffffff;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px;
+}
+
+.tracking-signal-summary-head,
+.tracking-signal-samples {
+  display: grid;
+  gap: 8px;
+}
+
+.tracking-signal-summary-head {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tracking-signal-summary-head div,
+.tracking-signal-samples span {
+  border: 1px solid #e6ecf2;
+  border-radius: 7px;
+  background: #f8fafc;
+  min-width: 0;
+  padding: 8px;
+}
+
+.tracking-signal-summary span,
+.tracking-signal-summary small {
+  color: #64748b;
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.tracking-signal-summary strong,
+.tracking-signal-samples b,
+.tracking-signal-samples em {
+  color: #17202b;
+  display: block;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracking-signal-summary strong {
+  font-size: 18px;
+  margin: 2px 0;
+}
+
+.tracking-signal-samples {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tracking-signal-samples b {
+  font-size: 12px;
+}
+
+.tracking-signal-samples em {
+  font-size: 13px;
+  margin: 2px 0;
+}
+
+.tracking-signal-samples .good em {
+  color: #c73535;
+}
+
+.tracking-signal-samples .warn em {
+  color: #b76b00;
+}
+
+.tracking-signal-samples .bad em {
+  color: #1f8a55;
+}
+
 .tracking-workspace {
   display: grid;
   grid-template-columns: minmax(420px, 0.9fr) minmax(0, 1.35fr);
@@ -4664,6 +4743,9 @@ textarea {
   .paper-trade-head,
   .paper-trade-row,
   .tracking-summary-grid,
+  .tracking-signal-summary,
+  .tracking-signal-summary-head,
+  .tracking-signal-samples,
   .tracking-list-head,
   .tracking-row,
   .tracking-history-summary-grid,
