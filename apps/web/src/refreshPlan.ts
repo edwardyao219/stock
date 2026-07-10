@@ -1,4 +1,4 @@
-export type RefreshPageKey = "stocks" | "paper" | "sectors";
+export type RefreshPageKey = "stocks" | "tracking" | "paper" | "sectors";
 
 export type AutoRefreshPlan = {
   workspace: boolean;

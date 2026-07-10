@@ -86,6 +86,11 @@ import {
   manualTagTextForStock,
   styleLabelForValue,
 } from "./stockLabels";
+import {
+  buildStockTrackingProfile,
+  sortStockTrackingProfiles,
+  StockTrackingProfile,
+} from "./stockTracking";
 import { buildAutoRefreshPlan } from "./refreshPlan";
 
 const AUTO_REFRESH_MS = 15_000;
@@ -106,6 +111,7 @@ const strategyLabels: Record<string, string> = {
 
 const pageItems = [
   { key: "stocks", label: "股票" },
+  { key: "tracking", label: "个股追踪" },
   { key: "paper", label: "实盘模拟" },
   { key: "sectors", label: "板块" },
 ] as const;
@@ -1222,6 +1228,19 @@ export function App() {
       });
   }, [boardFilteredStocks]);
 
+  const trackingProfiles = useMemo(
+    () => sortStockTrackingProfiles(boardFilteredStocks.map(buildStockTrackingProfile)),
+    [boardFilteredStocks],
+  );
+
+  const selectedTrackingProfile = useMemo(
+    () =>
+      trackingProfiles.find((item) => item.symbol === selectedSymbol) ??
+      trackingProfiles[0] ??
+      null,
+    [selectedSymbol, trackingProfiles],
+  );
+
   const selectedIndustry = selected?.industry ?? null;
   const selectedSymbolValue = selected?.symbol ?? null;
 
@@ -1552,6 +1571,12 @@ export function App() {
     const trade = primaryPaperTrade(item);
     return trade?.status === "closed" && trade.exit_date === marketOverview?.trade_date;
   }).length;
+  const trackingHoldingCount = trackingProfiles.filter((item) => item.stage === "trend_holding").length;
+  const trackingStartupCount = trackingProfiles.filter((item) => item.stage === "startup_confirming").length;
+  const trackingRiskCount = trackingProfiles.filter((item) => item.stage === "risk_review").length;
+  const trackingAverageScore = trackingProfiles.length
+    ? trackingProfiles.reduce((total, item) => total + item.score, 0) / trackingProfiles.length
+    : null;
   const selectedTrade = selected ? primaryPaperTrade(selected) : null;
   const selectedTradeReturn = selected
     ? tradeReturnPct(selectedTrade, selected.latest_close)
@@ -1731,6 +1756,30 @@ export function App() {
               ? `置信 ${price(rowPlan.confidence_score)} / 止损 ${price(rowPlan.initial_stop)}`
               : `候选分数 ${scoreText(item.candidate_score)}`}
           </small>
+        </span>
+      </button>
+    );
+  }
+
+  function renderTrackingRow(profile: StockTrackingProfile) {
+    return (
+      <button
+        className={`tracking-row ${profile.stage} ${selectedTrackingProfile?.symbol === profile.symbol ? "selected" : ""}`}
+        key={profile.symbol}
+        type="button"
+        onClick={() => setSelectedSymbol(profile.symbol)}
+      >
+        <span>
+          <strong>{profile.symbol} {profile.name ?? ""}</strong>
+          <small>{profile.industry ?? "暂无行业"}</small>
+        </span>
+        <span>
+          <strong>{profile.stageLabel}</strong>
+          <small>{profile.nextAction}</small>
+        </span>
+        <span>
+          <strong className={profile.scoreTone}>{profile.score.toFixed(1)}</strong>
+          <small>{profile.evidence[0] ?? "暂无追踪证据"}</small>
         </span>
       </button>
     );
@@ -2603,6 +2652,133 @@ export function App() {
         </aside>
       </section>
         </>
+      ) : null}
+
+      {activePage === "tracking" ? (
+        <section className="page-panel tracking-workspace-panel">
+          <div className="panel-head">
+            <div>
+              <span>个股追踪</span>
+              <h3>中长期生命周期档案</h3>
+            </div>
+            <span>
+              {marketOverview?.trade_date ? `交易日 ${marketOverview.trade_date}` : "暂无交易日"}
+              {lastRefreshedAt ? ` / 更新 ${timeText(lastRefreshedAt)}` : ""}
+            </span>
+          </div>
+
+          <div className="tracking-summary-grid">
+            <div>
+              <span>趋势持有</span>
+              <strong>{trackingHoldingCount}</strong>
+              <small>继续看主线和承接</small>
+            </div>
+            <div>
+              <span>启动确认</span>
+              <strong>{trackingStartupCount}</strong>
+              <small>等板块、趋势、量能同向</small>
+            </div>
+            <div>
+              <span>风险复核</span>
+              <strong>{trackingRiskCount}</strong>
+              <small>只做复盘样本</small>
+            </div>
+            <div>
+              <span>平均追踪分</span>
+              <strong>{trackingAverageScore === null ? "-" : trackingAverageScore.toFixed(1)}</strong>
+              <small>透明规则，不做黑箱预测</small>
+            </div>
+          </div>
+
+          <div className="tracking-workspace">
+            <div className="tracking-list">
+              <div className="tracking-list-head">
+                <span>股票</span>
+                <span>阶段</span>
+                <span>追踪分</span>
+              </div>
+              {loading ? <div className="empty">加载中</div> : null}
+              {!loading && !trackingProfiles.length ? (
+                <div className="empty">暂无可追踪股票</div>
+              ) : null}
+              {!loading ? trackingProfiles.map(renderTrackingRow) : null}
+            </div>
+
+            <aside className="tracking-detail">
+              {selectedTrackingProfile ? (
+                <>
+                  <div className={`tracking-hero ${selectedTrackingProfile.stage}`}>
+                    <div>
+                      <span>{selectedTrackingProfile.stageLabel}</span>
+                      <h3>{selectedTrackingProfile.symbol} {selectedTrackingProfile.name ?? ""}</h3>
+                      <p>{selectedTrackingProfile.industry ?? "暂无行业"} / 追踪分 {selectedTrackingProfile.score.toFixed(1)}</p>
+                    </div>
+                    <strong className={selectedTrackingProfile.scoreTone}>
+                      {selectedTrackingProfile.score.toFixed(1)}
+                    </strong>
+                  </div>
+
+                  <div className="tracking-metric-grid">
+                    {selectedTrackingProfile.metrics.map((metric) => (
+                      <div className={`tracking-metric ${metric.tone}`} key={metric.label}>
+                        <span>{metric.label}</span>
+                        <strong>{metric.value}</strong>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="tracking-two-column">
+                    <section>
+                      <div className="section-title">
+                        <ClipboardList size={16} />
+                        <h3>继续跟踪的证据</h3>
+                      </div>
+                      <ul>
+                        {selectedTrackingProfile.evidence.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </section>
+                    <section>
+                      <div className="section-title">
+                        <ClipboardList size={16} />
+                        <h3>风险和降级条件</h3>
+                      </div>
+                      <ul>
+                        {selectedTrackingProfile.risks.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </section>
+                  </div>
+
+                  <section className="tracking-action">
+                    <span>下一步</span>
+                    <strong>{selectedTrackingProfile.nextAction}</strong>
+                  </section>
+
+                  <div className="tracking-timeline">
+                    {selectedTrackingProfile.timeline.map((item) => (
+                      <section className={`tracking-timeline-item ${item.tone}`} key={`${item.title}-${item.date ?? "none"}`}>
+                        <div>
+                          <span>{item.date ?? "-"}</span>
+                          <strong>{item.title}</strong>
+                        </div>
+                        <ul>
+                          {item.lines.map((line) => (
+                            <li key={line}>{line}</li>
+                          ))}
+                        </ul>
+                      </section>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="empty">选择一只股票查看追踪档案</div>
+              )}
+            </aside>
+          </div>
+        </section>
       ) : null}
 
       {activePage === "paper" ? (
