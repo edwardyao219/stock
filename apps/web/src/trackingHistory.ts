@@ -39,6 +39,10 @@ export interface TrackingPathSummary {
   tone: TrackingTone;
   verdictLabel: string;
   insight: string;
+  priceSampleCount: number;
+  simpleReturnPct: number | null;
+  maxPriceDrawdownPct: number | null;
+  outcomeTone: TrackingTone;
 }
 
 function scoreTone(delta: number | null): TrackingHistorySummaryItem["tone"] {
@@ -145,6 +149,18 @@ function pathInsight(
   return `最新 ${latestScore.toFixed(1)}，高点回落 ${currentDrawdown.toFixed(1)}，${stageText}`;
 }
 
+function snapshotPrice(item: TrackingSnapshot) {
+  const price = item.current_price ?? item.latest_close;
+  return price !== null && price > 0 ? price : null;
+}
+
+function priceOutcomeTone(simpleReturnPct: number | null, maxDrawdownPct: number | null): TrackingTone {
+  if (simpleReturnPct === null) return "neutral";
+  if (simpleReturnPct > 0 && (maxDrawdownPct ?? 0) <= 12) return "good";
+  if (simpleReturnPct < 0 || (maxDrawdownPct ?? 0) >= 25) return "bad";
+  return "warn";
+}
+
 export function buildTrackingPathSummary(
   history: TrackingSnapshot[],
   limit = 18,
@@ -184,6 +200,24 @@ export function buildTrackingPathSummary(
     highScore === null || latestScore === null ? null : roundOne(highScore - latestScore);
   const stageTrail = buildStageTrail(items);
   const tone = pathTone(latest, currentDrawdown);
+  const priceItems = items
+    .map((item) => snapshotPrice(item))
+    .filter((price): price is number => price !== null);
+  const firstPrice = priceItems[0] ?? null;
+  const latestPrice = priceItems[priceItems.length - 1] ?? null;
+  const simpleReturnPct =
+    firstPrice === null || latestPrice === null || priceItems.length < 2
+      ? null
+      : roundOne(((latestPrice - firstPrice) / firstPrice) * 100);
+  let runningHighPrice = priceItems[0] ?? null;
+  let maxPriceDrawdownPct = 0;
+  for (const price of priceItems) {
+    runningHighPrice = runningHighPrice === null ? price : Math.max(runningHighPrice, price);
+    if (runningHighPrice > 0) {
+      maxPriceDrawdownPct = Math.max(maxPriceDrawdownPct, ((runningHighPrice - price) / runningHighPrice) * 100);
+    }
+  }
+  const roundedMaxPriceDrawdownPct = priceItems.length >= 2 ? roundOne(maxPriceDrawdownPct) : null;
 
   return {
     sampleCount: items.length,
@@ -199,5 +233,9 @@ export function buildTrackingPathSummary(
     tone,
     verdictLabel: pathVerdict(tone),
     insight: pathInsight(items.length, latestScore, currentDrawdown, stageTrail),
+    priceSampleCount: priceItems.length,
+    simpleReturnPct,
+    maxPriceDrawdownPct: roundedMaxPriceDrawdownPct,
+    outcomeTone: priceOutcomeTone(simpleReturnPct, roundedMaxPriceDrawdownPct),
   };
 }

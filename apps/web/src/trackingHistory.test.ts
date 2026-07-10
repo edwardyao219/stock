@@ -81,3 +81,14 @@ assert(
   equalScorePath.points.every((point) => point.y === 50),
   "分数持平时折线应该居中，不能贴底误导成低位",
 );
+
+const pricedHistory = [10, 12, 11, 13, 10.4].map((price, index) => ({
+  ...snapshot(index),
+  current_price: price,
+  tracking_score: 60 + index,
+})).reverse();
+const pricedPath = buildTrackingPathSummary(pricedHistory, 18);
+assert(pricedPath.priceSampleCount === 5, "追踪路径需要统计可用价格样本");
+assert(pricedPath.simpleReturnPct === 4, "跟踪收益只按首尾快照价格计算，不算复利");
+assert(pricedPath.maxPriceDrawdownPct === 20, "价格回撤需要按窗口高点之后的最大跌幅计算");
+assert(pricedPath.outcomeTone === "warn", "有收益但回撤较大时需要提示谨慎");

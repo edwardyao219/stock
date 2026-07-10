@@ -15,6 +15,7 @@ assert(app.includes("tracking-candle-path"), "个股追踪页需要单独展示K
 assert(app.includes("trackingHistory"), "个股追踪页需要读取真实追踪快照历史");
 assert(app.includes("tracking-history-panel"), "个股追踪页需要独立展示追踪分变化");
 assert(app.includes("追踪路径"), "个股追踪页需要用路径视图表达单票跟踪质量");
+assert(app.includes("跟踪收益"), "个股追踪页需要展示真实价格表现，避免只看追踪分自循环");
 assert(app.includes("生成今日快照"), "个股追踪页需要提供手动生成今日快照入口");
 assert(!app.includes("{!loading ? trackingProfiles.map(renderTrackingRow) : null}"), "刷新中有旧追踪数据时也要继续展示列表");
 assert(styles.includes(".tracking-workspace-panel"), "个股追踪需要独立布局样式");

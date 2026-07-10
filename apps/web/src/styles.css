@@ -2101,6 +2101,18 @@ button {
   margin-top: 2px;
 }
 
+.tracking-path-stats span.good strong {
+  color: #c73535;
+}
+
+.tracking-path-stats span.warn strong {
+  color: #b76b00;
+}
+
+.tracking-path-stats span.bad strong {
+  color: #1f8a55;
+}
+
 .tracking-history-bars {
   display: grid;
   gap: 7px;

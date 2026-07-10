@@ -158,6 +158,11 @@ function pct(value: number | null | undefined) {
   return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
 }
 
+function pctPoint(value: number | null | undefined) {
+  if (value === null || value === undefined) return "-";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
 function replayBarWidth(value: number | null | undefined) {
   if (value === null || value === undefined) return 0;
   return Math.min(100, Math.max(8, Math.abs(value) * 250));
@@ -2904,6 +2909,22 @@ export function App() {
                             <span>
                               <small>阶段切换</small>
                               <strong>{trackingPathSummary.stageChangeCount}</strong>
+                            </span>
+                            <span className={trackingPathSummary.outcomeTone}>
+                              <small>跟踪收益</small>
+                              <strong>{pctPoint(trackingPathSummary.simpleReturnPct)}</strong>
+                            </span>
+                            <span>
+                              <small>价格回撤</small>
+                              <strong>
+                                {trackingPathSummary.maxPriceDrawdownPct === null
+                                  ? "-"
+                                  : `${trackingPathSummary.maxPriceDrawdownPct.toFixed(1)}%`}
+                              </strong>
+                            </span>
+                            <span>
+                              <small>价格样本</small>
+                              <strong>{trackingPathSummary.priceSampleCount}</strong>
                             </span>
                           </div>
                         </div>
