@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,6 +18,11 @@ from services.engine.research_pool.manual_research import (
 from services.engine.research_pool.repository import (
     add_symbols_to_pool,
     filter_latest_candidate_batch_items,
+)
+from services.engine.tracking.repository import (
+    build_tracking_snapshot_payload,
+    list_tracking_snapshots,
+    upsert_tracking_snapshot,
 )
 from services.engine.workspace.repository import (
     load_stock_workspace_item,
@@ -418,6 +423,33 @@ class WorkspaceStockResponse(BaseModel):
     manual_refresh: ManualRefreshResponse | None = None
 
 
+class TrackingSnapshotResponse(BaseModel):
+    symbol: str
+    snapshot_date: str
+    stage: str
+    stage_label: str
+    tracking_score: float | None
+    name: str | None
+    industry: str | None
+    sector_style: str | None
+    latest_trade_date: str | None
+    latest_close: float | None
+    current_price: float | None
+    day_change_pct: float | None
+    return_5d: float | None
+    return_20d: float | None
+    metrics: dict[str, object]
+    evidence: list[str]
+    risks: list[str]
+    source: dict[str, object]
+
+
+class TrackingSnapshotRunResponse(BaseModel):
+    snapshot_date: str
+    created_count: int
+    symbols: list[str]
+
+
 class ManualStockRequest(BaseModel):
     symbol: str
     note: str | None = None
@@ -565,6 +597,29 @@ def _to_response(
             for trade in item.recent_paper_trades
         ],
         manual_refresh=manual_refresh,
+    )
+
+
+def _tracking_snapshot_response(row) -> TrackingSnapshotResponse:
+    return TrackingSnapshotResponse(
+        symbol=row.symbol,
+        snapshot_date=row.snapshot_date.isoformat(),
+        stage=row.stage,
+        stage_label=row.stage_label,
+        tracking_score=row.tracking_score,
+        name=row.name,
+        industry=row.industry,
+        sector_style=row.sector_style,
+        latest_trade_date=row.latest_trade_date.isoformat() if row.latest_trade_date else None,
+        latest_close=row.latest_close,
+        current_price=row.current_price,
+        day_change_pct=row.day_change_pct,
+        return_5d=row.return_5d,
+        return_20d=row.return_20d,
+        metrics=row.metrics_json or {},
+        evidence=(row.evidence_json or {}).get("items", []),
+        risks=(row.risks_json or {}).get("items", []),
+        source=row.source_json or {},
     )
 
 
@@ -974,6 +1029,50 @@ def get_workspace_stock(
     if item is None:
         raise HTTPException(status_code=404, detail="股票不在工作台列表中")
     return _to_response(item)
+
+
+@router.post("/tracking-snapshots", response_model=TrackingSnapshotRunResponse)
+def create_tracking_snapshots(
+    db: DbSession,
+    pool_name: str = "experiment",
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    include_growth_board: bool = False,
+    snapshot_date: date | None = None,
+) -> TrackingSnapshotRunResponse:
+    target_date = snapshot_date or now_local().date()
+    market_stress = _live_market_stress_snapshot(db)
+    items = load_stock_workspace_items(
+        db,
+        pool_name=pool_name,
+        limit=limit,
+        include_growth_board=include_growth_board,
+        market_stress=market_stress,
+    )
+    rows = [
+        upsert_tracking_snapshot(
+            db,
+            build_tracking_snapshot_payload(item, snapshot_date=target_date),
+        )
+        for item in items
+    ]
+    db.commit()
+    return TrackingSnapshotRunResponse(
+        snapshot_date=target_date.isoformat(),
+        created_count=len(rows),
+        symbols=[row.symbol for row in rows],
+    )
+
+
+@router.get("/tracking-snapshots/{symbol}", response_model=list[TrackingSnapshotResponse])
+def list_tracking_snapshot_history(
+    symbol: str,
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=300)] = 120,
+) -> list[TrackingSnapshotResponse]:
+    return [
+        _tracking_snapshot_response(row)
+        for row in list_tracking_snapshots(db, symbol=symbol, limit=limit)
+    ]
 
 
 @router.post("/manual-stocks", response_model=WorkspaceStockResponse)

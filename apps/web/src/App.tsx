@@ -17,6 +17,7 @@ import {
   CandidateReplayEffectReport,
   DataHealth,
   addManualStock,
+  createTrackingSnapshots,
   fetchAfterCloseStatus,
   fetchCandidateReplayEffect,
   fetchCandles,
@@ -31,6 +32,7 @@ import {
   fetchSectorCatalysts,
   fetchSectorOverview,
   fetchStrategyFit,
+  fetchTrackingSnapshots,
   fetchWorkspaceStocks,
   ManualRefresh,
   IntradayCandidateList,
@@ -48,6 +50,7 @@ import {
   SectorOverviewItem,
   StrategyFitMetric,
   StrategyFitReport,
+  TrackingSnapshot,
   WorkspaceStock,
 } from "./api";
 import {
@@ -1103,6 +1106,31 @@ function dualLineLeaderText(value: string) {
   return "无明显领先";
 }
 
+function trackingSnapshotTone(item: TrackingSnapshot) {
+  if (item.stage === "risk_review") return "bad";
+  if (item.stage === "startup_confirming") return "warn";
+  if (item.stage === "trend_holding") return "good";
+  if ((item.tracking_score ?? 0) >= 70) return "good";
+  if ((item.tracking_score ?? 0) < 45) return "bad";
+  return "neutral";
+}
+
+function trackingHistoryBarWidth(value: number | null | undefined) {
+  if (value === null || value === undefined) return 6;
+  return Math.min(100, Math.max(6, value));
+}
+
+function trackingScoreDeltaText(
+  latest: TrackingSnapshot | null,
+  previous: TrackingSnapshot | null,
+) {
+  if (!latest || !previous || latest.tracking_score === null || previous.tracking_score === null) {
+    return "-";
+  }
+  const delta = latest.tracking_score - previous.tracking_score;
+  return `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}`;
+}
+
 export function App() {
   const [activePage, setActivePage] = useState<PageKey>("stocks");
   const [stocks, setStocks] = useState<WorkspaceStock[]>([]);
@@ -1144,6 +1172,10 @@ export function App() {
   const [ruleRegressionStatusError, setRuleRegressionStatusError] = useState<string | null>(null);
   const [strategyFit, setStrategyFit] = useState<StrategyFitReport | null>(null);
   const [strategyFitError, setStrategyFitError] = useState<string | null>(null);
+  const [trackingHistory, setTrackingHistory] = useState<TrackingSnapshot[]>([]);
+  const [trackingHistoryLoading, setTrackingHistoryLoading] = useState(false);
+  const [trackingHistoryError, setTrackingHistoryError] = useState<string | null>(null);
+  const [trackingSnapshotCreating, setTrackingSnapshotCreating] = useState(false);
   const [postCloseDrawerOpen, setPostCloseDrawerOpen] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
@@ -1242,6 +1274,9 @@ export function App() {
     [selectedSymbol, trackingProfiles],
   );
   const selectedCandleTrendPath = useMemo(() => buildCandleTrendPath(candles), [candles]);
+  const trackingHistoryOldestFirst = useMemo(() => [...trackingHistory].reverse(), [trackingHistory]);
+  const trackingHistoryLatest = trackingHistory[0] ?? null;
+  const trackingHistoryPrevious = trackingHistory[1] ?? null;
 
   const selectedIndustry = selected?.industry ?? null;
   const selectedSymbolValue = selected?.symbol ?? null;
@@ -1461,6 +1496,22 @@ export function App() {
     }
   }
 
+  async function generateTrackingSnapshot() {
+    const symbol = selectedTrackingProfile?.symbol;
+    if (!symbol) return;
+    setTrackingSnapshotCreating(true);
+    setTrackingHistoryError(null);
+    try {
+      await createTrackingSnapshots("experiment", includeGrowthBoard);
+      setTrackingHistory(await fetchTrackingSnapshots(symbol));
+      setLastRefreshedAt(new Date());
+    } catch (exc) {
+      setTrackingHistoryError(exc instanceof Error ? exc.message : "追踪快照生成失败");
+    } finally {
+      setTrackingSnapshotCreating(false);
+    }
+  }
+
   async function addManualFocus() {
     const symbol = manualSymbol.trim();
     if (!symbol) return;
@@ -1535,6 +1586,36 @@ export function App() {
     if (selected?.symbol) loadCandles(selected.symbol);
     setTradeDialogOpen(false);
   }, [selected?.symbol]);
+
+  useEffect(() => {
+    const symbol = selectedTrackingProfile?.symbol;
+    if (activePage !== "tracking" || !symbol) {
+      setTrackingHistory([]);
+      setTrackingHistoryError(null);
+      setTrackingHistoryLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setTrackingHistory([]);
+    setTrackingHistoryLoading(true);
+    setTrackingHistoryError(null);
+    fetchTrackingSnapshots(symbol)
+      .then((items) => {
+        if (!cancelled) setTrackingHistory(items);
+      })
+      .catch((exc) => {
+        if (!cancelled) {
+          setTrackingHistory([]);
+          setTrackingHistoryError(exc instanceof Error ? exc.message : "追踪历史加载失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTrackingHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePage, selectedTrackingProfile?.symbol]);
 
   const marketTrendText = mainIndexText(marketOverview);
   const marketWidthText = marketBreadthText(marketOverview);
@@ -2728,6 +2809,60 @@ export function App() {
                       </div>
                     ))}
                   </div>
+
+                  <section className="tracking-history-panel">
+                    <div className="tracking-history-head">
+                      <div>
+                        <span>追踪分变化</span>
+                        <strong>
+                          {trackingHistoryLatest?.tracking_score?.toFixed(1)
+                            ?? selectedTrackingProfile.score.toFixed(1)}
+                        </strong>
+                        <small>
+                          {trackingHistoryLatest
+                            ? `${trackingHistoryLatest.snapshot_date} / 较前次 ${trackingScoreDeltaText(
+                              trackingHistoryLatest,
+                              trackingHistoryPrevious,
+                            )} / ${trackingHistoryLatest.stage_label}`
+                            : "暂无历史快照，先生成今日快照"}
+                        </small>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={generateTrackingSnapshot}
+                        disabled={trackingSnapshotCreating}
+                      >
+                        <RefreshCw size={14} />
+                        {trackingSnapshotCreating ? "生成中" : "生成今日快照"}
+                      </button>
+                    </div>
+                    {trackingHistoryError ? (
+                      <small className="tracking-history-error">{uiText(trackingHistoryError)}</small>
+                    ) : null}
+                    {trackingHistoryLoading ? <div className="empty compact">追踪历史加载中</div> : null}
+                    {!trackingHistoryLoading && trackingHistoryOldestFirst.length ? (
+                      <div className="tracking-history-bars">
+                        {trackingHistoryOldestFirst.slice(-18).map((item) => (
+                          <div
+                            className={`tracking-history-row ${trackingSnapshotTone(item)}`}
+                            key={`${item.symbol}-${item.snapshot_date}`}
+                          >
+                            <span>{item.snapshot_date.slice(5)}</span>
+                            <b>
+                              <i style={{ width: `${trackingHistoryBarWidth(item.tracking_score)}%` }} />
+                            </b>
+                            <strong>
+                              {item.tracking_score === null ? "-" : item.tracking_score.toFixed(1)}
+                            </strong>
+                            <small>{item.stage_label}</small>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {!trackingHistoryLoading && !trackingHistoryOldestFirst.length ? (
+                      <div className="empty compact">还没有真实追踪快照</div>
+                    ) : null}
+                  </section>
 
                   <section className={`tracking-candle-path ${selectedCandleTrendPath.tone}`}>
                     <div className="section-title">

@@ -311,6 +311,33 @@ export interface WorkspaceStock {
   manual_refresh?: ManualRefresh | null;
 }
 
+export interface TrackingSnapshot {
+  symbol: string;
+  snapshot_date: string;
+  stage: string;
+  stage_label: string;
+  tracking_score: number | null;
+  name: string | null;
+  industry: string | null;
+  sector_style: string | null;
+  latest_trade_date: string | null;
+  latest_close: number | null;
+  current_price: number | null;
+  day_change_pct: number | null;
+  return_5d: number | null;
+  return_20d: number | null;
+  metrics: Record<string, unknown>;
+  evidence: string[];
+  risks: string[];
+  source: Record<string, unknown>;
+}
+
+export interface TrackingSnapshotRun {
+  snapshot_date: string;
+  created_count: number;
+  symbols: string[];
+}
+
 export interface IntradayCandidate {
   symbol: string;
   name: string | null;
@@ -1118,6 +1145,26 @@ export function refreshWorkspaceStocks(poolName = "experiment", includeGrowthBoa
   return request<WorkspaceStock[]>(`/workspace/refresh?${params.toString()}`, {
     method: "POST",
   }).then((items) => items.map(normalizeWorkspaceStock));
+}
+
+export function fetchTrackingSnapshots(symbol: string, limit = 120) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return request<TrackingSnapshot[]>(
+    `/workspace/tracking-snapshots/${encodeURIComponent(symbol)}?${params.toString()}`,
+  );
+}
+
+export function createTrackingSnapshots(
+  poolName = "experiment",
+  includeGrowthBoard = false,
+  snapshotDate?: string,
+) {
+  const params = new URLSearchParams({ pool_name: poolName });
+  if (includeGrowthBoard) params.set("include_growth_board", "true");
+  if (snapshotDate) params.set("snapshot_date", snapshotDate);
+  return request<TrackingSnapshotRun>(`/workspace/tracking-snapshots?${params.toString()}`, {
+    method: "POST",
+  });
 }
 
 export function fetchIntradayCandidates(

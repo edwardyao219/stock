@@ -1897,6 +1897,112 @@ button {
   margin-top: 4px;
 }
 
+.tracking-history-panel {
+  border: 1px solid #e1e8ef;
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.tracking-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tracking-history-head span,
+.tracking-history-head small,
+.tracking-history-error {
+  color: #64748b;
+  display: block;
+  font-size: 12px;
+}
+
+.tracking-history-head strong {
+  color: #17202b;
+  display: block;
+  font-size: 22px;
+  margin-top: 2px;
+}
+
+.tracking-history-head button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #cbd4df;
+  border-radius: 7px;
+  background: #fff;
+  color: #17202b;
+  min-width: 120px;
+  padding: 8px 10px;
+}
+
+.tracking-history-head button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.tracking-history-error {
+  color: #b91c1c;
+  margin-top: 8px;
+}
+
+.tracking-history-bars {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.tracking-history-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) 46px 72px;
+  gap: 8px;
+  align-items: center;
+}
+
+.tracking-history-row span,
+.tracking-history-row small {
+  color: #64748b;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracking-history-row strong {
+  color: #17202b;
+  font-size: 12px;
+  text-align: right;
+}
+
+.tracking-history-row b {
+  background: #eef2f7;
+  border-radius: 999px;
+  display: block;
+  height: 8px;
+  overflow: hidden;
+}
+
+.tracking-history-row i {
+  background: #64748b;
+  display: block;
+  height: 100%;
+}
+
+.tracking-history-row.good i {
+  background: #c73535;
+}
+
+.tracking-history-row.warn i {
+  background: #d18422;
+}
+
+.tracking-history-row.bad i {
+  background: #1f8a55;
+}
+
 .tracking-candle-path {
   border: 1px solid #e1e8ef;
   border-radius: 8px;
@@ -4360,6 +4466,7 @@ textarea {
   .tracking-summary-grid,
   .tracking-list-head,
   .tracking-row,
+  .tracking-history-row,
   .tracking-metric-grid,
   .tracking-candle-metrics,
   .tracking-candle-path-body,

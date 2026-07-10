@@ -1,0 +1,1 @@
+"""Stock tracking snapshot helpers."""

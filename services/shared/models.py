@@ -293,6 +293,37 @@ class LowDimensionalFeatureSnapshot(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class StockTrackingSnapshot(Base):
+    __tablename__ = "stock_tracking_snapshots"
+    __table_args__ = (
+        UniqueConstraint("symbol", "snapshot_date", name="uq_stock_tracking_symbol_date"),
+        Index("ix_stock_tracking_date_score", "snapshot_date", "tracking_score"),
+        Index("ix_stock_tracking_symbol_date", "symbol", "snapshot_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True)
+    stage: Mapped[str] = mapped_column(String(32), index=True)
+    stage_label: Mapped[str] = mapped_column(String(32))
+    tracking_score: Mapped[Optional[float]] = mapped_column(Float)
+    name: Mapped[Optional[str]] = mapped_column(String(64))
+    industry: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    sector_style: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    latest_trade_date: Mapped[Optional[date]] = mapped_column(Date, index=True)
+    latest_close: Mapped[Optional[float]] = mapped_column(Float)
+    current_price: Mapped[Optional[float]] = mapped_column(Float)
+    day_change_pct: Mapped[Optional[float]] = mapped_column(Float)
+    return_5d: Mapped[Optional[float]] = mapped_column(Float)
+    return_20d: Mapped[Optional[float]] = mapped_column(Float)
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    evidence_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    risks_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    source_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class CandidateDiscoverySnapshot(Base):
     __tablename__ = "candidate_discovery_snapshots"
     __table_args__ = (
