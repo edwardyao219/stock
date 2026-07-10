@@ -43,6 +43,10 @@ export interface TrackingPathSummary {
   simpleReturnPct: number | null;
   maxPriceDrawdownPct: number | null;
   outcomeTone: TrackingTone;
+  scoreDelta: number | null;
+  signalAlignmentLabel: string;
+  signalAlignmentTone: TrackingTone;
+  signalAlignmentText: string;
 }
 
 function scoreTone(delta: number | null): TrackingHistorySummaryItem["tone"] {
@@ -161,6 +165,52 @@ function priceOutcomeTone(simpleReturnPct: number | null, maxDrawdownPct: number
   return "warn";
 }
 
+function signalAlignment(
+  scoreDelta: number | null,
+  simpleReturnPct: number | null,
+): Pick<TrackingPathSummary, "signalAlignmentLabel" | "signalAlignmentTone" | "signalAlignmentText"> {
+  if (scoreDelta === null || simpleReturnPct === null) {
+    return {
+      signalAlignmentLabel: "样本不足",
+      signalAlignmentTone: "neutral",
+      signalAlignmentText: "至少需要两条分数和价格快照",
+    };
+  }
+  if (scoreDelta > 0 && simpleReturnPct > 0) {
+    return {
+      signalAlignmentLabel: "分价同向",
+      signalAlignmentTone: "good",
+      signalAlignmentText: `追踪分 +${scoreDelta.toFixed(1)}，价格 ${simpleReturnPct.toFixed(1)}%`,
+    };
+  }
+  if (scoreDelta < 0 && simpleReturnPct < 0) {
+    return {
+      signalAlignmentLabel: "分价同向",
+      signalAlignmentTone: "good",
+      signalAlignmentText: `追踪分 ${scoreDelta.toFixed(1)}，价格 ${simpleReturnPct.toFixed(1)}%`,
+    };
+  }
+  if (scoreDelta > 0 && simpleReturnPct <= 0) {
+    return {
+      signalAlignmentLabel: "分涨价弱",
+      signalAlignmentTone: "bad",
+      signalAlignmentText: `追踪分 +${scoreDelta.toFixed(1)}，价格 ${simpleReturnPct.toFixed(1)}%`,
+    };
+  }
+  if (scoreDelta < 0 && simpleReturnPct >= 0) {
+    return {
+      signalAlignmentLabel: "分弱价强",
+      signalAlignmentTone: "warn",
+      signalAlignmentText: `追踪分 ${scoreDelta.toFixed(1)}，价格 ${simpleReturnPct.toFixed(1)}%`,
+    };
+  }
+  return {
+    signalAlignmentLabel: "继续观察",
+    signalAlignmentTone: "neutral",
+    signalAlignmentText: `追踪分 ${scoreDelta.toFixed(1)}，价格 ${simpleReturnPct.toFixed(1)}%`,
+  };
+}
+
 export function buildTrackingPathSummary(
   history: TrackingSnapshot[],
   limit = 18,
@@ -170,6 +220,9 @@ export function buildTrackingPathSummary(
   const scores = scoredItems.map((item) => item.tracking_score as number);
   const latest = scoredItems[scoredItems.length - 1] ?? null;
   const latestScore = latest?.tracking_score ?? null;
+  const firstScore = scoredItems.length >= 2 ? (scoredItems[0]?.tracking_score ?? null) : null;
+  const scoreDelta =
+    latestScore === null || firstScore === null ? null : roundOne(latestScore - firstScore);
   const highScore = scores.length ? Math.max(...scores) : null;
   const lowScore = scores.length ? Math.min(...scores) : null;
   const isFlat = highScore !== null && lowScore !== null && highScore === lowScore;
@@ -218,6 +271,7 @@ export function buildTrackingPathSummary(
     }
   }
   const roundedMaxPriceDrawdownPct = priceItems.length >= 2 ? roundOne(maxPriceDrawdownPct) : null;
+  const alignment = signalAlignment(scoreDelta, simpleReturnPct);
 
   return {
     sampleCount: items.length,
@@ -237,5 +291,7 @@ export function buildTrackingPathSummary(
     simpleReturnPct,
     maxPriceDrawdownPct: roundedMaxPriceDrawdownPct,
     outcomeTone: priceOutcomeTone(simpleReturnPct, roundedMaxPriceDrawdownPct),
+    scoreDelta,
+    ...alignment,
   };
 }

@@ -2927,6 +2927,11 @@ export function App() {
                               <strong>{trackingPathSummary.priceSampleCount}</strong>
                             </span>
                           </div>
+                          <div className={`tracking-signal-check ${trackingPathSummary.signalAlignmentTone}`}>
+                            <span>信号验证</span>
+                            <strong>{trackingPathSummary.signalAlignmentLabel}</strong>
+                            <small>{trackingPathSummary.signalAlignmentText}</small>
+                          </div>
                         </div>
                         <div className="tracking-history-bars">
                           {trackingHistoryOldestFirst.slice(-18).map((item) => (

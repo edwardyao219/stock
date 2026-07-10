@@ -2113,6 +2113,42 @@ button {
   color: #1f8a55;
 }
 
+.tracking-signal-check {
+  border: 1px solid #e6ecf2;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.82);
+  display: grid;
+  grid-template-columns: 74px 92px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin-top: 9px;
+  padding: 8px;
+}
+
+.tracking-signal-check span,
+.tracking-signal-check small {
+  color: #64748b;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.tracking-signal-check strong {
+  color: #17202b;
+  font-size: 14px;
+}
+
+.tracking-signal-check.good strong {
+  color: #c73535;
+}
+
+.tracking-signal-check.warn strong {
+  color: #b76b00;
+}
+
+.tracking-signal-check.bad strong {
+  color: #1f8a55;
+}
+
 .tracking-history-bars {
   display: grid;
   gap: 7px;
@@ -4632,6 +4668,7 @@ textarea {
   .tracking-row,
   .tracking-history-summary-grid,
   .tracking-path-stats,
+  .tracking-signal-check,
   .tracking-history-row,
   .tracking-metric-grid,
   .tracking-candle-metrics,
