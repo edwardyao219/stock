@@ -2827,6 +2827,32 @@ export function App() {
                   <small>{trackingSignalSummary.maturity_note}</small>
                 </div>
               </div>
+              {trackingSignalSummary.sectors.length ? (
+                <div className="tracking-sector-samples">
+                  <div className="tracking-sector-title">
+                    <span>板块验证</span>
+                    <small>先看板块，再看个股</small>
+                  </div>
+                  {trackingSignalSummary.sectors.slice(0, 4).map((sector) => (
+                    <span key={sector.industry}>
+                      <b>{sector.industry}</b>
+                      <em>{sector.signal_label}</em>
+                      <small>
+                        成熟 {sector.mature_count}/{sector.symbol_count}
+                        {" / "}
+                        背离 {sector.divergent_count}
+                      </small>
+                      <small>
+                        分 {sector.avg_score_delta === null
+                          ? "-"
+                          : `${sector.avg_score_delta >= 0 ? "+" : ""}${sector.avg_score_delta.toFixed(1)}`}
+                        {" / "}
+                        价 {pctPoint(sector.avg_simple_return_pct)}
+                      </small>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               {trackingSignalSummary.items.length ? (
                 <div className="tracking-signal-samples">
                   {trackingSignalSummary.items.slice(0, 4).map((item) => (

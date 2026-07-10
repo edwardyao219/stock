@@ -464,6 +464,19 @@ class TrackingSignalItemResponse(BaseModel):
     signal_alignment_tone: str
 
 
+class TrackingSignalSectorResponse(BaseModel):
+    industry: str
+    symbol_count: int
+    mature_count: int
+    aligned_count: int
+    divergent_count: int
+    insufficient_count: int
+    avg_score_delta: float | None
+    avg_simple_return_pct: float | None
+    maturity_label: str
+    signal_label: str
+
+
 class TrackingSignalSummaryResponse(BaseModel):
     symbol_count: int
     aligned_count: int
@@ -473,6 +486,7 @@ class TrackingSignalSummaryResponse(BaseModel):
     maturity_ratio: float
     maturity_label: str
     maturity_note: str
+    sectors: list[TrackingSignalSectorResponse]
     items: list[TrackingSignalItemResponse]
 
 
@@ -1135,6 +1149,21 @@ def list_tracking_signal_summary(
         maturity_ratio=summary.maturity_ratio,
         maturity_label=summary.maturity_label,
         maturity_note=summary.maturity_note,
+        sectors=[
+            TrackingSignalSectorResponse(
+                industry=item.industry,
+                symbol_count=item.symbol_count,
+                mature_count=item.mature_count,
+                aligned_count=item.aligned_count,
+                divergent_count=item.divergent_count,
+                insufficient_count=item.insufficient_count,
+                avg_score_delta=item.avg_score_delta,
+                avg_simple_return_pct=item.avg_simple_return_pct,
+                maturity_label=item.maturity_label,
+                signal_label=item.signal_label,
+            )
+            for item in summary.sectors
+        ],
         items=[_tracking_signal_item_response(item) for item in summary.items],
     )
 

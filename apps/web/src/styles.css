@@ -1751,6 +1751,7 @@ button {
 }
 
 .tracking-signal-summary-head,
+.tracking-sector-samples,
 .tracking-signal-samples {
   display: grid;
   gap: 8px;
@@ -1761,6 +1762,7 @@ button {
 }
 
 .tracking-signal-summary-head div,
+.tracking-sector-samples span,
 .tracking-signal-samples span {
   border: 1px solid #e6ecf2;
   border-radius: 7px;
@@ -1778,6 +1780,8 @@ button {
 }
 
 .tracking-signal-summary strong,
+.tracking-sector-samples b,
+.tracking-sector-samples em,
 .tracking-signal-samples b,
 .tracking-signal-samples em {
   color: #17202b;
@@ -1794,13 +1798,29 @@ button {
 }
 
 .tracking-signal-samples {
+  grid-column: 1 / -1;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.tracking-sector-samples {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tracking-sector-title {
+  align-content: center;
+  border: 1px solid #d7e3ef;
+  border-radius: 7px;
+  background: #eef6ff;
+  min-width: 0;
+  padding: 8px;
+}
+
+.tracking-sector-samples b,
 .tracking-signal-samples b {
   font-size: 12px;
 }
 
+.tracking-sector-samples em,
 .tracking-signal-samples em {
   font-size: 13px;
   margin: 2px 0;
@@ -4745,6 +4765,7 @@ textarea {
   .tracking-summary-grid,
   .tracking-signal-summary,
   .tracking-signal-summary-head,
+  .tracking-sector-samples,
   .tracking-signal-samples,
   .tracking-list-head,
   .tracking-row,

@@ -142,7 +142,13 @@ def test_summarize_tracking_signal_alignment_counts_divergence() -> None:
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
-    def row(symbol: str, day: int, score: float, price: float) -> StockTrackingSnapshot:
+    def row(
+        symbol: str,
+        day: int,
+        score: float,
+        price: float,
+        industry: str = "电子",
+    ) -> StockTrackingSnapshot:
         return StockTrackingSnapshot(
             symbol=symbol,
             snapshot_date=date(2026, 7, day),
@@ -152,7 +158,7 @@ def test_summarize_tracking_signal_alignment_counts_divergence() -> None:
             current_price=price,
             latest_close=price,
             name=f"{symbol}测试",
-            industry="电子",
+            industry=industry,
             metrics_json={},
             evidence_json={"items": []},
             risks_json={"items": []},
@@ -164,9 +170,9 @@ def test_summarize_tracking_signal_alignment_counts_divergence() -> None:
             [
                 row("000001", 1, 60, 10),
                 row("000001", 2, 66, 11),
-                row("000002", 1, 58, 10),
-                row("000002", 2, 64, 9.6),
-                row("000003", 2, 70, 8),
+                row("000002", 1, 58, 10, "证券"),
+                row("000002", 2, 64, 9.6, "证券"),
+                row("000003", 2, 70, 8, "证券"),
             ]
         )
         db.commit()
@@ -185,6 +191,14 @@ def test_summarize_tracking_signal_alignment_counts_divergence() -> None:
         assert summary.items[0].signal_alignment_label == "分涨价弱"
         assert summary.items[1].symbol == "000001"
         assert summary.items[1].signal_alignment_label == "分价同向"
+        sectors = {sector.industry: sector for sector in summary.sectors}
+        assert sectors["电子"].symbol_count == 1
+        assert sectors["电子"].mature_count == 1
+        assert sectors["电子"].aligned_count == 1
+        assert sectors["证券"].symbol_count == 2
+        assert sectors["证券"].mature_count == 1
+        assert sectors["证券"].divergent_count == 1
+        assert sectors["证券"].insufficient_count == 1
 
 
 def test_workspace_api_creates_and_reads_tracking_snapshots() -> None:
@@ -335,5 +349,10 @@ def test_workspace_api_returns_tracking_signal_summary() -> None:
         assert summary.divergent_count == 1
         assert summary.mature_count == 2
         assert summary.maturity_label == "可验证"
+        assert summary.sectors[0].industry == "电子"
+        assert summary.sectors[0].symbol_count == 2
+        assert summary.sectors[0].mature_count == 2
+        assert summary.sectors[0].aligned_count == 1
+        assert summary.sectors[0].divergent_count == 1
         assert summary.items[0].symbol == "000002"
         assert summary.items[0].signal_alignment_label == "分涨价弱"

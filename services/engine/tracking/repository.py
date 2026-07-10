@@ -47,6 +47,20 @@ class TrackingSignalAlignmentItem:
 
 
 @dataclass(frozen=True)
+class TrackingSignalSectorSummary:
+    industry: str
+    symbol_count: int
+    mature_count: int
+    aligned_count: int
+    divergent_count: int
+    insufficient_count: int
+    avg_score_delta: float | None
+    avg_simple_return_pct: float | None
+    maturity_label: str
+    signal_label: str
+
+
+@dataclass(frozen=True)
 class TrackingSignalAlignmentSummary:
     symbol_count: int
     aligned_count: int
@@ -56,6 +70,7 @@ class TrackingSignalAlignmentSummary:
     maturity_ratio: float
     maturity_label: str
     maturity_note: str
+    sectors: list[TrackingSignalSectorSummary]
     items: list[TrackingSignalAlignmentItem]
 
 
@@ -349,6 +364,75 @@ def _maturity_note(mature_count: int, symbol_count: int, label: str) -> str:
     return f"{base}，先继续沉淀"
 
 
+def _sector_signal_label(
+    *,
+    mature_count: int,
+    aligned_count: int,
+    divergent_count: int,
+) -> str:
+    if mature_count == 0:
+        return "样本沉淀"
+    if divergent_count > aligned_count:
+        return "分化复核"
+    if aligned_count > 0 and divergent_count == 0:
+        return "分价同向"
+    return "继续观察"
+
+
+def _summarize_tracking_sectors(
+    items: list[TrackingSignalAlignmentItem],
+) -> list[TrackingSignalSectorSummary]:
+    grouped: dict[str, list[TrackingSignalAlignmentItem]] = {}
+    for item in items:
+        grouped.setdefault(item.industry or "未分类", []).append(item)
+
+    sectors: list[TrackingSignalSectorSummary] = []
+    for industry, sector_items in grouped.items():
+        aligned_count = sum(1 for item in sector_items if item.signal_alignment_key == "aligned")
+        divergent_count = sum(
+            1
+            for item in sector_items
+            if item.signal_alignment_key in {"score_up_price_weak", "score_down_price_strong"}
+        )
+        insufficient_count = sum(
+            1 for item in sector_items if item.signal_alignment_key == "insufficient"
+        )
+        mature_count = sum(1 for item in sector_items if item.sample_count >= 2)
+        maturity_label = _maturity_label(mature_count, len(sector_items))
+        avg_score_delta = _avg([item.score_delta for item in sector_items])
+        avg_simple_return_pct = _avg([item.simple_return_pct for item in sector_items])
+        sectors.append(
+            TrackingSignalSectorSummary(
+                industry=industry,
+                symbol_count=len(sector_items),
+                mature_count=mature_count,
+                aligned_count=aligned_count,
+                divergent_count=divergent_count,
+                insufficient_count=insufficient_count,
+                avg_score_delta=None if avg_score_delta is None else _round_one(avg_score_delta),
+                avg_simple_return_pct=(
+                    None if avg_simple_return_pct is None else _round_one(avg_simple_return_pct)
+                ),
+                maturity_label=maturity_label,
+                signal_label=_sector_signal_label(
+                    mature_count=mature_count,
+                    aligned_count=aligned_count,
+                    divergent_count=divergent_count,
+                ),
+            )
+        )
+    return sorted(
+        sectors,
+        key=lambda item: (
+            -item.symbol_count,
+            -item.mature_count,
+            -item.aligned_count,
+            item.divergent_count,
+            item.industry,
+        ),
+    )
+
+
 def summarize_tracking_signal_alignment(
     db: Session,
     *,
@@ -366,6 +450,7 @@ def summarize_tracking_signal_alignment(
             maturity_ratio=0.0,
             maturity_label="样本不足",
             maturity_note="暂无追踪股票，先生成收盘快照",
+            sectors=[],
             items=[],
         )
 
@@ -439,5 +524,6 @@ def summarize_tracking_signal_alignment(
         maturity_ratio=maturity_ratio,
         maturity_label=maturity_label,
         maturity_note=_maturity_note(mature_count, len(items), maturity_label),
+        sectors=_summarize_tracking_sectors(items),
         items=sorted(items, key=_alignment_sort_rank)[:item_limit],
     )

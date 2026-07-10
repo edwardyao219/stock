@@ -351,6 +351,19 @@ export interface TrackingSignalItem {
   signal_alignment_tone: "good" | "warn" | "bad" | "neutral" | string;
 }
 
+export interface TrackingSignalSector {
+  industry: string;
+  symbol_count: number;
+  mature_count: number;
+  aligned_count: number;
+  divergent_count: number;
+  insufficient_count: number;
+  avg_score_delta: number | null;
+  avg_simple_return_pct: number | null;
+  maturity_label: string;
+  signal_label: string;
+}
+
 export interface TrackingSignalSummary {
   symbol_count: number;
   aligned_count: number;
@@ -360,6 +373,7 @@ export interface TrackingSignalSummary {
   maturity_ratio: number;
   maturity_label: string;
   maturity_note: string;
+  sectors: TrackingSignalSector[];
   items: TrackingSignalItem[];
 }
 
