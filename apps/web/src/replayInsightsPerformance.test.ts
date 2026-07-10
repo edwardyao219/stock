@@ -1,5 +1,5 @@
 // @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
-import { monthlyDefenseSignals, monthlyPerformanceHealth, monthlyPerformanceRows } from "./replayInsights.ts";
+import { monthlyDefenseSignals, monthlyDefenseSimulation, monthlyPerformanceHealth, monthlyPerformanceRows } from "./replayInsights.ts";
 import type { CandidateReplayEffectReport } from "./api";
 
 function assertClose(actual: number | null, expected: number, message: string) {
@@ -68,3 +68,18 @@ const riskSignals = monthlyDefenseSignals([
 ]);
 assertEqual(riskSignals[0].status, "risk", "超过15回撤线进入防守");
 assertEqual(riskSignals[0].actionLabel, "次月暂停升级", "风险后暂停潜力升级");
+
+const simulated = monthlyDefenseSimulation(rows, 0.03, 0.15);
+assertClose(simulated.totalReturn, 0.075, "防守模拟用上月信号调整下月收益");
+assertClose(simulated.maxDrawdown, -0.04, "防守模拟回撤按调整后曲线重算");
+assertClose(simulated.originalTotalReturn, 0.09, "保留原始简单收益便于对比");
+assertClose(simulated.returnGiveback, 0.015, "显示防守牺牲收益");
+assertEqual(simulated.months[0].exposure, 0.5, "最新月用上月预警信号半仓");
+assertEqual(simulated.months[1].exposure, 1, "预警月本身不倒推降仓");
+
+const riskAdjusted = monthlyDefenseSimulation([
+  { ...rows[0], monthlyReturn: 0.06, cumulativeReturn: 0.12, drawdown: -0.01 },
+  { ...rows[1], drawdown: -0.2, monthlyReturn: -0.08 },
+  rows[2],
+], 0.03, 0.15);
+assertEqual(riskAdjusted.months[0].exposure, 0, "上月风险后次月暂停升级");

@@ -2740,6 +2740,55 @@ button {
   color: #9f2d20;
 }
 
+.replay-monthly-simulation {
+  border: 1px solid #dbe4ee;
+  border-left: 4px solid #94a3b8;
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 9px;
+}
+
+.replay-monthly-simulation.improved {
+  background: #f3fbf5;
+  border-left-color: #2f9d62;
+}
+
+.replay-monthly-simulation.worse {
+  background: #fff1ef;
+  border-left-color: #9f2d20;
+}
+
+.replay-monthly-simulation.unchanged {
+  background: #f8fafc;
+}
+
+.replay-monthly-simulation div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.replay-monthly-simulation span,
+.replay-monthly-simulation small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.replay-monthly-simulation strong {
+  color: #17202b;
+  font-size: 15px;
+}
+
+.replay-monthly-simulation.improved strong {
+  color: #17623a;
+}
+
+.replay-monthly-simulation.worse strong {
+  color: #9f2d20;
+}
+
 .replay-monthly-performance-list {
   display: grid;
   gap: 5px;

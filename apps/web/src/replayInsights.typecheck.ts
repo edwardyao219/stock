@@ -4,6 +4,7 @@ import {
   dualLineLongReplaySummary,
   initialCandidateReplayQuery,
   longCandidateReplayQuery,
+  monthlyDefenseSimulation,
   monthlyDefenseSignals,
   monthlyPerformanceHealth,
   monthlyPerformanceRows,
@@ -644,6 +645,7 @@ const dualLineSummary = dualLineLongReplaySummary(candidateReplay);
 const monthlyPerformance = monthlyPerformanceRows(candidateReplay, "action_long", 20);
 const monthlyHealth = monthlyPerformanceHealth(monthlyPerformance);
 const defenseSignals = monthlyDefenseSignals(monthlyPerformance);
+const defenseSimulation = monthlyDefenseSimulation(monthlyPerformance);
 const monthlyPkRows = monthlyStrategyPkRows(candidateReplay, 20);
 const startupSignalRows = startupSignalReplayRows(candidateReplay);
 const startupSignalStyleRows = startupSignalStyleReplayRows(candidateReplay, 20);
@@ -679,6 +681,9 @@ monthlyHealth.maxDrawdown satisfies number | null;
 monthlyHealth.status satisfies "empty" | "healthy" | "weak" | "risk";
 defenseSignals[0].status satisfies "normal" | "caution" | "risk";
 defenseSignals[0].actionLabel satisfies string;
+defenseSimulation.totalReturn satisfies number | null;
+defenseSimulation.drawdownImprovement satisfies number | null;
+defenseSimulation.months[0].exposure satisfies number;
 monthlyPkRows[0].month satisfies "2026-06" | string;
 monthlyPkRows[0].postureLabel satisfies string;
 monthlyPkRows[0].leaderLabel satisfies string;

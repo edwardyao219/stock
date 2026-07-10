@@ -232,6 +232,28 @@ export interface MonthlyDefenseSignal {
   tone: ReplayTone;
 }
 
+export interface MonthlyDefenseSimulationMonth {
+  month: string;
+  exposure: number;
+  monthlyReturn: number | null;
+  adjustedReturn: number | null;
+  cumulativeReturn: number;
+  drawdown: number;
+  tone: ReplayTone;
+}
+
+export interface MonthlyDefenseSimulation {
+  totalReturn: number | null;
+  maxDrawdown: number | null;
+  originalTotalReturn: number | null;
+  originalMaxDrawdown: number | null;
+  returnGiveback: number | null;
+  drawdownImprovement: number | null;
+  status: "empty" | "improved" | "unchanged" | "worse";
+  statusLabel: string;
+  months: MonthlyDefenseSimulationMonth[];
+}
+
 const scopeOrder = [
   "action_long",
   "action",
@@ -491,6 +513,84 @@ export function monthlyDefenseSignals(
       tone: status === "risk" ? "down" : status === "caution" ? "neutral" : row.tone,
     };
   });
+}
+
+function exposureAfterSignal(status: MonthlyDefenseSignal["status"]) {
+  if (status === "risk") return 0;
+  if (status === "caution") return 0.5;
+  return 1;
+}
+
+export function monthlyDefenseSimulation(
+  rows: MonthlyPerformanceRow[],
+  warningLimit = 0.1,
+  riskLimit = 0.15,
+): MonthlyDefenseSimulation {
+  if (!rows.length) {
+    return {
+      totalReturn: null,
+      maxDrawdown: null,
+      originalTotalReturn: null,
+      originalMaxDrawdown: null,
+      returnGiveback: null,
+      drawdownImprovement: null,
+      status: "empty",
+      statusLabel: "样本不足",
+      months: [],
+    };
+  }
+
+  const chronological = [...rows].reverse();
+  let cumulativeReturn = 0;
+  let peakReturn = 0;
+  let previousSignal: MonthlyDefenseSignal["status"] = "normal";
+  const months: MonthlyDefenseSimulationMonth[] = [];
+
+  for (const row of chronological) {
+    const exposure = exposureAfterSignal(previousSignal);
+    const adjustedReturn = row.monthlyReturn === null ? null : row.monthlyReturn * exposure;
+    cumulativeReturn += adjustedReturn ?? 0;
+    peakReturn = Math.max(peakReturn, cumulativeReturn);
+    months.push({
+      month: row.month,
+      exposure,
+      monthlyReturn: row.monthlyReturn,
+      adjustedReturn,
+      cumulativeReturn,
+      drawdown: cumulativeReturn - peakReturn,
+      tone: toneFor(adjustedReturn),
+    });
+    const [signal] = monthlyDefenseSignals([row], warningLimit, riskLimit, 1);
+    previousSignal = signal?.status ?? "normal";
+  }
+
+  const original = monthlyPerformanceHealth(rows, riskLimit);
+  const maxDrawdown = Math.min(...months.map((month) => month.drawdown));
+  const totalReturn = months[months.length - 1]?.cumulativeReturn ?? null;
+  const originalTotalReturn = original.totalReturn;
+  const originalMaxDrawdown = original.maxDrawdown;
+  const returnGiveback = originalTotalReturn === null || totalReturn === null
+    ? null
+    : originalTotalReturn - totalReturn;
+  const drawdownImprovement = originalMaxDrawdown === null ? null : maxDrawdown - originalMaxDrawdown;
+  const status = drawdownImprovement === null
+    ? "empty"
+    : drawdownImprovement > 0.000001
+      ? "improved"
+      : drawdownImprovement < -0.000001
+        ? "worse"
+        : "unchanged";
+  return {
+    totalReturn,
+    maxDrawdown,
+    originalTotalReturn,
+    originalMaxDrawdown,
+    returnGiveback,
+    drawdownImprovement,
+    status,
+    statusLabel: status === "improved" ? "回撤改善" : status === "worse" ? "回撤变差" : "效果持平",
+    months: months.reverse(),
+  };
 }
 
 function hasPositiveMetric(metric: ReplayReturnSummary | null | undefined) {

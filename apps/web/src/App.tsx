@@ -64,6 +64,7 @@ import {
   initialCandidateReplayQuery,
   lineStatusText,
   longCandidateReplayQuery,
+  monthlyDefenseSimulation,
   monthlyDefenseSignals,
   monthlyPerformanceHealth,
   monthlyPerformanceRows,
@@ -1569,6 +1570,7 @@ export function App() {
   const mainLineMonthlyPerformance = mainLineMonthlyPerformanceAll.slice(0, 8);
   const mainLineMonthlyHealth = monthlyPerformanceHealth(mainLineMonthlyPerformanceAll, 0.15);
   const mainLineDefenseSignals = monthlyDefenseSignals(mainLineMonthlyPerformanceAll, 0.1, 0.15, 6);
+  const mainLineDefenseSimulation = monthlyDefenseSimulation(mainLineMonthlyPerformanceAll, 0.1, 0.15);
   const candidateReplayCacheText = replayCacheText(candidateReplayEffect);
   const candidateReplayWindowLabel = candidateReplayEffect
     ? (
@@ -2832,6 +2834,28 @@ export function App() {
                               <small>{signal.reason}</small>
                             </div>
                           ))}
+                        </div>
+                      </div>
+                      <div className={`replay-monthly-simulation ${mainLineDefenseSimulation.status}`}>
+                        <div>
+                          <span>防守模拟</span>
+                          <strong>{mainLineDefenseSimulation.statusLabel}</strong>
+                          <small>上月信号决定下月仓位</small>
+                        </div>
+                        <div>
+                          <span>防守后总收益</span>
+                          <strong>{pct(mainLineDefenseSimulation.totalReturn)}</strong>
+                          <small>原始 {pct(mainLineDefenseSimulation.originalTotalReturn)}</small>
+                        </div>
+                        <div>
+                          <span>回撤改善</span>
+                          <strong>{pct(mainLineDefenseSimulation.drawdownImprovement)}</strong>
+                          <small>防守后 {pct(mainLineDefenseSimulation.maxDrawdown)}</small>
+                        </div>
+                        <div>
+                          <span>收益让渡</span>
+                          <strong>{pct(mainLineDefenseSimulation.returnGiveback)}</strong>
+                          <small>换取更小回撤</small>
                         </div>
                       </div>
                       <div className="replay-monthly-performance-list">
