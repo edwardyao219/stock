@@ -95,7 +95,7 @@ import {
   sortStockTrackingProfiles,
   StockTrackingProfile,
 } from "./stockTracking";
-import { buildTrackingHistorySummary } from "./trackingHistory";
+import { buildTrackingHistorySummary, buildTrackingPathSummary } from "./trackingHistory";
 import { buildAutoRefreshPlan } from "./refreshPlan";
 
 const AUTO_REFRESH_MS = 15_000;
@@ -1278,6 +1278,10 @@ export function App() {
   const trackingHistoryOldestFirst = useMemo(() => [...trackingHistory].reverse(), [trackingHistory]);
   const trackingHistorySummary = useMemo(
     () => buildTrackingHistorySummary(trackingHistory),
+    [trackingHistory],
+  );
+  const trackingPathSummary = useMemo(
+    () => buildTrackingPathSummary(trackingHistory),
     [trackingHistory],
   );
   const trackingHistoryLatest = trackingHistory[0] ?? null;
@@ -2857,6 +2861,51 @@ export function App() {
                               <small>{item.summary}</small>
                             </div>
                           ))}
+                        </div>
+                        <div className={`tracking-path-chart ${trackingPathSummary.tone}`}>
+                          <div className="tracking-path-chart-head">
+                            <div>
+                              <span>追踪路径</span>
+                              <strong>{trackingPathSummary.verdictLabel}</strong>
+                            </div>
+                            <small>{trackingPathSummary.insight}</small>
+                          </div>
+                          {trackingPathSummary.points.length >= 2 ? (
+                            <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="追踪分路径">
+                              <polyline points={trackingPathSummary.pointString} />
+                              {trackingPathSummary.points.map((point) => (
+                                <circle
+                                  className={point.tone}
+                                  cx={point.x}
+                                  cy={point.y}
+                                  key={`${point.date}-${point.score}`}
+                                  r="2.8"
+                                />
+                              ))}
+                            </svg>
+                          ) : (
+                            <div className="empty compact">快照不足，生成两次后显示路径</div>
+                          )}
+                          <div className="tracking-path-stats">
+                            <span>
+                              <small>窗口高点</small>
+                              <strong>
+                                {trackingPathSummary.highScore === null ? "-" : trackingPathSummary.highScore.toFixed(1)}
+                              </strong>
+                            </span>
+                            <span>
+                              <small>最大回落</small>
+                              <strong>
+                                {trackingPathSummary.maxDrawdown === null
+                                  ? "-"
+                                  : trackingPathSummary.maxDrawdown.toFixed(1)}
+                              </strong>
+                            </span>
+                            <span>
+                              <small>阶段切换</small>
+                              <strong>{trackingPathSummary.stageChangeCount}</strong>
+                            </span>
+                          </div>
                         </div>
                         <div className="tracking-history-bars">
                           {trackingHistoryOldestFirst.slice(-18).map((item) => (

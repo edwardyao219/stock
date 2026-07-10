@@ -14,12 +14,14 @@ assert(app.includes("tracking-timeline"), "个股追踪页需要时间线表达"
 assert(app.includes("tracking-candle-path"), "个股追踪页需要单独展示K线趋势路径");
 assert(app.includes("trackingHistory"), "个股追踪页需要读取真实追踪快照历史");
 assert(app.includes("tracking-history-panel"), "个股追踪页需要独立展示追踪分变化");
+assert(app.includes("追踪路径"), "个股追踪页需要用路径视图表达单票跟踪质量");
 assert(app.includes("生成今日快照"), "个股追踪页需要提供手动生成今日快照入口");
 assert(!app.includes("{!loading ? trackingProfiles.map(renderTrackingRow) : null}"), "刷新中有旧追踪数据时也要继续展示列表");
 assert(styles.includes(".tracking-workspace-panel"), "个股追踪需要独立布局样式");
 assert(styles.includes(".tracking-timeline"), "追踪时间线需要独立样式，避免挤在详情页文本里");
 assert(styles.includes(".tracking-candle-path"), "K线趋势路径需要独立样式，避免塞成文字墙");
 assert(styles.includes(".tracking-history-panel"), "追踪分变化需要独立样式，避免继续堆文字");
+assert(styles.includes(".tracking-path-chart"), "追踪路径需要独立图形样式，避免继续堆文字");
 
 const stockDetailStart = app.indexOf('className="stock-detail-panel"');
 const trackingPageStart = app.indexOf('activePage === "tracking"');
