@@ -433,13 +433,14 @@ def _record_tracking_snapshots_step(trade_date: str, limit: int = 200) -> Pipeli
             )
             for item in items
         ]
+        symbols = [row.symbol for row in rows[:20]]
         db.commit()
     return PipelineStepResult(
         name="record_tracking_snapshots",
         status="ok",
         detail=f"追踪快照已记录：{trade_date}，写入 {len(rows)} 只股票。",
         summary=f"追踪快照 {len(rows)} 只",
-        details=[row.symbol for row in rows[:20]],
+        details=symbols,
     )
 
 

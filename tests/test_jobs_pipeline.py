@@ -639,6 +639,57 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
     assert result.steps[-2].detail == "prewarm:2026-06-24"
 
 
+def test_record_tracking_snapshots_keeps_symbols_before_session_closes(monkeypatch) -> None:
+    class _Db:
+        closed = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self.closed = True
+
+        def commit(self):
+            return None
+
+    class _Item:
+        def __init__(self, symbol: str):
+            self.symbol = symbol
+
+    class _Row:
+        def __init__(self, db: _Db, symbol: str):
+            self._db = db
+            self._symbol = symbol
+
+        @property
+        def symbol(self) -> str:
+            if self._db.closed:
+                raise RuntimeError("detached row")
+            return self._symbol
+
+    monkeypatch.setattr(pipeline, "SessionLocal", _Db)
+    monkeypatch.setattr(
+        pipeline,
+        "load_stock_workspace_items",
+        lambda db, pool_name, limit, include_growth_board: [_Item("002550"), _Item("603087")],
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "build_tracking_snapshot_payload",
+        lambda item, snapshot_date: item,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "upsert_tracking_snapshot",
+        lambda db, payload: _Row(db, payload.symbol),
+    )
+
+    result = pipeline._record_tracking_snapshots_step("2026-07-10", limit=20)
+
+    assert result.status == "ok"
+    assert result.details == ["002550", "603087"]
+
+
 def test_sync_sector_moneyflow_step_summarizes_recent_backfill(monkeypatch) -> None:
     monkeypatch.setattr(
         pipeline,
