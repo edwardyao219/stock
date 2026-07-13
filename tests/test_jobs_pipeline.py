@@ -124,6 +124,62 @@ def test_sync_daily_market_data_step_defaults_to_lightweight_mode(monkeypatch) -
     assert result.summary == "已跳过全量同步"
 
 
+def test_sync_daily_market_data_task_runs_forced_full_market_sync(monkeypatch) -> None:
+    from datetime import datetime
+
+    captured = {}
+
+    def fake_sync_step(trade_date, *, full_refresh=False, force=False):
+        captured.update(
+            trade_date=trade_date,
+            full_refresh=full_refresh,
+            force=force,
+        )
+        return pipeline.PipelineStepResult(
+            name="sync_daily_market_data",
+            status="ok",
+            detail="同步行情完成",
+            summary="同步行情完成",
+        )
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 13, 15, 30))
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True, raising=False)
+    monkeypatch.setattr(tasks, "_sync_daily_market_data_step", fake_sync_step, raising=False)
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_daily_task_lock",
+        lambda task_name, trade_date: (True, "stock:daily-task:daily-market-sync:2026-07-13"),
+    )
+
+    result = tasks.sync_daily_market_data_task()
+
+    assert captured == {
+        "trade_date": "2026-07-13",
+        "full_refresh": True,
+        "force": True,
+    }
+    assert result["status"] == "ok"
+    assert result["detail"] == "同步行情完成"
+
+
+def test_sync_daily_market_data_task_skips_non_trading_day(monkeypatch) -> None:
+    from datetime import datetime
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 12, 15, 30))
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: False, raising=False)
+    monkeypatch.setattr(
+        tasks,
+        "_sync_daily_market_data_step",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("sync should not run")),
+        raising=False,
+    )
+
+    result = tasks.sync_daily_market_data_task()
+
+    assert result["status"] == "skipped"
+    assert "非交易日" in result["message"]
+
+
 def test_compute_features_step_refreshes_low_dimensional_snapshot_cache(monkeypatch) -> None:
     from datetime import date
 

@@ -125,8 +125,12 @@ def _sync_daily_market_data_step(
     trade_date: str,
     *,
     full_refresh: bool = False,
+    force: bool = False,
 ) -> PipelineStepResult:
-    collection_results = sync_daily_market_data(trade_date, full_refresh=full_refresh)
+    sync_kwargs: dict[str, bool] = {"full_refresh": full_refresh}
+    if force:
+        sync_kwargs["force"] = True
+    collection_results = sync_daily_market_data(trade_date, **sync_kwargs)
     failed_collections = [item for item in collection_results if item.status == "failed"]
     pending_collections = [item for item in collection_results if item.status == "pending"]
     ok_collections = [item for item in collection_results if item.status == "ok"]

@@ -8,7 +8,9 @@ from services.engine.review.mechanical import generate_daily_mechanical_review
 from services.engine.review.monthly_summary import generate_monthly_trade_summary
 from services.jobs.celery_app import celery_app
 from services.jobs.pipeline import (
+    _is_open_trade_date,
     _sync_sector_moneyflow_step,
+    _sync_daily_market_data_step,
     prepare_next_trade_session,
     resolve_next_trade_date,
     run_after_close_session,
@@ -50,12 +52,31 @@ def pre_market_check() -> dict[str, str]:
 
 @celery_app.task(name="services.jobs.tasks.sync_daily_market_data_task")
 def sync_daily_market_data_task() -> dict[str, str]:
-    today = now_local().date().isoformat()
-    return {
-        "trade_date": today,
-        "status": "pending",
-        "message": "Data sync connector is not implemented yet.",
-    }
+    today = now_local().date()
+    trade_date = today.isoformat()
+    with SessionLocal() as db:
+        if not _is_open_trade_date(db, trade_date):
+            return {
+                "trade_date": trade_date,
+                "status": "skipped",
+                "message": "非交易日，已跳过全市场收盘同步。",
+            }
+
+    acquired, lock_key = _acquire_daily_task_lock("daily-market-sync", today)
+    if not acquired:
+        return {
+            "trade_date": trade_date,
+            "status": "skipped",
+            "message": "当日全市场收盘同步已运行或正在运行。",
+            "lock_key": lock_key,
+        }
+
+    step = _sync_daily_market_data_step(
+        trade_date,
+        full_refresh=True,
+        force=True,
+    )
+    return {"trade_date": trade_date, **step.to_dict()}
 
 
 @celery_app.task(name="services.jobs.tasks.compute_daily_features_task")

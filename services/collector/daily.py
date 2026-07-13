@@ -18,6 +18,7 @@ def sync_daily_market_data(
     trade_date: str,
     *,
     full_refresh: bool = False,
+    force: bool = False,
 ) -> list[CollectionResult]:
     if not full_refresh:
         return [
@@ -70,7 +71,7 @@ def sync_daily_market_data(
             sync_tushare_market_data_resumable(
                 compact_trade_date,
                 datasets=TUSHARE_AFTER_CLOSE_DATASETS,
-                force=False,
+                force=force,
             )
         )
     except Exception as exc:
