@@ -1,8 +1,110 @@
 import pytest
 
+from services.engine.plans.evidence import build_trade_evidence
 from services.engine.plans.generator import generate_trade_plans
 from services.engine.risk.profiles import RiskProfile
 from services.engine.rules.seed_rules import MVP_RULES
+
+
+def _valid_long_term_context() -> dict[str, float | str | bool]:
+    return {
+        "symbol": "603083",
+        "trade_date": "2026-06-23",
+        "close": 58.0,
+        "ma20": 56.5,
+        "atr_14": 2.0,
+        "support_level": 52.0,
+        "sector_strength_score": 76.0,
+        "sector_breadth_score": 60.0,
+        "sector_momentum_score": 62.0,
+        "relative_strength_score": 70.0,
+        "trend_score": 78.0,
+        "ma_alignment_score": 74.0,
+        "trend_quality_score": 72.0,
+        "volume_confirmation_score": 55.0,
+        "risk_score": 32.0,
+        "overheat_score": 58.0,
+        "volume_trap_risk_score": 40.0,
+        "return_20d": 0.14,
+        "distance_to_ma20": 0.026,
+        "max_drawdown_20d": -0.08,
+        "analysis_framework": "tech_growth_cycle",
+        "fundamental_verdict": "supportive",
+        "is_st": False,
+        "is_suspended": False,
+    }
+
+
+def test_trade_evidence_reports_tushare_5000_matrix() -> None:
+    supportive = build_trade_evidence(
+        {"moneyflow_support_score": 54, "dc_net_amount_rate": 1.0}
+    )
+    outflow = build_trade_evidence(
+        {"moneyflow_support_score": 45, "dc_net_amount_rate": -1.0}
+    )
+    divergent = build_trade_evidence(
+        {"moneyflow_support_score": 54, "dc_net_amount_rate": -1.0}
+    )
+    limit_down = build_trade_evidence({"limit_event": "D"})
+    opened_twice = build_trade_evidence({"limit_open_times": 2})
+    below_cost = build_trade_evidence({"close": 10.0, "chip_cost_85pct": 11.0})
+    overheated = build_trade_evidence(
+        {"close": 11.0, "chip_cost_85pct": 11.0, "chip_winner_rate": 90.0}
+    )
+
+    assert "dual_source_moneyflow_confirmation" in supportive["support_flags"]
+    assert "dual_source_moneyflow_outflow" in outflow["risk_flags"]
+    assert "moneyflow_source_divergence" in divergent["risk_flags"]
+    assert "limit_down_risk" in limit_down["risk_flags"]
+    assert "repeated_limit_open" in opened_twice["risk_flags"]
+    assert "chip_overhead_pressure" in below_cost["risk_flags"]
+    assert "chip_overheat" in overheated["risk_flags"]
+    assert overheated["scores"]["chip_winner_rate"] == 90.0
+
+
+@pytest.mark.parametrize(
+    "risk_context",
+    [
+        {"moneyflow_support_score": 45, "dc_net_amount_rate": -1.0},
+        {"limit_event": "D"},
+        {"limit_open_times": 2},
+        {"chip_cost_85pct": 58.0, "chip_winner_rate": 90.0},
+    ],
+)
+def test_generate_trade_plans_blocks_action_on_tushare_high_risks(risk_context) -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R004")
+
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=[rule],
+        feature_contexts=[{**_valid_long_term_context(), **risk_context}],
+    )
+
+    assert plans == []
+
+
+def test_nonblocking_tushare_evidence_remains_explanatory() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R004")
+
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=[rule],
+        feature_contexts=[
+            {
+                **_valid_long_term_context(),
+                "moneyflow_support_score": 54,
+                "dc_net_amount_rate": -1.0,
+                "chip_cost_85pct": 60.0,
+            }
+        ],
+    )
+
+    assert len(plans) == 1
+    evidence = plans[0].entry_condition["evidence"]
+    assert "moneyflow_source_divergence" in evidence["risk_flags"]
+    assert "chip_overhead_pressure" in evidence["risk_flags"]
 
 
 def test_generate_trade_plans_from_feature_context() -> None:

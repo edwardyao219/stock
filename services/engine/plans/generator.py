@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-from datetime import date
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from services.engine.plans.evidence import build_trade_evidence
 from services.engine.plans.learning_adjustments import apply_plan_learning_adjustments
 from services.engine.risk.profiles import DEFAULT_RISK_PROFILE, RiskProfile
 from services.engine.risk.trade_parameters import build_trade_parameters
-from services.engine.signals.route import build_signal_route
 from services.engine.rules.evaluator import evaluate_group
 from services.engine.rules.models import StrategyRule
+from services.engine.signals.route import build_signal_route
+
+ACTION_BLOCKING_TUSHARE_RISKS = {
+    "dual_source_moneyflow_outflow",
+    "limit_down_risk",
+    "repeated_limit_open",
+    "chip_overheat",
+}
 
 
 @dataclass(frozen=True)
@@ -68,6 +75,12 @@ def _fundamental_adjustment(context: dict[str, Any]) -> float:
     if verdict == "weak":
         return -min(12.0, max(4.0, (50.0 - score) * 0.25))
     return 0.0
+
+
+def _has_blocking_tushare_risk(plan: TradePlanCandidate) -> bool:
+    condition = plan.entry_condition or {}
+    evidence = condition.get("evidence") or {}
+    return bool(ACTION_BLOCKING_TUSHARE_RISKS & set(evidence.get("risk_flags") or []))
 
 
 def _build_plan_from_context(
@@ -196,16 +209,16 @@ def generate_trade_plans(
                 selected_profile = (
                     risk_profile_selector(rule, context) if risk_profile_selector else risk_profile
                 )
-                plans.append(
-                    _build_plan_from_context(
-                        plan_date,
-                        trade_date,
-                        rule,
-                        context,
-                        selected_profile,
-                        learning_adjustment_loader,
-                    )
+                plan = _build_plan_from_context(
+                    plan_date,
+                    trade_date,
+                    rule,
+                    context,
+                    selected_profile,
+                    learning_adjustment_loader,
                 )
+                if not _has_blocking_tushare_risk(plan):
+                    plans.append(plan)
     return sorted(
         plans,
         key=lambda item: (

@@ -67,6 +67,13 @@ def build_trade_evidence(
     sector_momentum = _score(context.get("sector_momentum_score"))
     sector_fund_flow_score = _score(context.get("sector_fund_flow_score"))
     moneyflow_support_score = _score(context.get("moneyflow_support_score"))
+    raw_moneyflow_support_score = _float(context.get("moneyflow_support_score"))
+    dc_net_amount_rate = _float(context.get("dc_net_amount_rate"))
+    limit_event = context.get("limit_event")
+    limit_open_times = _float(context.get("limit_open_times"))
+    chip_cost_85pct = _float(context.get("chip_cost_85pct"))
+    chip_winner_rate = _float(context.get("chip_winner_rate"))
+    close = _float(context.get("close"))
     risk_score = _score(context.get("risk_score"))
     atr_percentile = _score(context.get("atr_pct_percentile_60d"))
     fundamental_score = _score(context.get("fundamental_score"))
@@ -284,6 +291,97 @@ def build_trade_evidence(
             )
         )
 
+    if raw_moneyflow_support_score is not None and dc_net_amount_rate is not None:
+        values = {
+            "moneyflow_support_score": raw_moneyflow_support_score,
+            "dc_net_amount_rate": dc_net_amount_rate,
+        }
+        if raw_moneyflow_support_score >= 54.0 and dc_net_amount_rate >= 1.0:
+            tags.append(
+                EvidenceTag(
+                    name="dual_source_moneyflow_confirmation",
+                    direction="support",
+                    severity="low",
+                    rationale="既有资金分数和东财资金流均偏正，资金面形成双源确认。",
+                    values=values,
+                )
+            )
+        elif raw_moneyflow_support_score <= 45.0 and dc_net_amount_rate <= -1.0:
+            tags.append(
+                EvidenceTag(
+                    name="dual_source_moneyflow_outflow",
+                    direction="risk",
+                    severity="high",
+                    rationale="两类资金流同时转弱，行动计划不应逆势开仓。",
+                    values=values,
+                )
+            )
+        elif (
+            raw_moneyflow_support_score >= 54.0 and dc_net_amount_rate <= -1.0
+        ) or (
+            raw_moneyflow_support_score <= 45.0 and dc_net_amount_rate >= 1.0
+        ):
+            tags.append(
+                EvidenceTag(
+                    name="moneyflow_source_divergence",
+                    direction="risk",
+                    severity="low",
+                    rationale="两类资金流方向相反，资金确认不足但不单独阻断计划。",
+                    values=values,
+                )
+            )
+
+    if limit_event == "D":
+        tags.append(
+            EvidenceTag(
+                name="limit_down_risk",
+                direction="risk",
+                severity="high",
+                rationale="当日跌停表明流动性和承接风险显著，禁止生成新的行动计划。",
+                values={"limit_event": str(limit_event)},
+            )
+        )
+    if limit_open_times is not None and limit_open_times >= 2.0:
+        tags.append(
+            EvidenceTag(
+                name="repeated_limit_open",
+                direction="risk",
+                severity="high",
+                rationale="反复开板说明封板承接不稳定，禁止生成新的行动计划。",
+                values={"limit_open_times": limit_open_times},
+            )
+        )
+    if close is not None and chip_cost_85pct is not None and close < chip_cost_85pct:
+        tags.append(
+            EvidenceTag(
+                name="chip_overhead_pressure",
+                direction="risk",
+                severity="medium",
+                rationale="收盘价低于高位筹码成本，套牢盘压力需要在计划中保留说明。",
+                values={"close": close, "chip_cost_85pct": chip_cost_85pct},
+            )
+        )
+    if (
+        close is not None
+        and chip_cost_85pct is not None
+        and chip_winner_rate is not None
+        and close >= chip_cost_85pct
+        and chip_winner_rate >= 90.0
+    ):
+        tags.append(
+            EvidenceTag(
+                name="chip_overheat",
+                direction="risk",
+                severity="high",
+                rationale="获利盘过高且价格站上高位筹码成本，禁止追高生成行动计划。",
+                values={
+                    "close": close,
+                    "chip_cost_85pct": chip_cost_85pct,
+                    "chip_winner_rate": chip_winner_rate,
+                },
+            )
+        )
+
     return {
         "schema_version": 1,
         "tags": [tag.to_dict() for tag in tags],
@@ -297,6 +395,11 @@ def build_trade_evidence(
             "sector_momentum_score": sector_momentum,
             "sector_fund_flow_score": sector_fund_flow_score,
             "moneyflow_support_score": moneyflow_support_score,
+            "dc_net_amount_rate": dc_net_amount_rate,
+            "limit_event": limit_event,
+            "limit_open_times": limit_open_times,
+            "chip_cost_85pct": chip_cost_85pct,
+            "chip_winner_rate": chip_winner_rate,
             "risk_score": risk_score,
             "atr_pct_percentile_60d": atr_percentile,
             "fundamental_score": fundamental_score,
