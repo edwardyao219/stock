@@ -125,6 +125,11 @@ export interface DataHealth {
   volume_confirmation_median: number | null;
   amount_volume_multiplier_median: number | null;
   previous_amount_volume_multiplier_median: number | null;
+  expected_security_count: number;
+  eligible_daily_bar_count: number;
+  daily_coverage_ratio: number;
+  candidate_generation_allowed: boolean;
+  candidate_block_reasons: string[];
   issues: DataHealthIssue[];
 }
 

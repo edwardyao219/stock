@@ -509,7 +509,15 @@ function mainIndexText(overview: MarketOverview | null) {
 
 function marketBreadthText(overview: MarketOverview | null) {
   if (!overview) return "-";
-  return `${overview.up_count}涨 ${overview.down_count}跌`;
+  return `${overview.snapshot_scope_label} · ${overview.up_count}涨 ${overview.down_count}跌`;
+}
+
+function marketCoverageText(overview: MarketOverview | null) {
+  if (!overview) return "-";
+  const state = overview.is_full_market ? "覆盖可用" : "覆盖不足";
+  return `${overview.stock_count}/${overview.active_security_count} 样本 / ${state} ${pct(
+    overview.coverage_ratio,
+  )}`;
 }
 
 function indexDateText(overview: MarketOverview | null) {
@@ -640,6 +648,7 @@ function latestIndexDate(overview: MarketOverview | null) {
 
 function dataPipelineStatusText(health: DataHealth | null, overview: MarketOverview | null) {
   if (!health?.trade_date) return "等待数据";
+  if (!health.candidate_generation_allowed) return "候选已阻断";
   const indexDate = latestIndexDate(overview);
   if (indexDate && indexDate > health.trade_date) return "等待收盘";
   if (health.status === "ok") return "收盘可用";
@@ -649,7 +658,8 @@ function dataPipelineStatusText(health: DataHealth | null, overview: MarketOverv
 function dataPipelineDetailText(health: DataHealth | null, overview: MarketOverview | null) {
   const dailyDate = health?.trade_date ?? "-";
   const indexDate = latestIndexDate(overview) ?? "-";
-  return `日线日期 ${dailyDate} / 指数日期 ${indexDate}`;
+  const dailyCoverage = health ? ` / 日线覆盖 ${pct(health.daily_coverage_ratio)}` : "";
+  return `日线日期 ${dailyDate} / 指数日期 ${indexDate}${dailyCoverage}`;
 }
 
 function planEvidenceSummary(plan: WorkspaceStock["plans"][number] | null) {
@@ -1720,9 +1730,7 @@ export function App() {
   const marketStressScopeText = marketOverview?.stress_scope_label ?? "盘面压力";
   const marketStressText = marketOverview?.stress_label ?? "-";
   const capitalText = marketOverview ? compactAmountText(marketOverview.total_amount) : "-";
-  const coverageText = marketOverview
-    ? `${marketOverview.stock_count}/${marketOverview.active_security_count} 样本`
-    : "-";
+  const coverageText = marketCoverageText(marketOverview);
   const reviewMarketSummary = reviewMetricRecord(mechanicalReview, "market_summary");
   const reviewDisplayMarketSummary = reviewMarketSummary ?? {
     trade_date: marketOverview?.trade_date ?? null,
