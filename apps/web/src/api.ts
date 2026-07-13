@@ -1132,7 +1132,22 @@ export interface AfterCloseStatus {
   plan_count: number;
   dingtalk_statuses: string[];
   market_summary: string | null;
+  tushare_evidence_health: TushareEvidenceHealth;
   source: string;
+}
+
+export interface TushareEvidenceDatasetHealth {
+  name: "moneyflow_dc" | "cyq_perf" | "limit_list_d" | string;
+  rows: number;
+  matched_rows: number;
+  coverage_ratio: number | null;
+  status: "ok" | "partial" | "missing" | string;
+}
+
+export interface TushareEvidenceHealth {
+  trade_date: string;
+  daily_symbol_count: number;
+  datasets: TushareEvidenceDatasetHealth[];
 }
 
 function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {

@@ -2324,6 +2324,18 @@ export function App() {
                         <span>计划 {afterCloseStatus.plan_count}</span>
                         <span>{afterCloseDingText(afterCloseStatus)}</span>
                         <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>
+                        <span>Tushare证据</span>
+                        {(afterCloseStatus.tushare_evidence_health?.datasets ?? []).map((dataset) => {
+                          const label = {
+                            moneyflow_dc: "东财资金流",
+                            cyq_perf: "筹码分布",
+                            limit_list_d: "涨跌停事件",
+                          }[dataset.name] ?? dataset.name;
+                          const detail = dataset.name === "limit_list_d"
+                            ? `事件 ${dataset.rows}`
+                            : `覆盖 ${dataset.coverage_ratio === null ? "-" : `${Math.round(dataset.coverage_ratio * 100)}%`}`;
+                          return <span key={dataset.name}>{label} {detail} / {dataset.status}</span>;
+                        })}
                       </div>
                     ) : null}
                   </div>
