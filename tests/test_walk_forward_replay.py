@@ -1600,6 +1600,60 @@ def test_low_dimensional_walk_forward_uses_snapshot_cache_without_json_decode(
     assert result.days[0].candidates[0].forward_returns[1] == 0.1
 
 
+def test_low_dimensional_snapshot_cache_prefilters_non_candidates_in_database(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        strong = _feature("600001", date(2026, 1, 2))
+        weak = _feature("600002", date(2026, 1, 2))
+        weak.features = {**weak.features, "trend_score": 40}
+        db.add_all(
+            [
+                _security("600001", "主线", "半导体"),
+                _security("600002", "弱趋势", "半导体"),
+                strong,
+                weak,
+                SectorFeatureDaily(
+                    sector_code="半导体",
+                    trade_date=date(2026, 1, 2),
+                    features={},
+                ),
+            ]
+        )
+        db.commit()
+        walk_forward.sync_low_dimensional_feature_snapshots(
+            db,
+            start=date(2026, 1, 2),
+            end=date(2026, 1, 2),
+        )
+        db.commit()
+
+        checked = 0
+        original = walk_forward._is_low_dimensional_candidate
+
+        def count_candidate_checks(features):
+            nonlocal checked
+            checked += 1
+            return original(features)
+
+        monkeypatch.setattr(
+            walk_forward,
+            "_is_low_dimensional_candidate",
+            count_candidate_checks,
+        )
+        result = walk_forward._cached_low_dimensional_candidates_by_date(
+            db,
+            trade_dates=[date(2026, 1, 2)],
+            limit=3,
+        )
+
+    assert checked == 1
+    assert [item[0].symbol for item in result[date(2026, 1, 2)]] == ["600001"]
+
+
 def test_trend_factor_walk_forward_compares_factor_keys_under_same_sector_gate(
     monkeypatch,
 ) -> None:
