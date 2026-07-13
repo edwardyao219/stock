@@ -2035,6 +2035,64 @@ button {
   margin: 4px 0;
 }
 
+.tracking-decision-card {
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.tracking-decision-card.good {
+  background: #f2fbf5;
+  border-color: #bde4ca;
+}
+
+.tracking-decision-card.warn {
+  background: #fff8ec;
+  border-color: #f3c26b;
+}
+
+.tracking-decision-card.bad {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.tracking-decision-head {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tracking-decision-head span,
+.tracking-decision-columns span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.tracking-decision-head strong {
+  color: #17202b;
+  font-size: 18px;
+}
+
+.tracking-decision-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.tracking-decision-columns ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+
+.tracking-decision-columns li {
+  color: #26313d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .tracking-metric-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -4866,6 +4924,7 @@ textarea {
   .tracking-signal-check,
   .tracking-history-row,
   .tracking-state-grid,
+  .tracking-decision-columns,
   .tracking-metric-grid,
   .tracking-candle-metrics,
   .tracking-candle-path-body,

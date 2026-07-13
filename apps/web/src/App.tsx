@@ -2974,6 +2974,39 @@ export function App() {
                     </section>
                   </div>
 
+                  <section className={`tracking-decision-card ${selectedTrackingProfile.decision.tone}`}>
+                    <div className="tracking-decision-head">
+                      <span>追踪结论</span>
+                      <strong>{selectedTrackingProfile.decision.verdictLabel}</strong>
+                    </div>
+                    <div className="tracking-decision-columns">
+                      <div>
+                        <span>主要理由</span>
+                        <ul>
+                          {selectedTrackingProfile.decision.primaryReasons.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <span>降级原因</span>
+                        <ul>
+                          {selectedTrackingProfile.decision.downgradeReasons.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <span>升级条件</span>
+                        <ul>
+                          {selectedTrackingProfile.decision.upgradeConditions.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </section>
+
                   <div className="tracking-metric-grid">
                     {selectedTrackingProfile.metrics.map((metric) => (
                       <div className={`tracking-metric ${metric.tone}`} key={metric.label}>

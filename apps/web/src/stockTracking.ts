@@ -20,6 +20,14 @@ export interface TrackingMetric {
   tone: "good" | "warn" | "bad" | "neutral";
 }
 
+export interface TrackingDecision {
+  verdictLabel: "继续跟踪" | "等待确认" | "继续观察" | "暂不看好" | "资料留存";
+  tone: "good" | "warn" | "bad" | "neutral";
+  primaryReasons: string[];
+  downgradeReasons: string[];
+  upgradeConditions: string[];
+}
+
 export interface StockTrackingProfile {
   symbol: string;
   name: string | null;
@@ -31,6 +39,7 @@ export interface StockTrackingProfile {
   nextAction: string;
   evidence: string[];
   risks: string[];
+  decision: TrackingDecision;
   metrics: TrackingMetric[];
   timeline: TrackingTimelineItem[];
 }
@@ -329,9 +338,70 @@ function timeline(stock: WorkspaceStock, stage: TrackingStage): TrackingTimeline
   return items;
 }
 
+function usefulRisks(risks: string[]) {
+  return risks.filter((item) => !item.startsWith("暂未看到"));
+}
+
+function decisionFor(stage: TrackingStage, evidence: string[], risks: string[]): TrackingDecision {
+  const hardRisks = usefulRisks(risks);
+  if (stage === "risk_review") {
+    return {
+      verdictLabel: "暂不看好",
+      tone: "bad",
+      primaryReasons: hardRisks.slice(0, 2),
+      downgradeReasons: hardRisks.slice(0, 3),
+      upgradeConditions: [
+        "板块强度回到60以上",
+        "量能承接改善且诱多风险下降",
+        "趋势重新站回20日线附近",
+      ],
+    };
+  }
+  if (stage === "trend_holding") {
+    return {
+      verdictLabel: "继续跟踪",
+      tone: "good",
+      primaryReasons: evidence.slice(0, 2),
+      downgradeReasons: hardRisks.length
+        ? hardRisks.slice(0, 2)
+        : ["板块转弱、放量诱多或跌破20日趋势线时降级"],
+      upgradeConditions: ["分价继续同向且板块保持强势时提高观察优先级"],
+    };
+  }
+  if (stage === "startup_confirming") {
+    return {
+      verdictLabel: "等待确认",
+      tone: "warn",
+      primaryReasons: evidence.slice(0, 2),
+      downgradeReasons: hardRisks.length
+        ? hardRisks.slice(0, 2)
+        : ["启动后无承接、板块转弱或量能诱多时降级"],
+      upgradeConditions: ["放量后价格承接住且板块继续领先时升级"],
+    };
+  }
+  if (stage === "watching") {
+    return {
+      verdictLabel: "继续观察",
+      tone: "neutral",
+      primaryReasons: evidence.slice(0, 2),
+      downgradeReasons: hardRisks.length ? hardRisks.slice(0, 2) : ["趋势、板块、量能没有共振则不升级"],
+      upgradeConditions: ["板块、趋势、量能三项同时改善时升级"],
+    };
+  }
+  return {
+    verdictLabel: "资料留存",
+    tone: "neutral",
+    primaryReasons: evidence.slice(0, 2),
+    downgradeReasons: hardRisks.length ? hardRisks.slice(0, 2) : ["没有重新进入强板块前不占主观察位"],
+    upgradeConditions: ["重新进入强板块或出现新的启动信号时再看"],
+  };
+}
+
 export function buildStockTrackingProfile(stock: WorkspaceStock): StockTrackingProfile {
   const trackingScore = rawTrackingScore(stock);
   const stage = trackingStage(stock, trackingScore);
+  const evidence = evidenceLines(stock);
+  const risks = riskLines(stock);
   return {
     symbol: stock.symbol,
     name: stock.name,
@@ -341,8 +411,9 @@ export function buildStockTrackingProfile(stock: WorkspaceStock): StockTrackingP
     score: Number(trackingScore.toFixed(1)),
     scoreTone: scoreTone(trackingScore),
     nextAction: nextActionFor(stage),
-    evidence: evidenceLines(stock),
-    risks: riskLines(stock),
+    evidence,
+    risks,
+    decision: decisionFor(stage, evidence, risks),
     metrics: metricLines(stock),
     timeline: timeline(stock, stage),
   };

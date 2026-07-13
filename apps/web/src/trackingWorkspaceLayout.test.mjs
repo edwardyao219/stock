@@ -23,6 +23,9 @@ assert(app.includes("信号验证"), "个股追踪页需要展示追踪分和真
 assert(app.includes("追踪状态"), "个股追踪页需要展示当前追踪状态");
 assert(app.includes("启动阶段"), "个股追踪页需要展示启动阶段");
 assert(app.includes("tracking-state-grid"), "追踪状态和启动阶段需要独立视觉区域");
+assert(app.includes("追踪结论"), "个股追踪页需要展示单票追踪结论");
+assert(app.includes("降级原因"), "个股追踪页需要展示暂不看好或降级理由");
+assert(app.includes("升级条件"), "个股追踪页需要展示重新升级条件");
 assert(app.includes("trackingSignalBySymbol"), "追踪列表需要融合真实快照验证数据");
 assert(app.includes("样本"), "追踪列表需要展示快照样本数");
 assert(app.includes("跟踪收益"), "追踪列表需要展示历史跟踪收益");
