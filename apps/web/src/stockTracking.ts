@@ -1,4 +1,4 @@
-import type { Candle, WorkspaceStock } from "./api";
+import type { Candle, TrackingSignalItem, WorkspaceStock } from "./api";
 
 export type TrackingStage =
   | "trend_holding"
@@ -348,7 +348,19 @@ export function buildStockTrackingProfile(stock: WorkspaceStock): StockTrackingP
   };
 }
 
-export function sortStockTrackingProfiles(profiles: StockTrackingProfile[]) {
+function validationRank(signal: TrackingSignalItem | undefined) {
+  if (!signal || signal.sample_count < 2) return 3;
+  if (signal.signal_alignment_key === "aligned" && (signal.simple_return_pct ?? 0) > 0) return 0;
+  if (signal.signal_alignment_key === "score_down_price_strong") return 1;
+  if (signal.signal_alignment_tone === "warn" || signal.signal_alignment_tone === "good") return 2;
+  if (signal.signal_alignment_tone === "bad") return 4;
+  return 3;
+}
+
+export function sortStockTrackingProfiles(
+  profiles: StockTrackingProfile[],
+  signalsBySymbol: Map<string, TrackingSignalItem> = new Map(),
+) {
   return [...profiles].sort((left, right) => {
     const leftRisk = left.stage === "risk_review" ? 1 : 0;
     const rightRisk = right.stage === "risk_review" ? 1 : 0;
@@ -362,6 +374,15 @@ export function sortStockTrackingProfiles(profiles: StockTrackingProfile[]) {
     };
     const stageDelta = stagePriority[left.stage] - stagePriority[right.stage];
     if (stageDelta) return stageDelta;
+    const leftSignal = signalsBySymbol.get(left.symbol);
+    const rightSignal = signalsBySymbol.get(right.symbol);
+    const validationDelta = validationRank(leftSignal) - validationRank(rightSignal);
+    if (validationDelta) return validationDelta;
+    const sampleDelta = (rightSignal?.sample_count ?? 0) - (leftSignal?.sample_count ?? 0);
+    if (sampleDelta) return sampleDelta;
+    const returnDelta =
+      (rightSignal?.simple_return_pct ?? -999) - (leftSignal?.simple_return_pct ?? -999);
+    if (returnDelta) return returnDelta;
     return right.score - left.score || left.symbol.localeCompare(right.symbol);
   });
 }

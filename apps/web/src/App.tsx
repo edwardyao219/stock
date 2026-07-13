@@ -1300,9 +1300,17 @@ export function App() {
       });
   }, [boardFilteredStocks]);
 
+  const trackingSignalBySymbol = useMemo(
+    () => new Map((trackingSignalSummary?.items ?? []).map((item) => [item.symbol, item])),
+    [trackingSignalSummary],
+  );
+
   const trackingProfiles = useMemo(
-    () => sortStockTrackingProfiles(boardFilteredStocks.map(buildStockTrackingProfile)),
-    [boardFilteredStocks],
+    () => sortStockTrackingProfiles(
+      boardFilteredStocks.map(buildStockTrackingProfile),
+      trackingSignalBySymbol,
+    ),
+    [boardFilteredStocks, trackingSignalBySymbol],
   );
 
   const selectedTrackingProfile = useMemo(
@@ -1321,10 +1329,6 @@ export function App() {
   const trackingPathSummary = useMemo(
     () => buildTrackingPathSummary(trackingHistory),
     [trackingHistory],
-  );
-  const trackingSignalBySymbol = useMemo(
-    () => new Map((trackingSignalSummary?.items ?? []).map((item) => [item.symbol, item])),
-    [trackingSignalSummary],
   );
   const trackingHistoryLatest = trackingHistory[0] ?? null;
   const trackingHistoryPrevious = trackingHistory[1] ?? null;
