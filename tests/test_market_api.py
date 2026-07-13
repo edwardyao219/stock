@@ -485,6 +485,15 @@ def test_get_data_health_returns_daily_feature_diagnostics() -> None:
 
     with session() as db:
         db.add(
+            Security(
+                symbol="002156",
+                name="样本",
+                exchange="SZ",
+                is_active=True,
+                is_st=False,
+            )
+        )
+        db.add(
             DailyBar(
                 symbol="002156",
                 trade_date=date(2026, 6, 30),
@@ -517,6 +526,11 @@ def test_get_data_health_returns_daily_feature_diagnostics() -> None:
     assert payload.daily_bar_count == 1
     assert payload.feature_count == 1
     assert payload.amount_ratio_5d_median == 0.92
+    assert payload.expected_security_count == 1
+    assert payload.eligible_daily_bar_count == 1
+    assert payload.daily_coverage_ratio == 1.0
+    assert payload.candidate_generation_allowed is False
+    assert payload.candidate_block_reasons
 
 
 def test_get_sector_overview_returns_month_rank_and_fund_flow() -> None:

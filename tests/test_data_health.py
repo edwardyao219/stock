@@ -91,3 +91,112 @@ def test_inspect_daily_data_health_flags_amount_and_feature_anomalies() -> None:
     assert "daily_amount_missing_high" in issue_codes
     assert "amount_ratio_5d_too_low" in issue_codes
     assert "amount_volume_multiplier_mixed" in issue_codes
+
+
+def test_inspect_daily_data_health_blocks_candidates_below_daily_coverage_threshold() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    trade_date = date(2026, 7, 13)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(
+                    symbol=f"{index:06d}",
+                    name=f"样本{index}",
+                    exchange="SZ",
+                    is_active=True,
+                    is_st=False,
+                )
+                for index in range(100)
+            ]
+        )
+        db.add_all(
+            [
+                _daily_bar(f"{index:06d}", trade_date, amount="1000000000")
+                for index in range(97)
+            ]
+        )
+        db.commit()
+
+        report = inspect_daily_data_health(db, trade_date=trade_date)
+
+    assert report.expected_security_count == 100
+    assert report.eligible_daily_bar_count == 97
+    assert report.daily_coverage_ratio == 0.97
+    assert report.candidate_generation_allowed is False
+    assert any("98%" in reason for reason in report.candidate_block_reasons)
+
+
+def test_inspect_daily_data_health_allows_candidates_at_coverage_threshold() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    trade_date = date(2026, 7, 13)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(
+                    symbol=f"{index:06d}",
+                    name=f"样本{index}",
+                    exchange="SZ",
+                    is_active=True,
+                    is_st=False,
+                )
+                for index in range(100)
+            ]
+        )
+        db.add_all(
+            [
+                _daily_bar(f"{index:06d}", trade_date, amount="1000000000")
+                for index in range(98)
+            ]
+        )
+        db.commit()
+
+        report = inspect_daily_data_health(db, trade_date=trade_date)
+
+    assert report.daily_coverage_ratio == 0.98
+    assert report.amount_missing_ratio == 0
+    assert report.candidate_generation_allowed is True
+    assert report.candidate_block_reasons == []
+
+
+def test_inspect_daily_data_health_blocks_candidates_when_amount_missing_reaches_threshold() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    trade_date = date(2026, 7, 13)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(
+                    symbol=f"{index:06d}",
+                    name=f"样本{index}",
+                    exchange="SZ",
+                    is_active=True,
+                    is_st=False,
+                )
+                for index in range(100)
+            ]
+        )
+        db.add_all(
+            [
+                _daily_bar(
+                    f"{index:06d}",
+                    trade_date,
+                    amount=None if index == 0 else "1000000000",
+                )
+                for index in range(100)
+            ]
+        )
+        db.commit()
+
+        report = inspect_daily_data_health(db, trade_date=trade_date)
+
+    assert report.daily_coverage_ratio == 1.0
+    assert report.candidate_generation_allowed is False
+    assert any("成交额缺失" in reason for reason in report.candidate_block_reasons)

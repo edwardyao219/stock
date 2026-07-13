@@ -18,7 +18,10 @@ from services.collector.akshare_client import (
     fetch_realtime_quotes,
     fetch_sina_realtime_quotes,
 )
-from services.engine.features.health import inspect_daily_data_health
+from services.engine.features.health import (
+    DAILY_CANDIDATE_MIN_COVERAGE_RATIO,
+    inspect_daily_data_health,
+)
 from services.engine.news.catalysts import (
     build_sector_catalyst_report,
     fetch_market_hot_messages,
@@ -57,7 +60,7 @@ SECTOR_OVERVIEW_CACHE_SECONDS = 15.0
 _SECTOR_OVERVIEW_CACHE: tuple[float, int | None, "SectorOverviewResponse"] | None = None
 _SECTOR_OVERVIEW_LOCK = Lock()
 SECTOR_FEATURE_MIN_COVERAGE_RATIO = 0.80
-MARKET_DAILY_MIN_COVERAGE_RATIO = 0.80
+MARKET_DAILY_MIN_COVERAGE_RATIO = DAILY_CANDIDATE_MIN_COVERAGE_RATIO
 TARGET_INDEXES = (
     ("sh000001", "上证", ("sh000001", "000001")),
     ("sz399001", "深成", ("sz399001", "399001")),
@@ -242,6 +245,11 @@ class DataHealthResponse(BaseModel):
     volume_confirmation_median: float | None
     amount_volume_multiplier_median: float | None
     previous_amount_volume_multiplier_median: float | None
+    expected_security_count: int
+    eligible_daily_bar_count: int
+    daily_coverage_ratio: float
+    candidate_generation_allowed: bool
+    candidate_block_reasons: list[str] = Field(default_factory=list)
     issues: list[DataHealthIssueResponse] = Field(default_factory=list)
 
 

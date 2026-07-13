@@ -9,9 +9,11 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from services.shared.models import DailyBar, StockFeatureDaily
+from services.shared.models import DailyBar, Security, StockFeatureDaily
 
 MIN_DISTRIBUTION_SAMPLE_SIZE = 3
+DAILY_CANDIDATE_MIN_COVERAGE_RATIO = 0.98
+DAILY_CANDIDATE_MAX_AMOUNT_MISSING_RATIO = 0.01
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,11 @@ class DailyDataHealthReport:
     volume_confirmation_median: float | None
     amount_volume_multiplier_median: float | None
     previous_amount_volume_multiplier_median: float | None
+    expected_security_count: int
+    eligible_daily_bar_count: int
+    daily_coverage_ratio: float
+    candidate_generation_allowed: bool
+    candidate_block_reasons: list[str] = field(default_factory=list)
     issues: list[DataHealthIssue] = field(default_factory=list)
 
 
@@ -164,6 +171,14 @@ def inspect_daily_data_health(
     bars = _daily_bars(db, target_date)
     previous_bars = _daily_bars(db, previous_date)
     feature_rows = _features(db, target_date)
+    eligible_symbols = set(
+        db.execute(
+            select(Security.symbol)
+            .where(Security.is_active.is_(True))
+            .where(Security.is_st.is_(False))
+        ).scalars()
+    )
+    eligible_bars = [row for row in bars if row.symbol in eligible_symbols]
 
     amount_missing_ratio = _amount_missing_ratio(bars)
     previous_amount_missing_ratio = _amount_missing_ratio(previous_bars)
@@ -187,6 +202,28 @@ def inspect_daily_data_health(
     volume_confirmation_median = _median(volume_confirmation_values)
     multiplier_median = _median(multipliers)
     previous_multiplier_median = _median(previous_multipliers)
+    expected_security_count = len(eligible_symbols)
+    eligible_daily_bar_count = len(eligible_bars)
+    daily_coverage_ratio = (
+        eligible_daily_bar_count / expected_security_count if expected_security_count else 0.0
+    )
+    eligible_amount_missing_ratio = _amount_missing_ratio(eligible_bars)
+    candidate_block_reasons: list[str] = []
+    if expected_security_count == 0:
+        candidate_block_reasons.append("有效非ST证券宇宙为空，不能生成候选。")
+    elif not eligible_bars:
+        candidate_block_reasons.append("目标交易日没有有效非ST日线，不能生成候选。")
+    elif daily_coverage_ratio < DAILY_CANDIDATE_MIN_COVERAGE_RATIO:
+        candidate_block_reasons.append(
+            f"日线覆盖 {daily_coverage_ratio:.1%}，低于 98% 门槛。"
+        )
+    if (
+        eligible_amount_missing_ratio is not None
+        and eligible_amount_missing_ratio >= DAILY_CANDIDATE_MAX_AMOUNT_MISSING_RATIO
+    ):
+        candidate_block_reasons.append(
+            f"有效样本成交额缺失 {eligible_amount_missing_ratio:.1%}，达到 1% 门槛。"
+        )
 
     issues: list[DataHealthIssue] = []
     if target_date is None:
@@ -335,5 +372,10 @@ def inspect_daily_data_health(
         volume_confirmation_median=volume_confirmation_median,
         amount_volume_multiplier_median=multiplier_median,
         previous_amount_volume_multiplier_median=previous_multiplier_median,
+        expected_security_count=expected_security_count,
+        eligible_daily_bar_count=eligible_daily_bar_count,
+        daily_coverage_ratio=round(daily_coverage_ratio, 6),
+        candidate_generation_allowed=not candidate_block_reasons,
+        candidate_block_reasons=candidate_block_reasons,
         issues=issues,
     )
