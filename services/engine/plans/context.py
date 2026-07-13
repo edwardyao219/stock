@@ -17,8 +17,11 @@ from services.shared.models import (
     SectorProfile,
     Security,
     StockFeatureDaily,
+    TushareCyqPerf,
     TushareDailyBasic,
+    TushareLimitListD,
     TushareMoneyflow,
+    TushareMoneyflowDc,
     TushareMoneyflowIndDc,
 )
 
@@ -126,6 +129,90 @@ def _moneyflow_context(row: TushareMoneyflow) -> dict[str, Any]:
             ),
         ),
     }
+
+
+def _optional_float(value: Any) -> float | None:
+    return float(value) if value is not None else None
+
+
+def _moneyflow_dc_context(row: TushareMoneyflowDc) -> dict[str, Any]:
+    return {
+        "dc_net_amount": _optional_float(row.net_amount),
+        "dc_net_amount_rate": _optional_float(row.net_amount_rate),
+        "dc_buy_lg_amount_rate": _optional_float(row.buy_lg_amount_rate),
+        "dc_buy_elg_amount_rate": _optional_float(row.buy_elg_amount_rate),
+    }
+
+
+def load_tushare_moneyflow_dc_map(
+    db: Session,
+    ts_codes: Sequence[str],
+    trade_date: date,
+) -> dict[str, dict[str, Any]]:
+    unique_ts_codes = sorted({code for code in ts_codes if code})
+    if not unique_ts_codes:
+        return {}
+    rows = db.execute(
+        select(TushareMoneyflowDc).where(
+            TushareMoneyflowDc.ts_code.in_(unique_ts_codes),
+            TushareMoneyflowDc.trade_date == trade_date,
+        )
+    ).scalars()
+    return {row.ts_code: _moneyflow_dc_context(row) for row in rows}
+
+
+def _limit_list_context(row: TushareLimitListD) -> dict[str, Any]:
+    return {
+        "limit_event": row.limit,
+        "limit_open_times": row.open_times,
+        "limit_times": row.limit_times,
+        "limit_first_time": row.first_time,
+        "limit_last_time": row.last_time,
+        "limit_fd_amount": _optional_float(row.fd_amount),
+    }
+
+
+def load_tushare_limit_list_map(
+    db: Session,
+    ts_codes: Sequence[str],
+    trade_date: date,
+) -> dict[str, dict[str, Any]]:
+    unique_ts_codes = sorted({code for code in ts_codes if code})
+    if not unique_ts_codes:
+        return {}
+    rows = db.execute(
+        select(TushareLimitListD).where(
+            TushareLimitListD.ts_code.in_(unique_ts_codes),
+            TushareLimitListD.trade_date == trade_date,
+        )
+    ).scalars()
+    return {row.ts_code: _limit_list_context(row) for row in rows}
+
+
+def _cyq_context(row: TushareCyqPerf) -> dict[str, Any]:
+    return {
+        "chip_cost_50pct": _optional_float(row.cost_50pct),
+        "chip_cost_85pct": _optional_float(row.cost_85pct),
+        "chip_weight_avg": _optional_float(row.weight_avg),
+        "chip_winner_rate": _optional_float(row.winner_rate),
+    }
+
+
+def load_tushare_cyq_perf_map(
+    db: Session,
+    ts_codes: Sequence[str],
+    trade_date: date,
+) -> dict[str, dict[str, Any]]:
+    unique_ts_codes = sorted({code for code in ts_codes if code})
+    if not unique_ts_codes:
+        return {}
+    rows = db.execute(
+        select(TushareCyqPerf).where(
+            TushareCyqPerf.ts_code.in_(unique_ts_codes),
+            TushareCyqPerf.trade_date == trade_date,
+        )
+    ).scalars()
+    return {row.ts_code: _cyq_context(row) for row in rows}
 
 
 def load_tushare_moneyflow_map(
@@ -257,6 +344,9 @@ def build_strategy_context(
     sector_feature_map: dict[str, dict[str, Any]] | None = None,
     tushare_daily_basic_map: Mapping[str, dict[str, Any]] | None = None,
     tushare_moneyflow_map: Mapping[str, dict[str, Any]] | None = None,
+    tushare_moneyflow_dc_map: Mapping[str, dict[str, Any]] | None = None,
+    tushare_limit_list_map: Mapping[str, dict[str, Any]] | None = None,
+    tushare_cyq_perf_map: Mapping[str, dict[str, Any]] | None = None,
     industry_moneyflow_map: Mapping[str, dict[str, Any]] | None = None,
     fundamental_context_map: Mapping[str, dict[str, Any]] | None = None,
     sector_profile_map: Mapping[str, SectorProfile] | None = None,
@@ -272,6 +362,30 @@ def build_strategy_context(
         tushare_moneyflow = _load_tushare_moneyflow(db, ts_code, feature_row.trade_date)
     else:
         tushare_moneyflow = dict(tushare_moneyflow_map.get(ts_code, {}))
+    if tushare_moneyflow_dc_map is None:
+        tushare_moneyflow_dc = load_tushare_moneyflow_dc_map(
+            db,
+            [ts_code],
+            feature_row.trade_date,
+        ).get(ts_code, {})
+    else:
+        tushare_moneyflow_dc = dict(tushare_moneyflow_dc_map.get(ts_code, {}))
+    if tushare_limit_list_map is None:
+        tushare_limit_list = load_tushare_limit_list_map(
+            db,
+            [ts_code],
+            feature_row.trade_date,
+        ).get(ts_code, {})
+    else:
+        tushare_limit_list = dict(tushare_limit_list_map.get(ts_code, {}))
+    if tushare_cyq_perf_map is None:
+        tushare_cyq_perf = load_tushare_cyq_perf_map(
+            db,
+            [ts_code],
+            feature_row.trade_date,
+        ).get(ts_code, {})
+    else:
+        tushare_cyq_perf = dict(tushare_cyq_perf_map.get(ts_code, {}))
     if industry_moneyflow_map is None:
         industry_moneyflow = _load_tushare_industry_moneyflow(
             db,
@@ -311,6 +425,9 @@ def build_strategy_context(
             **sector_features,
             **tushare_daily_basic,
             **tushare_moneyflow,
+            **tushare_moneyflow_dc,
+            **tushare_limit_list,
+            **tushare_cyq_perf,
             **industry_moneyflow,
             **fundamental_context,
         }

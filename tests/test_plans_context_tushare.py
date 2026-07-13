@@ -14,8 +14,11 @@ from services.shared.models import (
     SectorProfile,
     Security,
     StockFeatureDaily,
+    TushareCyqPerf,
     TushareDailyBasic,
+    TushareLimitListD,
     TushareMoneyflow,
+    TushareMoneyflowDc,
     TushareMoneyflowIndDc,
 )
 
@@ -73,6 +76,113 @@ def _daily_basic(
         total_mv=Decimal("123456.78"),
         circ_mv=Decimal("123456.78"),
     )
+
+
+def test_load_feature_contexts_batches_same_day_tushare_5000_evidence() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    target_date = date(2026, 7, 10)
+    prior_date = date(2026, 7, 9)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("000001", exchange="SZ"),
+                _security("000002", exchange="SZ"),
+                _feature("000001", target_date),
+                _feature("000002", target_date),
+                _bar("000001", target_date),
+                _bar("000002", target_date),
+                TushareMoneyflowDc(
+                    ts_code="000001.SZ",
+                    trade_date=prior_date,
+                    net_amount_rate=Decimal("9.9"),
+                ),
+                TushareMoneyflowDc(
+                    ts_code="000001.SZ",
+                    trade_date=target_date,
+                    net_amount_rate=Decimal("-1.5"),
+                ),
+                TushareMoneyflowDc(
+                    ts_code="000002.SZ",
+                    trade_date=prior_date,
+                    net_amount_rate=Decimal("7.7"),
+                ),
+                TushareLimitListD(
+                    ts_code="000001.SZ",
+                    trade_date=prior_date,
+                    limit="D",
+                    open_times=9,
+                ),
+                TushareLimitListD(
+                    ts_code="000001.SZ",
+                    trade_date=target_date,
+                    limit="U",
+                    open_times=2,
+                ),
+                TushareLimitListD(
+                    ts_code="000002.SZ",
+                    trade_date=prior_date,
+                    limit="U",
+                    open_times=8,
+                ),
+                TushareCyqPerf(
+                    ts_code="000001.SZ",
+                    trade_date=prior_date,
+                    cost_50pct=Decimal("99.9"),
+                    cost_85pct=Decimal("199.9"),
+                    winner_rate=Decimal("99.9"),
+                ),
+                TushareCyqPerf(
+                    ts_code="000001.SZ",
+                    trade_date=target_date,
+                    cost_50pct=Decimal("10.2"),
+                    cost_85pct=Decimal("11.4"),
+                    winner_rate=Decimal("91.0"),
+                ),
+                TushareCyqPerf(
+                    ts_code="000002.SZ",
+                    trade_date=prior_date,
+                    cost_50pct=Decimal("88.8"),
+                ),
+            ]
+        )
+        db.commit()
+
+        statements_by_table = {
+            "tushare_moneyflow_dc": 0,
+            "tushare_limit_list_d": 0,
+            "tushare_cyq_perf": 0,
+        }
+
+        def track_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+            lowered = " ".join(statement.lower().split()) + " "
+            for table in statements_by_table:
+                if f"from {table} " in lowered:
+                    statements_by_table[table] += 1
+
+        event.listen(engine, "before_cursor_execute", track_sql)
+        try:
+            contexts = load_feature_contexts(db, target_date.isoformat())
+        finally:
+            event.remove(engine, "before_cursor_execute", track_sql)
+
+    context_by_symbol = {context["symbol"]: context for context in contexts}
+    context = context_by_symbol["000001"]
+    assert context["dc_net_amount_rate"] == -1.5
+    assert context["limit_event"] == "U"
+    assert context["limit_open_times"] == 2
+    assert context["chip_cost_50pct"] == 10.2
+    assert context["chip_cost_85pct"] == 11.4
+    assert context["chip_winner_rate"] == 91.0
+    assert "dc_net_amount_rate" not in context_by_symbol["000002"]
+    assert "limit_event" not in context_by_symbol["000002"]
+    assert "chip_cost_50pct" not in context_by_symbol["000002"]
+    assert statements_by_table == {
+        "tushare_moneyflow_dc": 1,
+        "tushare_limit_list_d": 1,
+        "tushare_cyq_perf": 1,
+    }
 
 
 def test_load_feature_contexts_batches_tushare_daily_basic_without_future_rows() -> None:

@@ -12,8 +12,11 @@ from services.engine.plans.context import (
     _ts_code_for_symbol,
     build_strategy_context,
     load_sector_feature_map,
+    load_tushare_cyq_perf_map,
     load_tushare_daily_basic_map,
     load_tushare_industry_moneyflow_map,
+    load_tushare_limit_list_map,
+    load_tushare_moneyflow_dc_map,
     load_tushare_moneyflow_map,
 )
 from services.engine.plans.generator import TradePlanCandidate
@@ -160,6 +163,9 @@ def load_feature_contexts(
 
     tushare_daily_basic_map = load_tushare_daily_basic_map(db, ts_codes, target_date)
     tushare_moneyflow_map = load_tushare_moneyflow_map(db, ts_codes, target_date)
+    tushare_moneyflow_dc_map = load_tushare_moneyflow_dc_map(db, ts_codes, target_date)
+    tushare_limit_list_map = load_tushare_limit_list_map(db, ts_codes, target_date)
+    tushare_cyq_perf_map = load_tushare_cyq_perf_map(db, ts_codes, target_date)
     industry_moneyflow_map = load_tushare_industry_moneyflow_map(
         db,
         sector_codes,
@@ -181,6 +187,9 @@ def load_feature_contexts(
                 sector_feature_map=sector_feature_map,
                 tushare_daily_basic_map=tushare_daily_basic_map,
                 tushare_moneyflow_map=tushare_moneyflow_map,
+                tushare_moneyflow_dc_map=tushare_moneyflow_dc_map,
+                tushare_limit_list_map=tushare_limit_list_map,
+                tushare_cyq_perf_map=tushare_cyq_perf_map,
                 industry_moneyflow_map=industry_moneyflow_map,
                 fundamental_context_map=fundamental_context_map,
                 sector_profile_map=sector_profile_map,
