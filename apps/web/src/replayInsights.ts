@@ -32,6 +32,37 @@ export const initialCandidateReplayQuery = longCandidateReplayQuery;
 export type ReplayBreakdownGroup = "selection_mode" | "style";
 export type ReplayTone = "up" | "down" | "neutral";
 
+export interface CapitalCurveView {
+  status: "passed" | "failed";
+  metric: NonNullable<LowDimensionalReplayReport["capital_curve_horizons"]>[number]["guarded"];
+  points: Array<{ x: number; y: number; value: number }>;
+  pointString: string;
+}
+
+export function capitalCurveView(
+  report: Pick<LowDimensionalReplayReport, "capital_curve_horizons"> | null,
+  horizon: number,
+): CapitalCurveView | null {
+  const metric = report?.capital_curve_horizons?.[horizon]?.guarded;
+  if (!metric) return null;
+  const values = [0, ...metric.curve.map((point) => point.cumulative_return)];
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const spread = high - low || 1;
+  const lastIndex = Math.max(1, values.length - 1);
+  const points = values.map((value, index) => ({
+    x: Math.round((index / lastIndex) * 10000) / 100,
+    y: Math.round((92 - ((value - low) / spread) * 84) * 100) / 100,
+    value,
+  }));
+  return {
+    status: metric.max_drawdown_passed ? "passed" : "failed",
+    metric,
+    points,
+    pointString: points.map((point) => `${point.x},${point.y}`).join(" "),
+  };
+}
+
 export interface ReplayScopeRow {
   scope: string;
   label: string;

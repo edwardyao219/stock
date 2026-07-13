@@ -3042,6 +3042,83 @@ button {
   gap: 5px;
 }
 
+.replay-capital-curve {
+  border-bottom: 1px solid #dbe4ee;
+  border-top: 1px solid #dbe4ee;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(320px, 0.8fr) minmax(420px, 1.6fr);
+  padding: 12px 0;
+}
+
+.replay-capital-curve-head {
+  align-content: center;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(3, minmax(80px, 1fr));
+}
+
+.replay-capital-curve-head > div {
+  display: grid;
+  gap: 2px;
+}
+
+.replay-capital-curve-head span,
+.replay-capital-curve-head small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.replay-capital-curve-head strong {
+  color: #17623a;
+  font-size: 18px;
+}
+
+.replay-capital-curve.failed .replay-capital-curve-head strong {
+  color: #9f2d20;
+}
+
+.replay-capital-curve-head > small {
+  grid-column: 1 / -1;
+}
+
+.replay-capital-curve svg {
+  height: 112px;
+  overflow: visible;
+  width: 100%;
+}
+
+.replay-capital-curve polyline {
+  fill: none;
+  stroke: #2f9e63;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.replay-capital-curve.failed polyline {
+  stroke: #d65f4f;
+}
+
+.replay-capital-curve circle {
+  fill: #ffffff;
+  stroke: #2f9e63;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.replay-capital-curve.failed circle {
+  stroke: #d65f4f;
+}
+
+.replay-capital-zero {
+  stroke: #cbd5e1;
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
 .replay-visual-board {
   display: grid;
   gap: 10px;

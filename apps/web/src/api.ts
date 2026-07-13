@@ -598,6 +598,29 @@ export interface ReplayPortfolioHorizonSummary extends ReplayMonthlyHorizonSumma
   weighting: string;
 }
 
+export interface ReplayCapitalCurvePoint {
+  entry_date: string;
+  period_return: number;
+  cumulative_return: number;
+  drawdown: number;
+}
+
+export interface ReplayCapitalReturnSummary extends ReplayReturnSummary {
+  max_drawdown: number;
+  max_drawdown_limit_pct: number;
+  max_drawdown_passed: boolean;
+  curve: ReplayCapitalCurvePoint[];
+}
+
+export interface ReplayCapitalCurveHorizonSummary {
+  max_positions: number;
+  weighting: string;
+  holding_period_days: number;
+  return_calculation: string;
+  raw: ReplayCapitalReturnSummary;
+  guarded: ReplayCapitalReturnSummary;
+}
+
 export interface ReplayStylePreference {
   preferred_horizon: number;
   preferred_metric: string;
@@ -676,6 +699,7 @@ export interface ReplayScopeSummary {
   startup_signal_counts?: ReplayStartupSignalCount[];
   horizons: Record<number, ReplayHorizonSummary>;
   portfolio_horizons: Record<number, ReplayPortfolioHorizonSummary>;
+  capital_curve_horizons?: Record<number, ReplayCapitalCurveHorizonSummary>;
   style_horizons: Record<number, Record<string, ReplayHorizonSummary>>;
   selection_mode_horizons: Record<number, Record<string, ReplayHorizonSummary>>;
   startup_signal_horizons?: Record<number, Record<string, ReplayHorizonSummary>>;

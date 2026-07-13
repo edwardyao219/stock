@@ -1,6 +1,6 @@
 // @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
-import { monthlyDefenseSignals, monthlyDefenseSimulation, monthlyPerformanceHealth, monthlyPerformanceRows } from "./replayInsights.ts";
-import type { CandidateReplayEffectReport } from "./api";
+import { capitalCurveView, monthlyDefenseSignals, monthlyDefenseSimulation, monthlyPerformanceHealth, monthlyPerformanceRows } from "./replayInsights.ts";
+import type { CandidateReplayEffectReport, LowDimensionalReplayReport } from "./api";
 
 function assertClose(actual: number | null, expected: number, message: string) {
   if (actual === null || Math.abs(actual - expected) > 0.000001) {
@@ -83,3 +83,42 @@ const riskAdjusted = monthlyDefenseSimulation([
   rows[2],
 ], 0.03, 0.15);
 assertEqual(riskAdjusted.months[0].exposure, 0, "上月风险后次月暂停升级");
+
+const capitalCurve = capitalCurveView({
+  capital_curve_horizons: {
+    20: {
+      max_positions: 3,
+      weighting: "equal_weight_fixed_notional",
+      holding_period_days: 20,
+      return_calculation: "simple_sum_no_compounding",
+      raw: {
+        sample_count: 2,
+        avg_return: -0.05,
+        win_rate: 0.5,
+        total_return: -0.1,
+        max_drawdown: -0.2,
+        max_drawdown_limit_pct: 0.15,
+        max_drawdown_passed: false,
+        curve: [],
+      },
+      guarded: {
+        sample_count: 2,
+        avg_return: -0.01,
+        win_rate: 0.5,
+        total_return: -0.02,
+        max_drawdown: -0.1,
+        max_drawdown_limit_pct: 0.15,
+        max_drawdown_passed: true,
+        curve: [
+          { entry_date: "2026-01-03", period_return: 0.08, cumulative_return: 0.08, drawdown: 0 },
+          { entry_date: "2026-01-23", period_return: -0.1, cumulative_return: -0.02, drawdown: -0.1 },
+        ],
+      },
+    },
+  },
+} as unknown as LowDimensionalReplayReport, 20);
+
+assertEqual(capitalCurve?.status, "passed", "15%以内显示通过");
+assertEqual(capitalCurve?.points.length, 3, "曲线包含零起点");
+assertEqual(capitalCurve?.points[0].x, 0, "曲线从左侧开始");
+assertEqual(capitalCurve?.points[2].x, 100, "曲线延伸到右侧");

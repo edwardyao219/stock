@@ -64,6 +64,7 @@ import {
   groupStocksByCandidateTier,
 } from "./candidateTiers";
 import {
+  capitalCurveView,
   candidateGateSummary,
   dingPolicyText,
   dualLineLongReplaySummary,
@@ -1763,6 +1764,7 @@ export function App() {
   const replay5d = replayHorizonMetric(lowDimensionalReplay, 5);
   const replay10d = replayHorizonMetric(lowDimensionalReplay, 10);
   const replay20d = replayHorizonMetric(lowDimensionalReplay, 20);
+  const replayCapitalCurve20d = capitalCurveView(lowDimensionalReplay, 20);
   const replayMetricCards: Array<[string, ReplayReturnSummary | null]> = [
     ["5日", replay5d],
     ["10日", replay10d],
@@ -4081,6 +4083,46 @@ export function App() {
                     </div>
                   ))}
                 </div>
+                {replayCapitalCurve20d ? (
+                  <div className={`replay-capital-curve ${replayCapitalCurve20d.status}`}>
+                    <div className="replay-capital-curve-head">
+                      <div>
+                        <span>20日非复利资金曲线</span>
+                        <strong>{pct(replayCapitalCurve20d.metric.total_return)}</strong>
+                      </div>
+                      <div>
+                        <span>最大回撤</span>
+                        <strong>{pct(replayCapitalCurve20d.metric.max_drawdown)}</strong>
+                      </div>
+                      <div>
+                        <span>15%红线</span>
+                        <strong>
+                          {replayCapitalCurve20d.metric.max_drawdown_passed ? "通过" : "超过"}
+                        </strong>
+                      </div>
+                      <small>
+                        最多3只等权 / {replayCapitalCurve20d.metric.sample_count}批
+                      </small>
+                    </div>
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="20日非复利资金曲线">
+                      <line
+                        className="replay-capital-zero"
+                        x1="0"
+                        x2="100"
+                        y1={replayCapitalCurve20d.points[0]?.y ?? 50}
+                        y2={replayCapitalCurve20d.points[0]?.y ?? 50}
+                      />
+                      <polyline points={replayCapitalCurve20d.pointString} />
+                      {replayCapitalCurve20d.points.length ? (
+                        <circle
+                          cx={replayCapitalCurve20d.points[replayCapitalCurve20d.points.length - 1].x}
+                          cy={replayCapitalCurve20d.points[replayCapitalCurve20d.points.length - 1].y}
+                          r="2.8"
+                        />
+                      ) : null}
+                    </svg>
+                  </div>
+                ) : null}
                 <div className="monthly-summary-lists">
                   <div>
                     <span>主线板块</span>

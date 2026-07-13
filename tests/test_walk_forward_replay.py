@@ -2917,3 +2917,55 @@ def test_summarize_walk_forward_replay_reports_equal_weight_portfolio_returns() 
     monthly = summary["monthly_portfolio_horizons"][5]["2026-01"]
     assert monthly["raw"]["sample_count"] == 2
     assert monthly["raw"]["total_return"] == 0.02
+
+
+def test_summarize_walk_forward_replay_reports_non_compound_capital_curve() -> None:
+    def replay_day(index: int, raw_return: float, guarded_return: float) -> WalkForwardDay:
+        trade_day = index + 2
+        entry_day = index + 3
+        return WalkForwardDay(
+            signal_date=f"2026-01-{trade_day:02d}",
+            next_trade_date=f"2026-01-{entry_day:02d}",
+            universe_size=1,
+            feature_rows=1,
+            active_symbols=1,
+            feature_coverage_ratio=1.0,
+            candidates=[
+                WalkForwardCandidate(
+                    symbol=f"60000{index}",
+                    name=f"样本{index}",
+                    sector="半导体",
+                    selection_mode="low_dimensional_mainline",
+                    score=90 - index,
+                    entry_date=f"2026-01-{entry_day:02d}",
+                    forward_returns={2: raw_return},
+                    guarded_forward_returns={2: guarded_return},
+                )
+            ],
+        )
+
+    result = WalkForwardReplayResult(
+        start_date="2026-01-02",
+        end_date="2026-01-06",
+        processed_days=4,
+        days=[
+            replay_day(0, 0.10, 0.08),
+            replay_day(1, 0.50, 0.40),
+            replay_day(2, -0.20, -0.10),
+            replay_day(3, 0.30, 0.20),
+        ],
+    )
+
+    summary = summarize_walk_forward_replay(result, horizons=(2,))
+    capital = summary["capital_curve_horizons"][2]
+
+    assert capital["holding_period_days"] == 2
+    assert capital["return_calculation"] == "simple_sum_no_compounding"
+    assert capital["raw"]["sample_count"] == 2
+    assert capital["raw"]["total_return"] == -0.10
+    assert capital["raw"]["max_drawdown"] == -0.20
+    assert capital["raw"]["max_drawdown_passed"] is False
+    assert capital["guarded"]["total_return"] == -0.02
+    assert capital["guarded"]["max_drawdown"] == -0.10
+    assert capital["guarded"]["max_drawdown_passed"] is True
+    assert [point["cumulative_return"] for point in capital["raw"]["curve"]] == [0.10, -0.10]

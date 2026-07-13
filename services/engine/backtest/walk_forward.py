@@ -40,6 +40,7 @@ CANDIDATE_DISCOVERY_CACHE_VERSION = "candidate-v5-startup-signal"
 DEFAULT_CANDIDATE_DISCOVERY_CACHE_DIR = Path(".tmp/candidate-replay-discovery-cache")
 NOISE_WALK_FORWARD_SYMBOLS = {"000001"}
 PORTFOLIO_SUMMARY_MAX_POSITIONS = 3
+PORTFOLIO_MAX_DRAWDOWN_LIMIT_PCT = 0.15
 LOW_DIMENSIONAL_TEXT_PREFILTER_KEYS = (
     "trend_score",
     "relative_strength_score",
@@ -651,6 +652,99 @@ def _portfolio_return_summary(
     }
 
 
+def _non_overlapping_portfolio_return_points(
+    days: list[WalkForwardDay],
+    *,
+    horizon: int,
+    field_name: str,
+    max_positions: int = PORTFOLIO_SUMMARY_MAX_POSITIONS,
+) -> list[tuple[str, float]]:
+    points: list[tuple[str, float]] = []
+    index = 0
+    while index < len(days):
+        candidates = [
+            candidate for candidate in days[index].candidates if not _is_noise_candidate(candidate)
+        ][:max_positions]
+        values = [
+            (candidate, value)
+            for candidate in candidates
+            if (value := getattr(candidate, field_name).get(horizon)) is not None
+        ]
+        if not values:
+            index += 1
+            continue
+        points.append(
+            (
+                str(values[0][0].entry_date or days[index].next_trade_date or ""),
+                round(sum(float(value) for _candidate, value in values) / len(values), 6),
+            )
+        )
+        index += max(1, horizon)
+    return points
+
+
+def _non_compound_capital_summary(
+    points: list[tuple[str, float]],
+    *,
+    max_drawdown_limit_pct: float = PORTFOLIO_MAX_DRAWDOWN_LIMIT_PCT,
+) -> dict[str, Any]:
+    cumulative = 0.0
+    peak = 0.0
+    worst_drawdown = 0.0
+    curve: list[dict[str, Any]] = []
+    for entry_date, value in points:
+        cumulative += value
+        peak = max(peak, cumulative)
+        drawdown = cumulative - peak
+        worst_drawdown = min(worst_drawdown, drawdown)
+        curve.append(
+            {
+                "entry_date": entry_date,
+                "period_return": round(value, 6),
+                "cumulative_return": round(cumulative, 6),
+                "drawdown": round(drawdown, 6),
+            }
+        )
+    limit = abs(max_drawdown_limit_pct)
+    return {
+        **_return_summary([value for _entry_date, value in points]),
+        "max_drawdown": round(worst_drawdown, 6),
+        "max_drawdown_limit_pct": limit,
+        "max_drawdown_passed": worst_drawdown >= -limit,
+        "curve": curve,
+    }
+
+
+def _capital_curve_summary(
+    days: list[WalkForwardDay],
+    *,
+    horizon: int,
+    max_positions: int = PORTFOLIO_SUMMARY_MAX_POSITIONS,
+) -> dict[str, Any]:
+    return {
+        "max_positions": max_positions,
+        "weighting": "equal_weight_fixed_notional",
+        "holding_period_days": horizon,
+        "return_calculation": "simple_sum_no_compounding",
+        "raw": _non_compound_capital_summary(
+            _non_overlapping_portfolio_return_points(
+                days,
+                horizon=horizon,
+                field_name="forward_returns",
+                max_positions=max_positions,
+            )
+        ),
+        "guarded": _non_compound_capital_summary(
+            _non_overlapping_portfolio_return_points(
+                days,
+                horizon=horizon,
+                field_name="guarded_forward_returns",
+                max_positions=max_positions,
+            )
+        ),
+    }
+
+
 def _monthly_portfolio_return_summaries(
     days: list[WalkForwardDay],
     *,
@@ -833,6 +927,10 @@ def summarize_walk_forward_replay(
         "horizons": horizon_summaries,
         "portfolio_horizons": {
             horizon: _portfolio_return_summary(result.days, horizon=horizon)
+            for horizon in horizons
+        },
+        "capital_curve_horizons": {
+            horizon: _capital_curve_summary(result.days, horizon=horizon)
             for horizon in horizons
         },
         "style_horizons": style_horizon_summaries,
