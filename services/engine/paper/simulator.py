@@ -225,6 +225,7 @@ def run_daily_paper_simulation(
     symbols: list[str] | None = None,
     candidate_pool_name: str | None = "experiment",
     allowed_strategy_types: set[str] | None = None,
+    execute_entries: bool = True,
 ) -> PaperSimulationResult:
     current_date = date.fromisoformat(trade_date)
     opened = 0
@@ -293,7 +294,12 @@ def run_daily_paper_simulation(
             messages.append(f"{position.symbol} closed: {reason} @ {exit_price}")
 
         open_positions_count = len(load_open_positions(db, account.id))
-        for plan in load_trade_plans_for_trade_date(db, current_date, symbols=symbols):
+        plans = (
+            load_trade_plans_for_trade_date(db, current_date, symbols=symbols)
+            if execute_entries
+            else []
+        )
+        for plan in plans:
             if plan.rule_id == "OBS001":
                 skipped += 1
                 messages.append(f"{plan.symbol} plan skipped: OBS001 requires realtime monitor")

@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from services.engine.paper import simulator
 from services.shared.database import Base
-from services.shared.models import DailyBar, PaperPosition, ResearchPoolItem, TradePlan
+from services.shared.models import DailyBar, PaperOrder, PaperPosition, ResearchPoolItem, TradePlan
 
 
 def _daily_bar(
@@ -117,6 +117,66 @@ def test_daily_paper_simulation_skips_observation_plans(monkeypatch) -> None:
     assert result.skipped == 1
     assert "OBS001 requires realtime monitor" in result.messages[0]
     assert positions == []
+
+
+def test_daily_paper_simulation_keeps_exits_when_entries_are_disabled(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(simulator, "SessionLocal", session)
+
+    with session() as db:
+        db.add(_daily_bar("000001"))
+        db.add(_daily_bar("000002", low="9.40"))
+        db.add(
+            ResearchPoolItem(
+                pool_name="experiment",
+                symbol="000001",
+                status="active",
+                tags_json={
+                    "tags": [
+                        "after_close_candidate",
+                        "next_session",
+                        "2026-06-23",
+                        "rank:3",
+                        "score:86.0",
+                    ]
+                },
+            )
+        )
+        db.add(_trade_plan("000001"))
+        db.add(
+            PaperPosition(
+                account_id=1,
+                trade_plan_id=1,
+                symbol="000002",
+                rule_id="R001",
+                strategy_type="short_term",
+                entry_date=date(2026, 6, 23),
+                entry_price=Decimal("10.0000"),
+                quantity=1000,
+                initial_stop=Decimal("9.5000"),
+                current_stop=Decimal("9.5000"),
+                take_profit_1=None,
+                take_profit_2=None,
+                highest_price=Decimal("10.0000"),
+                lowest_price=Decimal("10.0000"),
+                max_holding_days=5,
+                status="open",
+            )
+        )
+        db.commit()
+
+    result = simulator.run_daily_paper_simulation("2026-06-24", execute_entries=False)
+
+    with session() as db:
+        buy_orders = list(
+            db.execute(select(PaperOrder).where(PaperOrder.side == "buy")).scalars()
+        )
+
+    assert result.closed == 1
+    assert result.opened == 0
+    assert buy_orders == []
 
 
 def test_daily_paper_simulation_uses_candidate_rank_gate(monkeypatch) -> None:

@@ -608,11 +608,11 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
             detail=f"universe:{limit}",
         )
 
-    monkeypatch.setattr(
-        pipeline,
-        "_run_daily_paper_simulation_step",
-        lambda trade_date, account: f"paper:{account}",
-    )
+    def fake_paper_simulation(trade_date, account, *, execute_entries=True):
+        captured["execute_entries"] = execute_entries
+        return f"paper:{account}"
+
+    monkeypatch.setattr(pipeline, "_run_daily_paper_simulation_step", fake_paper_simulation)
     monkeypatch.setattr(
         pipeline,
         "_sync_sector_moneyflow_step",
@@ -656,6 +656,16 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
     )
     monkeypatch.setattr(
         pipeline,
+        "_daily_candidate_data_gate_step",
+        lambda trade_date: pipeline.PipelineStepResult(
+            name="validate_daily_candidate_data",
+            status="ok",
+            detail="候选数据门禁通过",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        pipeline,
         "_discover_next_session_candidates_step",
         lambda trade_date, next_trade_date, limit, use_learning_adjustments: (
             pipeline.PipelineStepResult(
@@ -678,6 +688,7 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
     assert [item.name for item in result.steps] == [
         "sync_sector_moneyflow",
         "prepare_market_feature_universe",
+        "validate_daily_candidate_data",
         "discover_next_session_candidates",
         "record_tracking_snapshots",
         "run_daily_paper_simulation",
@@ -687,12 +698,86 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         "prewarm_candidate_replay_effect",
         "generate_daily_review",
     ]
-    assert result.steps[2].detail == "candidates:2026-06-25:False"
-    assert result.steps[3].detail == "tracking:2026-06-24:200"
+    assert result.steps[3].detail == "candidates:2026-06-25:False"
+    assert result.steps[4].detail == "tracking:2026-06-24:200"
     assert captured["sync_daily"] is True
-    assert result.steps[5].detail == "reviews"
+    assert captured["execute_entries"] is True
+    assert result.steps[6].detail == "reviews"
     assert result.steps[-1].detail == "daily"
     assert result.steps[-2].detail == "prewarm:2026-06-24"
+
+
+def test_after_close_session_blocks_candidates_when_daily_data_gate_fails(monkeypatch) -> None:
+    captured = {}
+
+    monkeypatch.setattr(
+        pipeline,
+        "_sync_sector_moneyflow_step",
+        lambda trade_date, lookback_open_days=8: pipeline.PipelineStepResult(
+            name="sync_sector_moneyflow",
+            status="ok",
+            detail="sector-flow",
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_prepare_market_feature_universe_step",
+        lambda trade_date, limit, sync_daily=False: pipeline.PipelineStepResult(
+            name="prepare_market_feature_universe",
+            status="ok",
+            detail="universe",
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_daily_candidate_data_gate_step",
+        lambda trade_date: pipeline.PipelineStepResult(
+            name="validate_daily_candidate_data",
+            status="warning",
+            detail="候选数据门禁未通过：日线覆盖不足",
+            summary="数据完整性不足",
+            details=["日线覆盖不足"],
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_discover_next_session_candidates_step",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("candidates should not run")),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_record_tracking_snapshots_step",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("tracking should not run")),
+    )
+
+    def fake_paper_simulation(trade_date, account, *, execute_entries=True):
+        captured["execute_entries"] = execute_entries
+        return "paper"
+
+    monkeypatch.setattr(pipeline, "_run_daily_paper_simulation_step", fake_paper_simulation)
+    monkeypatch.setattr(pipeline, "_generate_paper_reviews_step", lambda trade_date: "reviews")
+    monkeypatch.setattr(pipeline, "_run_rule_regression_step", lambda trade_date, limit: "backtest")
+    monkeypatch.setattr(
+        pipeline,
+        "_generate_backtest_learning_step",
+        lambda trade_date: "backtest-learning",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_prewarm_candidate_replay_effect_step",
+        lambda trade_date: "prewarm",
+    )
+    monkeypatch.setattr(pipeline, "_generate_daily_review_step", lambda trade_date: "daily")
+
+    result = pipeline.run_after_close_session("2026-06-24", "2026-06-25")
+
+    blocked = next(
+        step for step in result.steps if step.name == "discover_next_session_candidates"
+    )
+    assert blocked.status == "warning"
+    assert "数据完整性不足" in blocked.detail
+    assert captured["execute_entries"] is False
 
 
 def test_record_tracking_snapshots_keeps_symbols_before_session_closes(monkeypatch) -> None:

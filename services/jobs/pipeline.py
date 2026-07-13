@@ -297,10 +297,19 @@ def _generate_trade_plans_step(
     )
 
 
-def _run_daily_paper_simulation_step(trade_date: str, account: str) -> str:
+def _run_daily_paper_simulation_step(
+    trade_date: str,
+    account: str,
+    *,
+    execute_entries: bool = True,
+) -> str:
     from services.engine.paper.simulator import run_daily_paper_simulation
 
-    paper_result = run_daily_paper_simulation(trade_date=trade_date, account_name=account)
+    paper_result = run_daily_paper_simulation(
+        trade_date=trade_date,
+        account_name=account,
+        execute_entries=execute_entries,
+    )
     return (
         f"模拟完成：买入 {paper_result.opened} 笔，卖出 {paper_result.closed} 笔，"
         f"跳过 {paper_result.skipped} 笔。"
@@ -485,6 +494,33 @@ def _prepare_market_feature_universe_step(
         detail=summary,
         summary=summary,
         details=details,
+    )
+
+
+def _daily_candidate_data_gate_step(trade_date: str) -> PipelineStepResult:
+    from services.engine.features.health import inspect_daily_data_health
+
+    with SessionLocal() as db:
+        report = inspect_daily_data_health(db, trade_date=date.fromisoformat(trade_date))
+
+    if report.candidate_generation_allowed:
+        detail = (
+            f"候选数据门禁通过：日线 {report.eligible_daily_bar_count}/"
+            f"{report.expected_security_count}，覆盖 {report.daily_coverage_ratio:.1%}。"
+        )
+        return PipelineStepResult(
+            name="validate_daily_candidate_data",
+            status="ok",
+            detail=detail,
+            summary="候选数据可用",
+        )
+
+    return PipelineStepResult(
+        name="validate_daily_candidate_data",
+        status="warning",
+        detail="候选数据门禁未通过：" + "；".join(report.candidate_block_reasons),
+        summary="数据完整性不足",
+        details=report.candidate_block_reasons,
     )
 
 
@@ -1105,22 +1141,51 @@ def run_after_close_session(
                 sync_daily=full_market_sync,
             ),
         ),
-        _run_step(
-            "discover_next_session_candidates",
-            lambda: _discover_next_session_candidates_step(
-                trade_date,
-                next_trade_date,
-                limit,
-                use_learning_adjustments,
-            ),
-        ),
-        _run_step(
-            "record_tracking_snapshots",
-            lambda: _record_tracking_snapshots_step(trade_date, limit),
-        ),
+    ]
+    candidate_gate = _run_step(
+        "validate_daily_candidate_data",
+        lambda: _daily_candidate_data_gate_step(trade_date),
+    )
+    steps.append(candidate_gate)
+    candidate_data_ready = candidate_gate.status == "ok"
+    if candidate_data_ready:
+        steps.extend(
+            [
+                _run_step(
+                    "discover_next_session_candidates",
+                    lambda: _discover_next_session_candidates_step(
+                        trade_date,
+                        next_trade_date,
+                        limit,
+                        use_learning_adjustments,
+                    ),
+                ),
+                _run_step(
+                    "record_tracking_snapshots",
+                    lambda: _record_tracking_snapshots_step(trade_date, limit),
+                ),
+            ]
+        )
+    else:
+        steps.append(
+            PipelineStepResult(
+                name="discover_next_session_candidates",
+                status="warning",
+                detail="数据完整性不足，已跳过明日候选和交易计划。",
+                summary="数据完整性不足",
+                details=candidate_gate.details,
+            )
+        )
+
+    steps.extend(
+        [
         _run_step(
             "run_daily_paper_simulation",
-            lambda: _run_daily_paper_simulation_step(trade_date, account),
+            lambda: _run_daily_paper_simulation_step(
+                trade_date,
+                account,
+                execute_entries=candidate_data_ready,
+            ),
         ),
         _run_step(
             "generate_paper_trading_review",
@@ -1136,7 +1201,8 @@ def run_after_close_session(
             lambda: _prewarm_candidate_replay_effect_step(trade_date),
         ),
         _run_step("generate_daily_review", lambda: _generate_daily_review_step(trade_date)),
-    ]
+        ]
+    )
     return DailyPipelineResult(
         trade_date=trade_date,
         next_trade_date=next_trade_date,
