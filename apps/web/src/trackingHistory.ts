@@ -211,6 +211,42 @@ function signalAlignment(
   };
 }
 
+function streakAlignment(
+  items: TrackingSnapshot[],
+): Pick<TrackingPathSummary, "signalAlignmentLabel" | "signalAlignmentTone" | "signalAlignmentText"> | null {
+  const usable = items.filter(
+    (item) => item.tracking_score !== null && snapshotPrice(item) !== null,
+  );
+  const latestThree = usable.slice(-3);
+  if (latestThree.length < 3) return null;
+
+  const moves = [1, 2].map((index) => {
+    const previous = latestThree[index - 1];
+    const current = latestThree[index];
+    return {
+      scoreDelta: (current.tracking_score as number) - (previous.tracking_score as number),
+      priceDelta: (snapshotPrice(current) as number) - (snapshotPrice(previous) as number),
+    };
+  });
+  const bullishAligned = moves.every((item) => item.scoreDelta > 0 && item.priceDelta > 0);
+  if (bullishAligned) {
+    return {
+      signalAlignmentLabel: "验证延续",
+      signalAlignmentTone: "good",
+      signalAlignmentText: "最近连续2次追踪分和价格同向走强",
+    };
+  }
+  const scoreUpPriceWeak = moves.every((item) => item.scoreDelta > 0 && item.priceDelta <= 0);
+  if (scoreUpPriceWeak) {
+    return {
+      signalAlignmentLabel: "验证背离",
+      signalAlignmentTone: "bad",
+      signalAlignmentText: "最近连续2次追踪分上升但价格不跟，先降级复核",
+    };
+  }
+  return null;
+}
+
 export function buildTrackingPathSummary(
   history: TrackingSnapshot[],
   limit = 18,
@@ -271,7 +307,7 @@ export function buildTrackingPathSummary(
     }
   }
   const roundedMaxPriceDrawdownPct = priceItems.length >= 2 ? roundOne(maxPriceDrawdownPct) : null;
-  const alignment = signalAlignment(scoreDelta, simpleReturnPct);
+  const alignment = streakAlignment(items) ?? signalAlignment(scoreDelta, simpleReturnPct);
 
   return {
     sampleCount: items.length,

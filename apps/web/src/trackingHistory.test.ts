@@ -108,5 +108,15 @@ const scoreOnlyHistory = [10, 9.6, 9.4].map((price, index) => ({
   tracking_score: 60 + index * 5,
 })).reverse();
 const scoreOnlyPath = buildTrackingPathSummary(scoreOnlyHistory, 18);
-assert(scoreOnlyPath.signalAlignmentLabel === "分涨价弱", "追踪分上涨但价格下跌时需要标记背离");
-assert(scoreOnlyPath.signalAlignmentTone === "bad", "分涨价弱不能当成有效信号");
+assert(scoreOnlyPath.signalAlignmentLabel === "验证背离", "连续分涨价弱时需要标记验证背离");
+assert(scoreOnlyPath.signalAlignmentTone === "bad", "验证背离不能当成有效信号");
+assert(scoreOnlyPath.signalAlignmentText.includes("连续2次"), "验证背离需要说明连续次数");
+
+const alignedStreakHistory = [10, 10.4, 10.9].map((price, index) => ({
+  ...snapshot(index),
+  current_price: price,
+  tracking_score: 60 + index * 5,
+})).reverse();
+const alignedStreakPath = buildTrackingPathSummary(alignedStreakHistory, 18);
+assert(alignedStreakPath.signalAlignmentLabel === "验证延续", "连续分价同向时需要标记验证延续");
+assert(alignedStreakPath.signalAlignmentTone === "good", "验证延续应该作为更强的有效信号");
