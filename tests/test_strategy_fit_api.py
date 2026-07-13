@@ -575,6 +575,45 @@ def test_get_low_dimensional_replay_uses_default_long_window_without_compounding
     assert "样本偏窄" in payload["data_coverage"]["warnings"][0]
 
 
+def test_get_low_dimensional_replay_reuses_same_request_and_can_refresh(monkeypatch) -> None:
+    calls = 0
+
+    class _ReplayResult:
+        pass
+
+    def fake_run(**_kwargs):
+        nonlocal calls
+        calls += 1
+        return _ReplayResult()
+
+    monkeypatch.setattr(rules, "run_low_dimensional_walk_forward_replay", fake_run)
+    monkeypatch.setattr(
+        rules,
+        "summarize_walk_forward_replay",
+        lambda _result, *, horizons: {"horizons": horizons},
+    )
+    monkeypatch.setattr(
+        rules,
+        "build_replay_data_coverage_report",
+        lambda **_kwargs: {"overall": {"grade": "strong"}},
+    )
+    rules._cached_low_dimensional_replay_payload.cache_clear()
+
+    try:
+        first = get_low_dimensional_replay(start_date="2026-01-01", end_date="2026-06-30")
+        second = get_low_dimensional_replay(start_date="2026-01-01", end_date="2026-06-30")
+        refreshed = get_low_dimensional_replay(
+            start_date="2026-01-01",
+            end_date="2026-06-30",
+            force_refresh=True,
+        )
+    finally:
+        rules._cached_low_dimensional_replay_payload.cache_clear()
+
+    assert first == second == refreshed
+    assert calls == 2
+
+
 def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     monkeypatch,
     tmp_path,

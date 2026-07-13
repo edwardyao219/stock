@@ -36,3 +36,14 @@ const hiddenPlan = buildAutoRefreshPlan({
 
 assertEqual(hiddenPlan.workspace, false, "隐藏标签页不能后台打重请求");
 assertEqual(hiddenPlan.marketOverview, false, "隐藏标签页不能刷新行情总览");
+
+const replayPlan = buildAutoRefreshPlan({
+  activePage: "sectors",
+  selectedSymbol: "003043",
+  isDocumentVisible: true,
+  isHeavyTaskRunning: true,
+});
+
+assertEqual(replayPlan.workspace, false, "长回归期间不能抢占数据库刷新工作台");
+assertEqual(replayPlan.marketOverview, false, "长回归期间不能并发刷新行情总览");
+assertEqual(replayPlan.sectorOverview, false, "长回归期间不能并发刷新板块数据");

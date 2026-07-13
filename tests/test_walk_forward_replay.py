@@ -1610,12 +1610,46 @@ def test_low_dimensional_snapshot_cache_prefilters_non_candidates_in_database(
         strong = _feature("600001", date(2026, 1, 2))
         weak = _feature("600002", date(2026, 1, 2))
         weak.features = {**weak.features, "trend_score": 40}
+        invalid_features = []
+        for symbol, key, value in (
+            ("600003", "sector_breadth_score", 20),
+            ("600004", "return_20d", 0.40),
+            ("600005", "distance_to_ma20", 0.20),
+            ("600006", "max_drawdown_20d", -0.30),
+        ):
+            feature = _feature(symbol, date(2026, 1, 2))
+            feature.features = {**feature.features, key: value}
+            invalid_features.append(feature)
+        missing_optional = _feature("600007", date(2026, 1, 2))
+        missing_optional.features = {
+            key: value
+            for key, value in missing_optional.features.items()
+            if key
+            not in {
+                "sector_breadth_score",
+                "return_20d",
+                "distance_to_ma20",
+                "max_drawdown_20d",
+            }
+        }
         db.add_all(
             [
-                _security("600001", "主线", "半导体"),
-                _security("600002", "弱趋势", "半导体"),
+                *[
+                    _security(symbol, f"样本{symbol}", "半导体")
+                    for symbol in (
+                        "600001",
+                        "600002",
+                        "600003",
+                        "600004",
+                        "600005",
+                        "600006",
+                        "600007",
+                    )
+                ],
                 strong,
                 weak,
+                *invalid_features,
+                missing_optional,
                 SectorFeatureDaily(
                     sector_code="半导体",
                     trade_date=date(2026, 1, 2),
@@ -1650,8 +1684,8 @@ def test_low_dimensional_snapshot_cache_prefilters_non_candidates_in_database(
             limit=3,
         )
 
-    assert checked == 1
-    assert [item[0].symbol for item in result[date(2026, 1, 2)]] == ["600001"]
+    assert checked == 2
+    assert {item[0].symbol for item in result[date(2026, 1, 2)]} == {"600001", "600007"}
 
 
 def test_trend_factor_walk_forward_compares_factor_keys_under_same_sector_gate(

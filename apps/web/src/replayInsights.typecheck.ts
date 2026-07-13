@@ -2,7 +2,6 @@ import type { CandidateReplayEffectReport, LowDimensionalReplayReport } from "./
 import {
   candidateGateSummary,
   dualLineLongReplaySummary,
-  initialCandidateReplayQuery,
   longCandidateReplayQuery,
   monthlyDefenseSimulation,
   monthlyDefenseSignals,
@@ -715,10 +714,6 @@ longCandidateReplayQuery.limit satisfies 15;
 longCandidateReplayQuery.min_coverage_ratio satisfies 0.7;
 longCandidateReplayQuery.include_fundamentals satisfies false;
 longCandidateReplayQuery.use_monthly_shards satisfies true;
-initialCandidateReplayQuery.start_date satisfies "2024-01-01";
-initialCandidateReplayQuery.end_date satisfies string;
-initialCandidateReplayQuery.use_monthly_shards satisfies true;
-
 if (!/^\d{4}-\d{2}-\d{2}$/.test(longCandidateReplayQuery.end_date ?? "")) {
   throw new Error("长周期回放结束日必须是 yyyy-mm-dd");
 }

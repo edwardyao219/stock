@@ -9,7 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Numeric, Text, cast, delete, func, select
+from sqlalchemy import Numeric, Text, and_, cast, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from services.engine.research_pool.candidates import discover_next_session_candidates
@@ -2200,6 +2200,37 @@ def _cached_low_dimensional_candidates_by_date(
         .where(LowDimensionalFeatureSnapshot.sector_avg_return_20d >= MAINLINE_RETURN_20D_MIN)
         .where(LowDimensionalFeatureSnapshot.sector_avg_return_20d <= MAINLINE_RETURN_20D_MAX)
         .where(LowDimensionalFeatureSnapshot.sector_positive_20d_rate >= 55.0)
+        .where(
+            or_(
+                LowDimensionalFeatureSnapshot.sector_breadth_score.is_(None),
+                LowDimensionalFeatureSnapshot.sector_breadth_score >= 40.0,
+            )
+        )
+        .where(
+            or_(
+                LowDimensionalFeatureSnapshot.return_20d.is_(None),
+                LowDimensionalFeatureSnapshot.return_20d <= 0.28,
+            )
+        )
+        .where(
+            or_(
+                LowDimensionalFeatureSnapshot.distance_to_ma20.is_(None),
+                and_(
+                    LowDimensionalFeatureSnapshot.distance_to_ma20 >= -0.12,
+                    LowDimensionalFeatureSnapshot.distance_to_ma20 <= 0.12,
+                ),
+            )
+        )
+        .where(
+            or_(
+                LowDimensionalFeatureSnapshot.max_drawdown_20d.is_(None),
+                LowDimensionalFeatureSnapshot.max_drawdown_20d > -0.22,
+                and_(
+                    LowDimensionalFeatureSnapshot.return_5d >= 0.03,
+                    LowDimensionalFeatureSnapshot.distance_to_20d_low <= 0.04,
+                ),
+            )
+        )
         .where(Security.is_active.is_(True))
         .where(Security.is_st.is_(False))
         .order_by(LowDimensionalFeatureSnapshot.trade_date)

@@ -14,8 +14,9 @@ export function buildAutoRefreshPlan(input: {
   activePage: RefreshPageKey;
   selectedSymbol: string | null;
   isDocumentVisible: boolean;
+  isHeavyTaskRunning?: boolean;
 }): AutoRefreshPlan {
-  if (!input.isDocumentVisible) {
+  if (!input.isDocumentVisible || input.isHeavyTaskRunning) {
     return {
       workspace: false,
       marketOverview: false,

@@ -68,7 +68,6 @@ import {
   candidateGateSummary,
   dingPolicyText,
   dualLineLongReplaySummary,
-  initialCandidateReplayQuery,
   lineStatusText,
   longCandidateReplayQuery,
   monthlyDefenseSimulation,
@@ -1645,7 +1644,6 @@ export function App() {
     loadMechanicalReview();
     loadAfterCloseStatus();
     loadMonthlySummary();
-    loadCandidateReplayEffect(initialCandidateReplayQuery);
     loadRuleRegressionStatus();
   }, []);
 
@@ -1660,6 +1658,7 @@ export function App() {
         activePage,
         selectedSymbol,
         isDocumentVisible: document.visibilityState !== "hidden",
+        isHeavyTaskRunning: lowDimensionalReplayLoading || candidateReplayEffectLoading,
       });
       if (plan.workspace) loadWorkspace({ refreshQuotes: true, silent: true });
       if (plan.marketOverview) loadMarketOverview();
@@ -1670,7 +1669,15 @@ export function App() {
       if (plan.candles && selectedSymbol) loadCandles(selectedSymbol);
     }, AUTO_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [activePage, autoRefresh, selectedSymbol, includeGrowthBoard, marketOverview?.trade_date]);
+  }, [
+    activePage,
+    autoRefresh,
+    selectedSymbol,
+    includeGrowthBoard,
+    marketOverview?.trade_date,
+    lowDimensionalReplayLoading,
+    candidateReplayEffectLoading,
+  ]);
 
   useEffect(() => {
     if (selected?.symbol) loadCandles(selected.symbol);

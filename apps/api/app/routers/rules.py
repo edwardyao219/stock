@@ -2,7 +2,9 @@ import hashlib
 import json
 from calendar import monthrange
 from datetime import date, timedelta
+from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
@@ -40,6 +42,8 @@ DEFAULT_INTERACTIVE_REPLAY_MONTHS = 3
 CANDIDATE_REPLAY_EFFECT_CACHE_VERSION = "candidate-replay-effect-v4"
 CANDIDATE_REPLAY_EFFECT_CACHE_DIR = Path(".tmp/candidate-replay-effect-cache")
 CANDIDATE_REPLAY_EFFECT_HORIZONS = (1, 5, 10, 20)
+LOW_DIMENSIONAL_REPLAY_HORIZONS = (5, 10, 20)
+_LOW_DIMENSIONAL_REPLAY_CACHE_LOCK = Lock()
 CANDIDATE_REPLAY_EFFECT_SCOPES = (
     "all",
     "action",
@@ -2216,29 +2220,50 @@ def get_strategy_fit(
     ).to_dict()
 
 
+@lru_cache(maxsize=8)
+def _cached_low_dimensional_replay_payload(
+    start_date: str,
+    end_date: str,
+    limit: int,
+    min_coverage_ratio: float,
+) -> dict[str, Any]:
+    result = run_low_dimensional_walk_forward_replay(
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        horizons=LOW_DIMENSIONAL_REPLAY_HORIZONS,
+        min_coverage_ratio=min_coverage_ratio,
+    )
+    return {
+        **summarize_walk_forward_replay(
+            result,
+            horizons=LOW_DIMENSIONAL_REPLAY_HORIZONS,
+        ),
+        "data_coverage": build_replay_data_coverage_report(
+            start_date=start_date,
+            end_date=end_date,
+        ),
+    }
+
+
 @router.get("/low-dimensional-replay")
 def get_low_dimensional_replay(
     start_date: str = DEFAULT_REPLAY_START_DATE,
     end_date: str | None = None,
     limit: Annotated[int, Query(ge=1, le=5)] = 3,
     min_coverage_ratio: Annotated[float, Query(ge=0.0, le=1.0)] = 0.70,
+    force_refresh: bool = False,
 ) -> dict:
     resolved_end_date = end_date or (now_local().date() - timedelta(days=1)).isoformat()
-    horizons = (5, 10, 20)
-    result = run_low_dimensional_walk_forward_replay(
-        start_date=start_date,
-        end_date=resolved_end_date,
-        limit=limit,
-        horizons=horizons,
-        min_coverage_ratio=min_coverage_ratio,
-    )
-    return {
-        **summarize_walk_forward_replay(result, horizons=horizons),
-        "data_coverage": build_replay_data_coverage_report(
-            start_date=start_date,
-            end_date=resolved_end_date,
-        ),
-    }
+    with _LOW_DIMENSIONAL_REPLAY_CACHE_LOCK:
+        if force_refresh:
+            _cached_low_dimensional_replay_payload.cache_clear()
+        return _cached_low_dimensional_replay_payload(
+            start_date,
+            resolved_end_date,
+            limit,
+            min_coverage_ratio,
+        )
 
 
 @router.get("/candidate-replay-effect")
