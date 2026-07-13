@@ -9,9 +9,12 @@ from services.collector.akshare_client import DailyBarRow
 from services.collector.repository import upsert_daily_bars
 from services.shared.models import (
     Security,
+    TushareCyqPerf,
     TushareDaily,
     TushareDailyBasic,
+    TushareLimitListD,
     TushareMoneyflow,
+    TushareMoneyflowDc,
     TushareMoneyflowIndDc,
     TushareStkLimit,
 )
@@ -32,6 +35,23 @@ def _decimal(value: Any) -> Decimal | None:
         return Decimal(str(value))
     except Exception:
         return None
+
+
+def _integer(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _required_row_keys(row: dict[str, Any]) -> tuple[str, date]:
+    ts_code = str(row.get("ts_code") or "").strip()
+    raw_trade_date = row.get("trade_date")
+    if not ts_code or not raw_trade_date:
+        raise ValueError("Tushare row missing ts_code or trade_date")
+    return ts_code, _date(raw_trade_date)
 
 
 def _rows(fields: list[str], items: list[list[Any]]) -> list[dict[str, Any]]:
@@ -243,6 +263,116 @@ def sync_tushare_moneyflow(db, *, trade_date: str) -> int:
             "net_mf_amount",
         ],
         constraint="uq_tushare_moneyflow_code_date",
+    )
+
+
+def sync_tushare_moneyflow_dc(db, *, trade_date: str) -> int:
+    response = client.query("moneyflow_dc", params={"trade_date": trade_date})
+    rows = []
+    for row in _rows(response.fields, response.items):
+        ts_code, row_date = _required_row_keys(row)
+        rows.append(
+            {
+                "ts_code": ts_code,
+                "trade_date": row_date,
+                "name": row.get("name"),
+                "pct_change": _decimal(row.get("pct_change")),
+                "close": _decimal(row.get("close")),
+                "net_amount": _decimal(row.get("net_amount")),
+                "net_amount_rate": _decimal(row.get("net_amount_rate")),
+                "buy_elg_amount": _decimal(row.get("buy_elg_amount")),
+                "buy_elg_amount_rate": _decimal(row.get("buy_elg_amount_rate")),
+                "buy_lg_amount": _decimal(row.get("buy_lg_amount")),
+                "buy_lg_amount_rate": _decimal(row.get("buy_lg_amount_rate")),
+                "buy_md_amount": _decimal(row.get("buy_md_amount")),
+                "buy_md_amount_rate": _decimal(row.get("buy_md_amount_rate")),
+                "buy_sm_amount": _decimal(row.get("buy_sm_amount")),
+                "buy_sm_amount_rate": _decimal(row.get("buy_sm_amount_rate")),
+            }
+        )
+    update_columns = (
+        [key for key in rows[0] if key not in {"ts_code", "trade_date"}] if rows else []
+    )
+    return upsert_rows(
+        db,
+        TushareMoneyflowDc,
+        rows,
+        update_columns=update_columns,
+        constraint="uq_tushare_moneyflow_dc_code_date",
+        index_elements=["ts_code", "trade_date"],
+    )
+
+
+def sync_tushare_limit_list_d(db, *, trade_date: str) -> int:
+    response = client.query("limit_list_d", params={"trade_date": trade_date})
+    rows = []
+    for row in _rows(response.fields, response.items):
+        ts_code, row_date = _required_row_keys(row)
+        rows.append(
+            {
+                "ts_code": ts_code,
+                "trade_date": row_date,
+                "industry": row.get("industry"),
+                "name": row.get("name"),
+                "close": _decimal(row.get("close")),
+                "pct_chg": _decimal(row.get("pct_chg")),
+                "amount": _decimal(row.get("amount")),
+                "limit_amount": _decimal(row.get("limit_amount")),
+                "float_mv": _decimal(row.get("float_mv")),
+                "total_mv": _decimal(row.get("total_mv")),
+                "turnover_ratio": _decimal(row.get("turnover_ratio")),
+                "fd_amount": _decimal(row.get("fd_amount")),
+                "first_time": row.get("first_time"),
+                "last_time": row.get("last_time"),
+                "open_times": _integer(row.get("open_times")),
+                "up_stat": row.get("up_stat"),
+                "limit_times": _integer(row.get("limit_times")),
+                "limit": row.get("limit"),
+            }
+        )
+    update_columns = (
+        [key for key in rows[0] if key not in {"ts_code", "trade_date"}] if rows else []
+    )
+    return upsert_rows(
+        db,
+        TushareLimitListD,
+        rows,
+        update_columns=update_columns,
+        constraint="uq_tushare_limit_list_d_code_date",
+        index_elements=["ts_code", "trade_date"],
+    )
+
+
+def sync_tushare_cyq_perf(db, *, trade_date: str) -> int:
+    response = client.query("cyq_perf", params={"trade_date": trade_date})
+    rows = []
+    for row in _rows(response.fields, response.items):
+        ts_code, row_date = _required_row_keys(row)
+        rows.append(
+            {
+                "ts_code": ts_code,
+                "trade_date": row_date,
+                "his_low": _decimal(row.get("his_low")),
+                "his_high": _decimal(row.get("his_high")),
+                "cost_5pct": _decimal(row.get("cost_5pct")),
+                "cost_15pct": _decimal(row.get("cost_15pct")),
+                "cost_50pct": _decimal(row.get("cost_50pct")),
+                "cost_85pct": _decimal(row.get("cost_85pct")),
+                "cost_95pct": _decimal(row.get("cost_95pct")),
+                "weight_avg": _decimal(row.get("weight_avg")),
+                "winner_rate": _decimal(row.get("winner_rate")),
+            }
+        )
+    update_columns = (
+        [key for key in rows[0] if key not in {"ts_code", "trade_date"}] if rows else []
+    )
+    return upsert_rows(
+        db,
+        TushareCyqPerf,
+        rows,
+        update_columns=update_columns,
+        constraint="uq_tushare_cyq_perf_code_date",
+        index_elements=["ts_code", "trade_date"],
     )
 
 

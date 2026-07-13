@@ -218,6 +218,77 @@ class TushareMoneyflow(Base):
     net_mf_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
 
 
+class TushareMoneyflowDc(Base):
+    __tablename__ = "tushare_moneyflow_dc"
+    __table_args__ = (
+        UniqueConstraint("ts_code", "trade_date", name="uq_tushare_moneyflow_dc_code_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts_code: Mapped[str] = mapped_column(String(16), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    name: Mapped[Optional[str]] = mapped_column(String(64))
+    pct_change: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    close: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    net_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    net_amount_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    buy_elg_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    buy_elg_amount_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    buy_lg_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    buy_lg_amount_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    buy_md_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    buy_md_amount_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    buy_sm_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    buy_sm_amount_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+
+
+class TushareLimitListD(Base):
+    __tablename__ = "tushare_limit_list_d"
+    __table_args__ = (
+        UniqueConstraint("ts_code", "trade_date", name="uq_tushare_limit_list_d_code_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts_code: Mapped[str] = mapped_column(String(16), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    industry: Mapped[Optional[str]] = mapped_column(String(64))
+    name: Mapped[Optional[str]] = mapped_column(String(64))
+    close: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    pct_chg: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    limit_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    float_mv: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    total_mv: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    turnover_ratio: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    fd_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    first_time: Mapped[Optional[str]] = mapped_column(String(16))
+    last_time: Mapped[Optional[str]] = mapped_column(String(16))
+    open_times: Mapped[Optional[int]] = mapped_column(Integer)
+    up_stat: Mapped[Optional[str]] = mapped_column(String(32))
+    limit_times: Mapped[Optional[int]] = mapped_column(Integer)
+    limit: Mapped[Optional[str]] = mapped_column(String(4), index=True)
+
+
+class TushareCyqPerf(Base):
+    __tablename__ = "tushare_cyq_perf"
+    __table_args__ = (
+        UniqueConstraint("ts_code", "trade_date", name="uq_tushare_cyq_perf_code_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts_code: Mapped[str] = mapped_column(String(16), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    his_low: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    his_high: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    cost_5pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    cost_15pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    cost_50pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    cost_85pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    cost_95pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    weight_avg: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
+    winner_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+
+
 class TushareMoneyflowIndDc(Base):
     __tablename__ = "tushare_moneyflow_ind_dc"
     __table_args__ = (

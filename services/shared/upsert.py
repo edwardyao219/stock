@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 
@@ -35,6 +36,12 @@ def upsert_rows(
         elif index_elements:
             kwargs["index_elements"] = index_elements
         stmt = stmt.on_conflict_do_update(**kwargs)
+    elif dialect == "sqlite" and index_elements:
+        stmt = sqlite_insert(model).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=index_elements,
+            set_={column: getattr(stmt.excluded, column) for column in update_columns},
+        )
     else:
         # Fallback for local tests or SQLite-like engines: try regular inserts.
         db.execute(model.__table__.insert(), rows)

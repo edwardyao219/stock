@@ -1,10 +1,13 @@
 from datetime import date
+from decimal import Decimal
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from services.collector import sync as collector_sync
 from services.collector import tushare_proxy_client as client
+from services.collector import tushare_sync
 from services.collector.tushare_sync import (
     sync_tushare_daily,
     sync_tushare_daily_basic,
@@ -14,6 +17,7 @@ from services.collector.tushare_sync import (
     sync_tushare_stk_limit,
     sync_tushare_stock_basic,
 )
+from services.shared import models
 from services.shared.database import Base
 from services.shared.models import (
     DailyBar,
@@ -25,6 +29,154 @@ from services.shared.models import (
     TushareMoneyflowIndDc,
     TushareStkLimit,
 )
+
+
+def test_tushare_5000_sync_writes_idempotent_daily_rows(monkeypatch) -> None:
+    assert hasattr(models, "TushareMoneyflowDc")
+    assert hasattr(models, "TushareLimitListD")
+    assert hasattr(models, "TushareCyqPerf")
+    assert hasattr(tushare_sync, "sync_tushare_moneyflow_dc")
+    assert hasattr(tushare_sync, "sync_tushare_limit_list_d")
+    assert hasattr(tushare_sync, "sync_tushare_cyq_perf")
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    class FakeResponse:
+        def __init__(self, fields, items):
+            self.fields = fields
+            self.items = items
+
+    responses = {
+        "moneyflow_dc": FakeResponse(
+            [
+                "trade_date",
+                "ts_code",
+                "name",
+                "pct_change",
+                "close",
+                "net_amount",
+                "net_amount_rate",
+                "buy_elg_amount",
+                "buy_elg_amount_rate",
+                "buy_lg_amount",
+                "buy_lg_amount_rate",
+                "buy_md_amount",
+                "buy_md_amount_rate",
+                "buy_sm_amount",
+                "buy_sm_amount_rate",
+            ],
+            [
+                [
+                    "20260710",
+                    "000001.SZ",
+                    "样本",
+                    2.1,
+                    10.5,
+                    120.0,
+                    1.23,
+                    20.0,
+                    0.2,
+                    60.0,
+                    0.6,
+                    40.0,
+                    0.4,
+                    -120.0,
+                    -1.2,
+                ]
+            ],
+        ),
+        "limit_list_d": FakeResponse(
+            [
+                "trade_date",
+                "ts_code",
+                "industry",
+                "name",
+                "close",
+                "pct_chg",
+                "amount",
+                "limit_amount",
+                "float_mv",
+                "total_mv",
+                "turnover_ratio",
+                "fd_amount",
+                "first_time",
+                "last_time",
+                "open_times",
+                "up_stat",
+                "limit_times",
+                "limit",
+            ],
+            [
+                [
+                    "20260710",
+                    "000001.SZ",
+                    "软件开发",
+                    "样本",
+                    10.5,
+                    10.0,
+                    1000,
+                    500,
+                    10000,
+                    12000,
+                    5.2,
+                    300,
+                    "093100",
+                    "094800",
+                    2,
+                    "2/3",
+                    2,
+                    "U",
+                ]
+            ],
+        ),
+        "cyq_perf": FakeResponse(
+            [
+                "ts_code",
+                "trade_date",
+                "his_low",
+                "his_high",
+                "cost_5pct",
+                "cost_15pct",
+                "cost_50pct",
+                "cost_85pct",
+                "cost_95pct",
+                "weight_avg",
+                "winner_rate",
+            ],
+            [["000001.SZ", "20260710", 8, 15, 8.5, 9, 10.2, 11.4, 12, 10.4, 91.5]],
+        ),
+    }
+    monkeypatch.setattr(client, "query", lambda api_name, params=None: responses[api_name])
+
+    with Session(engine) as db:
+        for _ in range(2):
+            assert tushare_sync.sync_tushare_moneyflow_dc(db, trade_date="20260710") == 1
+            assert tushare_sync.sync_tushare_limit_list_d(db, trade_date="20260710") == 1
+            assert tushare_sync.sync_tushare_cyq_perf(db, trade_date="20260710") == 1
+            db.commit()
+
+        assert db.query(models.TushareMoneyflowDc).count() == 1
+        assert db.query(models.TushareLimitListD).count() == 1
+        assert db.query(models.TushareCyqPerf).count() == 1
+        assert db.query(models.TushareMoneyflowDc).one().net_amount_rate == Decimal("1.230000")
+        assert db.query(models.TushareLimitListD).one().open_times == 2
+        assert db.query(models.TushareCyqPerf).one().winner_rate == Decimal("91.500000")
+
+
+def test_tushare_5000_sync_rejects_missing_primary_keys(monkeypatch) -> None:
+    assert hasattr(tushare_sync, "sync_tushare_moneyflow_dc")
+
+    class FakeResponse:
+        fields = ["trade_date", "ts_code", "net_amount_rate"]
+        items = [["20260710", None, 1.23]]
+
+    monkeypatch.setattr(client, "query", lambda api_name, params=None: FakeResponse())
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db, pytest.raises(ValueError, match="ts_code or trade_date"):
+        tushare_sync.sync_tushare_moneyflow_dc(db, trade_date="20260710")
 
 
 def test_tushare_sync_writes_core_tables(monkeypatch) -> None:
