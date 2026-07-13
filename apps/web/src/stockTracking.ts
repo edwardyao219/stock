@@ -21,7 +21,7 @@ export interface TrackingMetric {
 }
 
 export interface TrackingDecision {
-  verdictLabel: "继续跟踪" | "等待确认" | "继续观察" | "暂不看好" | "资料留存";
+  verdictLabel: "继续跟踪" | "等待确认" | "继续观察" | "暂不看好" | "资料留存" | "验证背离" | "验证延续";
   tone: "good" | "warn" | "bad" | "neutral";
   primaryReasons: string[];
   downgradeReasons: string[];

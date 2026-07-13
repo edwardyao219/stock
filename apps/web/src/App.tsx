@@ -98,7 +98,11 @@ import {
   sortStockTrackingProfiles,
   StockTrackingProfile,
 } from "./stockTracking";
-import { buildTrackingHistorySummary, buildTrackingPathSummary } from "./trackingHistory";
+import {
+  buildTrackingHistorySummary,
+  buildTrackingPathSummary,
+  decisionWithValidation,
+} from "./trackingHistory";
 import { buildAutoRefreshPlan } from "./refreshPlan";
 
 const AUTO_REFRESH_MS = 15_000;
@@ -1329,6 +1333,13 @@ export function App() {
   const trackingPathSummary = useMemo(
     () => buildTrackingPathSummary(trackingHistory),
     [trackingHistory],
+  );
+  const selectedTrackingDecision = useMemo(
+    () =>
+      selectedTrackingProfile
+        ? decisionWithValidation(selectedTrackingProfile.decision, trackingPathSummary)
+        : null,
+    [selectedTrackingProfile, trackingPathSummary],
   );
   const trackingHistoryLatest = trackingHistory[0] ?? null;
   const trackingHistoryPrevious = trackingHistory[1] ?? null;
@@ -2974,16 +2985,16 @@ export function App() {
                     </section>
                   </div>
 
-                  <section className={`tracking-decision-card ${selectedTrackingProfile.decision.tone}`}>
+                  <section className={`tracking-decision-card ${selectedTrackingDecision?.tone ?? selectedTrackingProfile.decision.tone}`}>
                     <div className="tracking-decision-head">
                       <span>追踪结论</span>
-                      <strong>{selectedTrackingProfile.decision.verdictLabel}</strong>
+                      <strong>{selectedTrackingDecision?.verdictLabel ?? selectedTrackingProfile.decision.verdictLabel}</strong>
                     </div>
                     <div className="tracking-decision-columns">
                       <div>
                         <span>主要理由</span>
                         <ul>
-                          {selectedTrackingProfile.decision.primaryReasons.map((item) => (
+                          {(selectedTrackingDecision?.primaryReasons ?? selectedTrackingProfile.decision.primaryReasons).map((item) => (
                             <li key={item}>{item}</li>
                           ))}
                         </ul>
@@ -2991,7 +3002,7 @@ export function App() {
                       <div>
                         <span>降级原因</span>
                         <ul>
-                          {selectedTrackingProfile.decision.downgradeReasons.map((item) => (
+                          {(selectedTrackingDecision?.downgradeReasons ?? selectedTrackingProfile.decision.downgradeReasons).map((item) => (
                             <li key={item}>{item}</li>
                           ))}
                         </ul>
@@ -2999,7 +3010,7 @@ export function App() {
                       <div>
                         <span>升级条件</span>
                         <ul>
-                          {selectedTrackingProfile.decision.upgradeConditions.map((item) => (
+                          {(selectedTrackingDecision?.upgradeConditions ?? selectedTrackingProfile.decision.upgradeConditions).map((item) => (
                             <li key={item}>{item}</li>
                           ))}
                         </ul>

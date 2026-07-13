@@ -1,4 +1,5 @@
 import type { TrackingSnapshot } from "./api";
+import type { TrackingDecision } from "./stockTracking";
 
 export interface TrackingHistorySummaryItem {
   horizon: number;
@@ -245,6 +246,30 @@ function streakAlignment(
     };
   }
   return null;
+}
+
+export function decisionWithValidation(
+  decision: TrackingDecision,
+  summary: Pick<TrackingPathSummary, "signalAlignmentLabel" | "signalAlignmentTone" | "signalAlignmentText">,
+): TrackingDecision {
+  if (summary.signalAlignmentLabel === "验证背离") {
+    return {
+      verdictLabel: "验证背离",
+      tone: "bad",
+      primaryReasons: [summary.signalAlignmentText, ...decision.primaryReasons].slice(0, 3),
+      downgradeReasons: [summary.signalAlignmentText, ...decision.downgradeReasons].slice(0, 3),
+      upgradeConditions: ["价格重新跟随追踪分走强", ...decision.upgradeConditions].slice(0, 3),
+    };
+  }
+  if (summary.signalAlignmentLabel === "验证延续" && decision.tone !== "bad") {
+    return {
+      ...decision,
+      verdictLabel: "验证延续",
+      tone: "good",
+      primaryReasons: [summary.signalAlignmentText, ...decision.primaryReasons].slice(0, 3),
+    };
+  }
+  return decision;
 }
 
 export function buildTrackingPathSummary(

@@ -1,6 +1,7 @@
 // @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
-import { buildTrackingHistorySummary, buildTrackingPathSummary } from "./trackingHistory.ts";
+import { buildTrackingHistorySummary, buildTrackingPathSummary, decisionWithValidation } from "./trackingHistory.ts";
 import type { TrackingSnapshot } from "./api.ts";
+import type { TrackingDecision } from "./stockTracking";
 
 function assert(condition: boolean, message: string) {
   if (!condition) throw new Error(message);
@@ -120,3 +121,22 @@ const alignedStreakHistory = [10, 10.4, 10.9].map((price, index) => ({
 const alignedStreakPath = buildTrackingPathSummary(alignedStreakHistory, 18);
 assert(alignedStreakPath.signalAlignmentLabel === "验证延续", "连续分价同向时需要标记验证延续");
 assert(alignedStreakPath.signalAlignmentTone === "good", "验证延续应该作为更强的有效信号");
+
+const baseDecision: TrackingDecision = {
+  verdictLabel: "继续跟踪",
+  tone: "good",
+  primaryReasons: ["板块和趋势仍在"],
+  downgradeReasons: ["板块转弱时降级"],
+  upgradeConditions: ["分价继续同向"],
+};
+const divergentDecision = decisionWithValidation(baseDecision, scoreOnlyPath);
+assert(divergentDecision.verdictLabel === "验证背离", "验证背离要直接覆盖追踪结论");
+assert(divergentDecision.tone === "bad", "验证背离后的结论要转为风险色");
+assert(divergentDecision.primaryReasons[0].includes("连续2次"), "验证背离原因要放在第一位");
+
+const continuedDecision = decisionWithValidation(
+  { ...baseDecision, verdictLabel: "等待确认", tone: "warn" },
+  alignedStreakPath,
+);
+assert(continuedDecision.verdictLabel === "验证延续", "验证延续要强化追踪结论");
+assert(continuedDecision.tone === "good", "验证延续后的结论要转为正向色");
