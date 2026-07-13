@@ -1137,6 +1137,12 @@ function dualLineLeaderText(value: string) {
 }
 
 function trackingSnapshotTone(item: TrackingSnapshot) {
+  if (item.tracking_state_key === "risk_review" || item.tracking_state_key === "weakening") {
+    return "bad";
+  }
+  if (item.tracking_state_key === "overheat_review" || item.tracking_state_key === "startup_preheat") {
+    return "warn";
+  }
   if (item.stage === "risk_review") return "bad";
   if (item.stage === "startup_confirming") return "warn";
   if (item.stage === "trend_holding") return "good";
@@ -1317,6 +1323,19 @@ export function App() {
   );
   const trackingHistoryLatest = trackingHistory[0] ?? null;
   const trackingHistoryPrevious = trackingHistory[1] ?? null;
+  const selectedTrackingState = {
+    key: trackingHistoryLatest?.tracking_state_key ?? selectedTrackingProfile?.stage ?? "watching",
+    label: trackingHistoryLatest?.tracking_state_label ?? selectedTrackingProfile?.stageLabel ?? "持续观察",
+    reason:
+      trackingHistoryLatest?.tracking_state_reason ??
+      selectedTrackingProfile?.nextAction ??
+      "生成快照后显示追踪状态",
+  };
+  const selectedStartupPhase = {
+    key: trackingHistoryLatest?.startup_phase_key ?? "no_signal",
+    label: trackingHistoryLatest?.startup_phase_label ?? "待生成快照",
+    reason: trackingHistoryLatest?.startup_phase_reason ?? "生成今日快照后显示启动阶段",
+  };
 
   const selectedIndustry = selected?.industry ?? null;
   const selectedSymbolValue = selected?.symbol ?? null;
@@ -2913,15 +2932,31 @@ export function App() {
             <aside className="tracking-detail">
               {selectedTrackingProfile ? (
                 <>
-                  <div className={`tracking-hero ${selectedTrackingProfile.stage}`}>
+                  <div className={`tracking-hero ${selectedTrackingProfile.stage} ${selectedTrackingState.key}`}>
                     <div>
-                      <span>{selectedTrackingProfile.stageLabel}</span>
+                      <span>{selectedTrackingState.label}</span>
                       <h3>{selectedTrackingProfile.symbol} {selectedTrackingProfile.name ?? ""}</h3>
-                      <p>{selectedTrackingProfile.industry ?? "暂无行业"} / 追踪分 {selectedTrackingProfile.score.toFixed(1)}</p>
+                      <p>
+                        {selectedTrackingProfile.industry ?? "暂无行业"} / {selectedStartupPhase.label}
+                        {" "} / 追踪分 {selectedTrackingProfile.score.toFixed(1)}
+                      </p>
                     </div>
                     <strong className={selectedTrackingProfile.scoreTone}>
                       {selectedTrackingProfile.score.toFixed(1)}
                     </strong>
+                  </div>
+
+                  <div className="tracking-state-grid">
+                    <section className={`tracking-state-card ${selectedTrackingState.key}`}>
+                      <span>追踪状态</span>
+                      <strong>{selectedTrackingState.label}</strong>
+                      <small>{selectedTrackingState.reason}</small>
+                    </section>
+                    <section className={`tracking-state-card ${selectedStartupPhase.key}`}>
+                      <span>启动阶段</span>
+                      <strong>{selectedStartupPhase.label}</strong>
+                      <small>{selectedStartupPhase.reason}</small>
+                    </section>
                   </div>
 
                   <div className="tracking-metric-grid">
@@ -2946,7 +2981,7 @@ export function App() {
                             ? `${trackingHistoryLatest.snapshot_date} / 较前次 ${trackingScoreDeltaText(
                               trackingHistoryLatest,
                               trackingHistoryPrevious,
-                            )} / ${trackingHistoryLatest.stage_label}`
+                            )} / ${trackingHistoryLatest.tracking_state_label}`
                             : "暂无历史快照，先生成今日快照"}
                         </small>
                       </div>
@@ -3055,7 +3090,7 @@ export function App() {
                               <strong>
                                 {item.tracking_score === null ? "-" : item.tracking_score.toFixed(1)}
                               </strong>
-                              <small>{item.stage_label}</small>
+                              <small>{item.tracking_state_label}</small>
                             </div>
                           ))}
                         </div>

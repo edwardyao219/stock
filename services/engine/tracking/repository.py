@@ -82,6 +82,24 @@ STAGE_LABELS = {
     "archived": "资料留存",
 }
 
+TRACKING_STATE_LABELS = {
+    "watch_pool": "观察池",
+    "startup_preheat": "启动前夜",
+    "startup_confirming": "启动确认",
+    "trend_holding": "趋势持有",
+    "overheat_review": "过热复核",
+    "weakening": "弱化观察",
+    "risk_review": "风险复核",
+}
+
+STARTUP_PHASE_LABELS = {
+    "no_signal": "暂无启动",
+    "preheat": "启动前夜",
+    "confirming": "启动确认",
+    "extended": "已拉升",
+    "failed": "启动失败",
+}
+
 
 def _avg(values: list[float | None]) -> float | None:
     usable = [item for item in values if item is not None]
@@ -108,6 +126,51 @@ def _has_action_plan(item: WorkspaceItem) -> bool:
 
 def _is_next_session_candidate(item: WorkspaceItem) -> bool:
     return "after_close_candidate" in item.manual_tags or "next_session" in item.manual_tags
+
+
+def _is_risk_review(item: WorkspaceItem) -> bool:
+    return (
+        item.candidate_tier == "risk_reject"
+        or (item.risk_score or 0.0) >= 75
+        or (item.volume_trap_risk_score or 0.0) >= 80
+    )
+
+
+def _is_overheat(item: WorkspaceItem) -> bool:
+    return (
+        (item.return_20d or 0.0) >= 0.3
+        or (item.distance_to_ma20 or 0.0) >= 0.14
+        or (item.overheat_score or 0.0) >= 70
+    )
+
+
+def _has_startup_base(item: WorkspaceItem) -> bool:
+    return (
+        (item.trend_score or 0.0) >= 60
+        and (item.volume_confirmation_score or 0.0) >= 60
+        and (item.sector_strength_score or 0.0) >= 50
+    )
+
+
+def _is_startup_confirming(item: WorkspaceItem) -> bool:
+    has_signal = (
+        (item.startup_signal_score or 0.0) >= 75
+        or _has_action_plan(item)
+        or item.candidate_tier == "core_action"
+    )
+    return (
+        has_signal
+        and (item.trend_score or 0.0) >= 70
+        and (item.volume_confirmation_score or 0.0) >= 65
+        and (item.sector_strength_score or 0.0) >= 60
+    )
+
+
+def _is_startup_preheat(item: WorkspaceItem) -> bool:
+    return (
+        (_is_next_session_candidate(item) or item.candidate_tier == "watch_wait")
+        and _has_startup_base(item)
+    )
 
 
 def _tracking_score(item: WorkspaceItem) -> float:
@@ -142,11 +205,7 @@ def _tracking_score(item: WorkspaceItem) -> float:
 
 
 def _stage(item: WorkspaceItem, tracking_score: float) -> str:
-    if (
-        item.candidate_tier == "risk_reject"
-        or (item.risk_score or 0.0) >= 75
-        or (item.volume_trap_risk_score or 0.0) >= 80
-    ):
+    if _is_risk_review(item):
         return "risk_review"
     if _has_open_trade(item) and tracking_score >= 55:
         return "trend_holding"
@@ -159,6 +218,62 @@ def _stage(item: WorkspaceItem, tracking_score: float) -> str:
     if _is_next_session_candidate(item) or item.candidate_tier == "watch_wait":
         return "watching"
     return "archived"
+
+
+def _overheat_reason(item: WorkspaceItem) -> str:
+    if (item.return_20d or 0.0) >= 0.3:
+        return f"20日涨幅 {_pct(item.return_20d)}，先复核追高风险"
+    if (item.distance_to_ma20 or 0.0) >= 0.14:
+        return f"偏离20日线 {_pct(item.distance_to_ma20)}，更适合等回踩"
+    return f"过热 {_score(item.overheat_score)}，先看承接再升级"
+
+
+def _tracking_state(item: WorkspaceItem, tracking_score: float) -> tuple[str, str, str]:
+    if _is_risk_review(item):
+        return "risk_review", TRACKING_STATE_LABELS["risk_review"], "硬风险触发，先复核再交易"
+    if _is_overheat(item):
+        return "overheat_review", TRACKING_STATE_LABELS["overheat_review"], _overheat_reason(item)
+    if _has_open_trade(item) and tracking_score >= 55:
+        return (
+            "trend_holding",
+            TRACKING_STATE_LABELS["trend_holding"],
+            "已有模拟持仓，重点跟踪趋势是否延续",
+        )
+    if _is_startup_confirming(item):
+        return (
+            "startup_confirming",
+            TRACKING_STATE_LABELS["startup_confirming"],
+            "板块、趋势、量能同时达标，进入启动确认",
+        )
+    if _is_startup_preheat(item):
+        return (
+            "startup_preheat",
+            TRACKING_STATE_LABELS["startup_preheat"],
+            "板块和趋势先达标，量能开始配合，先列入启动前夜",
+        )
+    if (
+        (item.trend_score is not None and item.trend_score < 45)
+        or (item.sector_strength_score is not None and item.sector_strength_score < 45)
+        or (item.risk_score or 0.0) >= 65
+    ):
+        return "weakening", TRACKING_STATE_LABELS["weakening"], "趋势、板块或风险有弱化，暂不升级"
+    return "watch_pool", TRACKING_STATE_LABELS["watch_pool"], "条件未共振，继续观察"
+
+
+def _startup_phase(item: WorkspaceItem) -> tuple[str, str, str]:
+    if _is_risk_review(item) or (item.trend_score is not None and item.trend_score < 45):
+        return "failed", STARTUP_PHASE_LABELS["failed"], "风险或趋势破坏，启动信号失效"
+    if _is_overheat(item):
+        return "extended", STARTUP_PHASE_LABELS["extended"], _overheat_reason(item)
+    if _is_startup_confirming(item):
+        return (
+            "confirming",
+            STARTUP_PHASE_LABELS["confirming"],
+            "板块、趋势、量能共振，启动进入确认",
+        )
+    if _is_startup_preheat(item):
+        return "preheat", STARTUP_PHASE_LABELS["preheat"], "趋势和量能已预热，等待次日确认"
+    return "no_signal", STARTUP_PHASE_LABELS["no_signal"], "暂未形成趋势、板块、量能共振"
 
 
 def _risks(item: WorkspaceItem) -> list[str]:
@@ -213,6 +328,11 @@ def build_tracking_snapshot_payload(
 ) -> TrackingSnapshotPayload:
     tracking_score = _tracking_score(item)
     stage = _stage(item, tracking_score)
+    tracking_state_key, tracking_state_label, tracking_state_reason = _tracking_state(
+        item,
+        tracking_score,
+    )
+    startup_phase_key, startup_phase_label, startup_phase_reason = _startup_phase(item)
     return TrackingSnapshotPayload(
         symbol=item.symbol,
         snapshot_date=snapshot_date,
@@ -252,6 +372,12 @@ def build_tracking_snapshot_payload(
             "candidate_rank": item.candidate_rank,
             "feature_date": item.feature_date,
             "quote_time": item.quote_time,
+            "tracking_state_key": tracking_state_key,
+            "tracking_state_label": tracking_state_label,
+            "tracking_state_reason": tracking_state_reason,
+            "startup_phase_key": startup_phase_key,
+            "startup_phase_label": startup_phase_label,
+            "startup_phase_reason": startup_phase_reason,
         },
     )
 

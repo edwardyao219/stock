@@ -115,6 +115,52 @@ def test_upsert_tracking_snapshot_replaces_same_symbol_date() -> None:
         assert "放量诱多" in "；".join(rows[0].risks_json["items"])
 
 
+def test_tracking_snapshot_payload_marks_startup_preheat() -> None:
+    payload = build_tracking_snapshot_payload(
+        _workspace_item(
+            manual_tags=["after_close_candidate"],
+            candidate_tier="watch_wait",
+            candidate_tier_label="观察等待",
+            startup_signal_score=62.0,
+            trend_score=72.0,
+            trend_quality_score=70.0,
+            relative_strength_score=68.0,
+            sector_strength_score=66.0,
+            volume_confirmation_score=69.0,
+            return_20d=0.12,
+            risk_score=22.0,
+            overheat_score=25.0,
+            volume_trap_risk_score=20.0,
+            distance_to_ma20=0.05,
+            plans=[],
+            recent_paper_trades=[],
+        ),
+        snapshot_date=date(2026, 7, 10),
+    )
+
+    assert payload.source["tracking_state_label"] == "启动前夜"
+    assert payload.source["startup_phase_label"] == "启动前夜"
+    assert "板块" in str(payload.source["tracking_state_reason"])
+    assert "量能" in str(payload.source["startup_phase_reason"])
+
+
+def test_tracking_snapshot_payload_marks_overheat_review() -> None:
+    payload = build_tracking_snapshot_payload(
+        _workspace_item(
+            return_20d=0.35,
+            distance_to_ma20=0.16,
+            overheat_score=72.0,
+            risk_score=25.0,
+            volume_trap_risk_score=20.0,
+        ),
+        snapshot_date=date(2026, 7, 10),
+    )
+
+    assert payload.source["tracking_state_label"] == "过热复核"
+    assert payload.source["startup_phase_label"] == "已拉升"
+    assert "20日涨幅" in str(payload.source["tracking_state_reason"])
+
+
 def test_list_tracking_snapshots_returns_recent_first() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -275,6 +321,8 @@ def test_workspace_api_creates_and_reads_tracking_snapshots() -> None:
         assert created.snapshot_date == "2026-07-22"
         assert history[0].symbol == "002558"
         assert history[0].stage_label == "启动确认"
+        assert history[0].tracking_state_label == "过热复核"
+        assert history[0].startup_phase_label == "已拉升"
         assert history[0].tracking_score >= 75
         assert history[0].metrics["trend_score"] == 82
 

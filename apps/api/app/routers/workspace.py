@@ -429,6 +429,12 @@ class TrackingSnapshotResponse(BaseModel):
     snapshot_date: str
     stage: str
     stage_label: str
+    tracking_state_key: str
+    tracking_state_label: str
+    tracking_state_reason: str | None
+    startup_phase_key: str
+    startup_phase_label: str
+    startup_phase_reason: str | None
     tracking_score: float | None
     name: str | None
     industry: str | None
@@ -641,11 +647,18 @@ def _to_response(
 
 
 def _tracking_snapshot_response(row) -> TrackingSnapshotResponse:
+    source = row.source_json or {}
     return TrackingSnapshotResponse(
         symbol=row.symbol,
         snapshot_date=row.snapshot_date.isoformat(),
         stage=row.stage,
         stage_label=row.stage_label,
+        tracking_state_key=str(source.get("tracking_state_key") or row.stage),
+        tracking_state_label=str(source.get("tracking_state_label") or row.stage_label),
+        tracking_state_reason=source.get("tracking_state_reason"),
+        startup_phase_key=str(source.get("startup_phase_key") or "no_signal"),
+        startup_phase_label=str(source.get("startup_phase_label") or "暂无启动"),
+        startup_phase_reason=source.get("startup_phase_reason"),
         tracking_score=row.tracking_score,
         name=row.name,
         industry=row.industry,
@@ -659,7 +672,7 @@ def _tracking_snapshot_response(row) -> TrackingSnapshotResponse:
         metrics=row.metrics_json or {},
         evidence=(row.evidence_json or {}).get("items", []),
         risks=(row.risks_json or {}).get("items", []),
-        source=row.source_json or {},
+        source=source,
     )
 
 

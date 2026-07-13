@@ -1956,6 +1956,17 @@ button {
   border-color: #f3c26b;
 }
 
+.tracking-hero.startup_preheat,
+.tracking-hero.overheat_review {
+  background: #fff8ec;
+  border-color: #f3c26b;
+}
+
+.tracking-hero.weakening {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
 .tracking-hero span,
 .tracking-hero p {
   color: #64748b;
@@ -1969,6 +1980,59 @@ button {
 
 .tracking-hero > strong {
   font-size: 30px;
+}
+
+.tracking-state-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tracking-state-card {
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.tracking-state-card.startup_preheat,
+.tracking-state-card.preheat,
+.tracking-state-card.overheat_review,
+.tracking-state-card.extended {
+  background: #fff8ec;
+  border-color: #f3c26b;
+}
+
+.tracking-state-card.startup_confirming,
+.tracking-state-card.confirming {
+  background: #fff5f3;
+  border-color: #f5c2bd;
+}
+
+.tracking-state-card.trend_holding {
+  background: #f2fbf5;
+  border-color: #bde4ca;
+}
+
+.tracking-state-card.risk_review,
+.tracking-state-card.failed,
+.tracking-state-card.weakening {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.tracking-state-card span,
+.tracking-state-card small {
+  color: #64748b;
+  display: block;
+  font-size: 12px;
+}
+
+.tracking-state-card strong {
+  color: #17202b;
+  display: block;
+  font-size: 18px;
+  margin: 4px 0;
 }
 
 .tracking-metric-grid {
@@ -4801,6 +4865,7 @@ textarea {
   .tracking-path-stats,
   .tracking-signal-check,
   .tracking-history-row,
+  .tracking-state-grid,
   .tracking-metric-grid,
   .tracking-candle-metrics,
   .tracking-candle-path-body,

@@ -316,6 +316,12 @@ export interface TrackingSnapshot {
   snapshot_date: string;
   stage: string;
   stage_label: string;
+  tracking_state_key: string;
+  tracking_state_label: string;
+  tracking_state_reason: string | null;
+  startup_phase_key: string;
+  startup_phase_label: string;
+  startup_phase_reason: string | null;
   tracking_score: number | null;
   name: string | null;
   industry: string | null;
