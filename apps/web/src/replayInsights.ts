@@ -34,32 +34,52 @@ export type ReplayTone = "up" | "down" | "neutral";
 
 export interface CapitalCurveView {
   status: "passed" | "failed";
+  defensiveStatus: "passed" | "failed";
   metric: NonNullable<LowDimensionalReplayReport["capital_curve_horizons"]>[number]["guarded"];
+  defensiveMetric: NonNullable<LowDimensionalReplayReport["capital_curve_horizons"]>[number]["defensive_breadth"];
   points: Array<{ x: number; y: number; value: number }>;
   pointString: string;
+  defensivePoints: Array<{ x: number; y: number; value: number }>;
+  defensivePointString: string;
 }
 
 export function capitalCurveView(
   report: Pick<LowDimensionalReplayReport, "capital_curve_horizons"> | null,
   horizon: number,
 ): CapitalCurveView | null {
-  const metric = report?.capital_curve_horizons?.[horizon]?.guarded;
-  if (!metric) return null;
+  const horizonSummary = report?.capital_curve_horizons?.[horizon];
+  const metric = horizonSummary?.guarded;
+  const defensiveMetric = horizonSummary?.defensive_breadth;
+  if (!metric || !defensiveMetric) return null;
   const values = [0, ...metric.curve.map((point) => point.cumulative_return)];
-  const low = Math.min(...values);
-  const high = Math.max(...values);
+  const defensiveValues = [
+    0,
+    ...defensiveMetric.curve.map((point) => point.cumulative_return),
+  ];
+  const low = Math.min(...values, ...defensiveValues);
+  const high = Math.max(...values, ...defensiveValues);
   const spread = high - low || 1;
-  const lastIndex = Math.max(1, values.length - 1);
-  const points = values.map((value, index) => ({
-    x: Math.round((index / lastIndex) * 10000) / 100,
-    y: Math.round((92 - ((value - low) / spread) * 84) * 100) / 100,
-    value,
-  }));
+  const chartPoints = (items: number[]) => {
+    const lastIndex = Math.max(1, items.length - 1);
+    return items.map((value, index) => ({
+      x: Math.round((2 + (index / lastIndex) * 96) * 100) / 100,
+      y: Math.round((92 - ((value - low) / spread) * 84) * 100) / 100,
+      value,
+    }));
+  };
+  const points = chartPoints(values);
+  const defensivePoints = chartPoints(defensiveValues);
   return {
     status: metric.max_drawdown_passed ? "passed" : "failed",
+    defensiveStatus: defensiveMetric.max_drawdown_passed ? "passed" : "failed",
     metric,
+    defensiveMetric,
     points,
     pointString: points.map((point) => `${point.x},${point.y}`).join(" "),
+    defensivePoints,
+    defensivePointString: defensivePoints
+      .map((point) => `${point.x},${point.y}`)
+      .join(" "),
   };
 }
 

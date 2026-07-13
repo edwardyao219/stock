@@ -3055,7 +3055,7 @@ button {
   align-content: center;
   display: grid;
   gap: 7px;
-  grid-template-columns: repeat(3, minmax(80px, 1fr));
+  grid-template-columns: repeat(4, minmax(72px, 1fr));
 }
 
 .replay-capital-curve-head > div {
@@ -3070,12 +3070,16 @@ button {
 }
 
 .replay-capital-curve-head strong {
-  color: #17623a;
+  color: #334155;
   font-size: 18px;
 }
 
-.replay-capital-curve.failed .replay-capital-curve-head strong {
+.replay-capital-curve-head .failed strong {
   color: #9f2d20;
+}
+
+.replay-capital-curve-head .passed strong {
+  color: #17623a;
 }
 
 .replay-capital-curve-head > small {
@@ -3090,15 +3094,26 @@ button {
 
 .replay-capital-curve polyline {
   fill: none;
-  stroke: #2f9e63;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2.4;
   vector-effect: non-scaling-stroke;
 }
 
-.replay-capital-curve.failed polyline {
+.replay-capital-curve polyline.baseline {
+  stroke: #2f9e63;
+}
+
+.replay-capital-curve.failed polyline.baseline {
   stroke: #d65f4f;
+}
+
+.replay-capital-curve polyline.defensive.passed {
+  stroke: #2f9e63;
+}
+
+.replay-capital-curve polyline.defensive.failed {
+  stroke: #d69e2e;
 }
 
 .replay-capital-curve circle {
@@ -3108,8 +3123,16 @@ button {
   vector-effect: non-scaling-stroke;
 }
 
-.replay-capital-curve.failed circle {
+.replay-capital-curve.failed circle.baseline {
   stroke: #d65f4f;
+}
+
+.replay-capital-curve circle.defensive.passed {
+  stroke: #2f9e63;
+}
+
+.replay-capital-curve circle.defensive.failed {
+  stroke: #d69e2e;
 }
 
 .replay-capital-zero {

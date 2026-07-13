@@ -658,25 +658,37 @@ def _non_overlapping_portfolio_return_points(
     horizon: int,
     field_name: str,
     max_positions: int = PORTFOLIO_SUMMARY_MAX_POSITIONS,
+    distinct_sectors: bool = False,
+    min_positions: int = 1,
 ) -> list[tuple[str, float]]:
     points: list[tuple[str, float]] = []
     index = 0
     while index < len(days):
         candidates = [
             candidate for candidate in days[index].candidates if not _is_noise_candidate(candidate)
-        ][:max_positions]
-        values = [
-            (candidate, value)
-            for candidate in candidates
-            if (value := getattr(candidate, field_name).get(horizon)) is not None
         ]
-        if not values:
+        values: list[tuple[WalkForwardCandidate, float]] = []
+        sectors: set[str] = set()
+        for candidate in candidates:
+            if not distinct_sectors and len(values) >= max_positions:
+                break
+            sector = str(candidate.sector or "unknown")
+            if distinct_sectors and sector in sectors:
+                continue
+            value = getattr(candidate, field_name).get(horizon)
+            if value is None:
+                continue
+            sectors.add(sector)
+            values.append((candidate, float(value)))
+            if len(values) >= max_positions:
+                break
+        if len(values) < min_positions:
             index += 1
             continue
         points.append(
             (
                 str(values[0][0].entry_date or days[index].next_trade_date or ""),
-                round(sum(float(value) for _candidate, value in values) / len(values), 6),
+                round(sum(value for _candidate, value in values) / len(values), 6),
             )
         )
         index += max(1, horizon)
@@ -726,6 +738,7 @@ def _capital_curve_summary(
         "weighting": "equal_weight_fixed_notional",
         "holding_period_days": horizon,
         "return_calculation": "simple_sum_no_compounding",
+        "defensive_policy": "three_distinct_sectors",
         "raw": _non_compound_capital_summary(
             _non_overlapping_portfolio_return_points(
                 days,
@@ -740,6 +753,16 @@ def _capital_curve_summary(
                 horizon=horizon,
                 field_name="guarded_forward_returns",
                 max_positions=max_positions,
+            )
+        ),
+        "defensive_breadth": _non_compound_capital_summary(
+            _non_overlapping_portfolio_return_points(
+                days,
+                horizon=horizon,
+                field_name="guarded_forward_returns",
+                max_positions=max_positions,
+                distinct_sectors=True,
+                min_positions=max_positions,
             )
         ),
     }

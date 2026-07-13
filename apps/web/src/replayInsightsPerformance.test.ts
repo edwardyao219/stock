@@ -114,11 +114,25 @@ const capitalCurve = capitalCurveView({
           { entry_date: "2026-01-23", period_return: -0.1, cumulative_return: -0.02, drawdown: -0.1 },
         ],
       },
+      defensive_breadth: {
+        sample_count: 1,
+        avg_return: 0.12,
+        win_rate: 1,
+        total_return: 0.12,
+        max_drawdown: -0.04,
+        max_drawdown_limit_pct: 0.15,
+        max_drawdown_passed: true,
+        curve: [
+          { entry_date: "2026-01-03", period_return: 0.12, cumulative_return: 0.12, drawdown: -0.04 },
+        ],
+      },
     },
   },
 } as unknown as LowDimensionalReplayReport, 20);
 
 assertEqual(capitalCurve?.status, "passed", "15%以内显示通过");
 assertEqual(capitalCurve?.points.length, 3, "曲线包含零起点");
-assertEqual(capitalCurve?.points[0].x, 0, "曲线从左侧开始");
-assertEqual(capitalCurve?.points[2].x, 100, "曲线延伸到右侧");
+assertEqual(capitalCurve?.points[0].x, 2, "曲线左侧保留端点空间");
+assertEqual(capitalCurve?.points[2].x, 98, "曲线右侧保留端点空间");
+assertClose(capitalCurve?.defensiveMetric.total_return ?? null, 0.12, "保留多板块防守收益");
+assertEqual(capitalCurve?.defensiveStatus, "passed", "多板块防守单独判断红线");

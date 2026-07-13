@@ -4086,22 +4086,26 @@ export function App() {
                 {replayCapitalCurve20d ? (
                   <div className={`replay-capital-curve ${replayCapitalCurve20d.status}`}>
                     <div className="replay-capital-curve-head">
-                      <div>
+                      <div className={replayCapitalCurve20d.status}>
                         <span>20日非复利资金曲线</span>
                         <strong>{pct(replayCapitalCurve20d.metric.total_return)}</strong>
                       </div>
-                      <div>
+                      <div className={replayCapitalCurve20d.status}>
                         <span>最大回撤</span>
                         <strong>{pct(replayCapitalCurve20d.metric.max_drawdown)}</strong>
                       </div>
-                      <div>
-                        <span>15%红线</span>
-                        <strong>
-                          {replayCapitalCurve20d.metric.max_drawdown_passed ? "通过" : "超过"}
-                        </strong>
+                      <div className={replayCapitalCurve20d.defensiveStatus}>
+                        <span>多板块确认</span>
+                        <strong>{pct(replayCapitalCurve20d.defensiveMetric.total_return)}</strong>
+                      </div>
+                      <div className={replayCapitalCurve20d.defensiveStatus}>
+                        <span>防守回撤</span>
+                        <strong>{pct(replayCapitalCurve20d.defensiveMetric.max_drawdown)}</strong>
                       </div>
                       <small>
-                        最多3只等权 / {replayCapitalCurve20d.metric.sample_count}批
+                        当前{replayCapitalCurve20d.metric.max_drawdown_passed ? "通过" : "超过"}15% / 多板块
+                        {replayCapitalCurve20d.defensiveMetric.max_drawdown_passed ? "通过" : "超过"} / 防守样本{" "}
+                        {replayCapitalCurve20d.defensiveMetric.sample_count}批
                       </small>
                     </div>
                     <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="20日非复利资金曲线">
@@ -4112,11 +4116,24 @@ export function App() {
                         y1={replayCapitalCurve20d.points[0]?.y ?? 50}
                         y2={replayCapitalCurve20d.points[0]?.y ?? 50}
                       />
-                      <polyline points={replayCapitalCurve20d.pointString} />
+                      <polyline className="baseline" points={replayCapitalCurve20d.pointString} />
+                      <polyline
+                        className={`defensive ${replayCapitalCurve20d.defensiveStatus}`}
+                        points={replayCapitalCurve20d.defensivePointString}
+                      />
                       {replayCapitalCurve20d.points.length ? (
                         <circle
+                          className="baseline"
                           cx={replayCapitalCurve20d.points[replayCapitalCurve20d.points.length - 1].x}
                           cy={replayCapitalCurve20d.points[replayCapitalCurve20d.points.length - 1].y}
+                          r="2.8"
+                        />
+                      ) : null}
+                      {replayCapitalCurve20d.defensivePoints.length ? (
+                        <circle
+                          className={`defensive ${replayCapitalCurve20d.defensiveStatus}`}
+                          cx={replayCapitalCurve20d.defensivePoints[replayCapitalCurve20d.defensivePoints.length - 1].x}
+                          cy={replayCapitalCurve20d.defensivePoints[replayCapitalCurve20d.defensivePoints.length - 1].y}
                           r="2.8"
                         />
                       ) : null}

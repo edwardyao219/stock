@@ -617,8 +617,10 @@ export interface ReplayCapitalCurveHorizonSummary {
   weighting: string;
   holding_period_days: number;
   return_calculation: string;
+  defensive_policy: string;
   raw: ReplayCapitalReturnSummary;
   guarded: ReplayCapitalReturnSummary;
+  defensive_breadth: ReplayCapitalReturnSummary;
 }
 
 export interface ReplayStylePreference {

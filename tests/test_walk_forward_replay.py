@@ -2969,3 +2969,58 @@ def test_summarize_walk_forward_replay_reports_non_compound_capital_curve() -> N
     assert capital["guarded"]["max_drawdown"] == -0.10
     assert capital["guarded"]["max_drawdown_passed"] is True
     assert [point["cumulative_return"] for point in capital["raw"]["curve"]] == [0.10, -0.10]
+
+
+def test_capital_curve_reports_three_sector_defensive_scenario() -> None:
+    def candidate(symbol: str, sector: str, value: float) -> WalkForwardCandidate:
+        return WalkForwardCandidate(
+            symbol=symbol,
+            name=symbol,
+            sector=sector,
+            selection_mode="low_dimensional_mainline",
+            score=80,
+            entry_date="2026-01-06",
+            forward_returns={1: value},
+            guarded_forward_returns={1: value},
+        )
+
+    def replay_day(signal_date: str, candidates: list[WalkForwardCandidate]) -> WalkForwardDay:
+        return WalkForwardDay(
+            signal_date=signal_date,
+            next_trade_date="2026-01-06",
+            universe_size=3,
+            feature_rows=3,
+            active_symbols=3,
+            feature_coverage_ratio=1.0,
+            candidates=candidates,
+        )
+
+    result = WalkForwardReplayResult(
+        start_date="2026-01-02",
+        end_date="2026-01-05",
+        processed_days=2,
+        days=[
+            replay_day(
+                "2026-01-02",
+                [
+                    candidate("600001", "半导体", 0.5),
+                    candidate("600002", "半导体", 0.4),
+                    candidate("600003", "通信设备", 0.3),
+                ],
+            ),
+            replay_day(
+                "2026-01-05",
+                [
+                    candidate("600004", "半导体", 0.3),
+                    candidate("600005", "通信设备", -0.1),
+                    candidate("600006", "小金属", 0.1),
+                ],
+            ),
+        ],
+    )
+
+    capital = summarize_walk_forward_replay(result, horizons=(1,))["capital_curve_horizons"][1]
+
+    assert capital["defensive_breadth"]["sample_count"] == 1
+    assert capital["defensive_breadth"]["total_return"] == 0.1
+    assert capital["defensive_breadth"]["max_drawdown_passed"] is True
