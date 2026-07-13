@@ -422,6 +422,7 @@ export function buildStockTrackingProfile(stock: WorkspaceStock): StockTrackingP
 function validationRank(signal: TrackingSignalItem | undefined) {
   if (!signal || signal.sample_count < 2) return 3;
   if (signal.signal_alignment_key === "aligned" && (signal.simple_return_pct ?? 0) > 0) return 0;
+  if (signal.signal_alignment_key === "score_up_price_weak" || signal.signal_alignment_label === "验证背离") return 4;
   if (signal.signal_alignment_key === "score_down_price_strong") return 1;
   if (signal.signal_alignment_tone === "warn" || signal.signal_alignment_tone === "good") return 2;
   if (signal.signal_alignment_tone === "bad") return 4;

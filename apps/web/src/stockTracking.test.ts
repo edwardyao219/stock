@@ -201,6 +201,71 @@ const validatedSorted = sortStockTrackingProfiles(
 
 assert(validatedSorted[0].symbol === "002002", "同阶段排序应优先真实快照验证有效的票");
 
+const divergentHighScore = buildStockTrackingProfile(stock({
+  symbol: "002003",
+  recent_paper_trades: [],
+  candidate_tier: "core_action",
+  trend_score: 91,
+  relative_strength_score: 89,
+  sector_strength_score: 87,
+  volume_confirmation_score: 84,
+  candidate_score: 94,
+  startup_signal_score: 90,
+}));
+const neutralThinSample = buildStockTrackingProfile(stock({
+  symbol: "002004",
+  recent_paper_trades: [],
+  candidate_tier: "core_action",
+  trend_score: 70,
+  relative_strength_score: 68,
+  sector_strength_score: 66,
+  volume_confirmation_score: 64,
+  candidate_score: 70,
+  startup_signal_score: 68,
+}));
+const divergenceSignals = new Map<string, TrackingSignalItem>([
+  [
+    "002002",
+    validationSignals.get("002002") as TrackingSignalItem,
+  ],
+  [
+    "002003",
+    {
+      symbol: "002003",
+      name: "高分背离",
+      industry: "电子",
+      latest_snapshot_date: "2026-07-10",
+      sample_count: 4,
+      score_delta: 8,
+      simple_return_pct: -3,
+      signal_alignment_key: "score_up_price_weak",
+      signal_alignment_label: "分涨价弱",
+      signal_alignment_tone: "neutral",
+    },
+  ],
+  [
+    "002004",
+    {
+      symbol: "002004",
+      name: "中性薄样本",
+      industry: "电子",
+      latest_snapshot_date: "2026-07-10",
+      sample_count: 1,
+      score_delta: null,
+      simple_return_pct: null,
+      signal_alignment_key: "insufficient",
+      signal_alignment_label: "样本不足",
+      signal_alignment_tone: "neutral",
+    },
+  ],
+]);
+const divergenceSorted = sortStockTrackingProfiles(
+  [divergentHighScore, neutralThinSample, validatedTrend],
+  divergenceSignals,
+);
+
+assert(divergenceSorted.map((item) => item.symbol).join(",") === "002002,002004,002003", "同阶段排序要按分涨价弱语义降权，不能依赖展示色");
+
 function candle(index: number, close: number, amount = 1000): Candle {
   return {
     time: `2026-06-${String(index + 1).padStart(2, "0")}`,
