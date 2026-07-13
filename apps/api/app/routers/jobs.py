@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -138,6 +138,7 @@ class AfterCloseStatusResponse(BaseModel):
     plan_count: int = 0
     dingtalk_statuses: list[str] = []
     market_summary: str | None = None
+    tushare_evidence_health: dict[str, Any] = Field(default_factory=dict)
     source: str = "cache"
 
 

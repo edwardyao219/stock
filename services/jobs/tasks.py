@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 
 from services.collector.realtime import sync_realtime_quotes
+from services.engine.features.health import inspect_tushare_evidence_health
 from services.engine.intraday.candidates import early_sector_scan_symbols
 from services.engine.review.mechanical import generate_daily_mechanical_review
 from services.engine.review.monthly_summary import generate_monthly_trade_summary
@@ -265,6 +267,23 @@ def run_after_close_session_task(force: bool = False) -> dict[str, object]:
         next_trade_date,
         full_market_sync=True,
     ).to_dict()
+    sync_statuses: dict[str, str] = {}
+    for step in result.get("steps") or []:
+        if step.get("name") != "sync_daily_market_data":
+            continue
+        for detail in step.get("details") or []:
+            match = re.match(
+                r"^(moneyflow_dc|limit_list_d|cyq_perf): (ok|skipped|failed), rows=(\d+)",
+                str(detail),
+            )
+            if match:
+                sync_statuses[match.group(1)] = match.group(2)
+    with SessionLocal() as db:
+        result["tushare_evidence_health"] = inspect_tushare_evidence_health(
+            db,
+            today,
+            sync_statuses,
+        )
     write_after_close_status(result)
     return result
 

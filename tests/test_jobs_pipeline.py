@@ -286,6 +286,16 @@ def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) ->
                 "stage": "after_close",
                 "steps": [
                     {
+                        "name": "sync_daily_market_data",
+                        "status": "ok",
+                        "detail": "同步行情完成",
+                        "details": [
+                            "moneyflow_dc: ok, rows=5907",
+                            "limit_list_d: ok, rows=187",
+                            "cyq_perf: ok, rows=5521",
+                        ],
+                    },
+                    {
                         "name": "discover_next_session_candidates",
                         "status": "ok",
                         "detail": (
@@ -312,6 +322,25 @@ def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) ->
     monkeypatch.setattr(tasks, "run_after_close_session", fake_run_after_close_session)
     monkeypatch.setattr(
         tasks,
+        "inspect_tushare_evidence_health",
+        lambda db, trade_date, sync_statuses: {
+            "trade_date": trade_date.isoformat(),
+            "daily_symbol_count": 100,
+            "datasets": [],
+            "sync_statuses": sync_statuses,
+        },
+    )
+
+    class _Db:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(tasks, "SessionLocal", _Db)
+    monkeypatch.setattr(
+        tasks,
         "write_after_close_status",
         lambda result: written.append(result),
     )
@@ -328,6 +357,11 @@ def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) ->
     assert captured["trade_date"] == "2026-06-30"
     assert captured["next_trade_date"] == "2026-07-01"
     assert captured["full_market_sync"] is True
+    assert result["tushare_evidence_health"]["sync_statuses"] == {
+        "moneyflow_dc": "ok",
+        "limit_list_d": "ok",
+        "cyq_perf": "ok",
+    }
 
 
 def test_after_close_task_skips_duplicate_daily_push(monkeypatch) -> None:

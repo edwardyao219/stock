@@ -9,7 +9,14 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from services.shared.models import DailyBar, Security, StockFeatureDaily
+from services.shared.models import (
+    DailyBar,
+    Security,
+    StockFeatureDaily,
+    TushareCyqPerf,
+    TushareLimitListD,
+    TushareMoneyflowDc,
+)
 
 MIN_DISTRIBUTION_SAMPLE_SIZE = 3
 DAILY_CANDIDATE_MIN_COVERAGE_RATIO = 0.98
@@ -125,6 +132,71 @@ def _daily_bars(db: Session, trade_date: date | None) -> list[DailyBar]:
     return list(db.execute(select(DailyBar).where(DailyBar.trade_date == trade_date)).scalars())
 
 
+def inspect_tushare_evidence_health(
+    db: Session,
+    trade_date: date,
+    sync_statuses: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    eligible_symbols = set(
+        db.execute(
+            select(DailyBar.symbol)
+            .join(Security, Security.symbol == DailyBar.symbol)
+            .where(DailyBar.trade_date == trade_date)
+            .where(Security.is_active.is_(True))
+            .where(Security.is_st.is_(False))
+        ).scalars()
+    )
+
+    def full_market_dataset(name: str, model: type) -> dict[str, Any]:
+        ts_codes = list(
+            db.execute(select(model.ts_code).where(model.trade_date == trade_date)).scalars()
+        )
+        matched_rows = sum(
+            1 for ts_code in ts_codes if str(ts_code).split(".", 1)[0] in eligible_symbols
+        )
+        coverage_ratio = matched_rows / len(eligible_symbols) if eligible_symbols else None
+        if not ts_codes:
+            status = "missing"
+        elif coverage_ratio is not None and coverage_ratio >= 0.98:
+            status = "ok"
+        else:
+            status = "partial"
+        return {
+            "name": name,
+            "rows": len(ts_codes),
+            "matched_rows": matched_rows,
+            "coverage_ratio": coverage_ratio,
+            "status": status,
+        }
+
+    limit_codes = list(
+        db.execute(
+            select(TushareLimitListD.ts_code).where(TushareLimitListD.trade_date == trade_date)
+        ).scalars()
+    )
+    limit_matched_rows = sum(
+        1 for ts_code in limit_codes if str(ts_code).split(".", 1)[0] in eligible_symbols
+    )
+    limit_status = (
+        "ok"
+        if limit_codes or (sync_statuses or {}).get("limit_list_d") in {"ok", "skipped"}
+        else "missing"
+    )
+    return {
+        "trade_date": trade_date.isoformat(),
+        "daily_symbol_count": len(eligible_symbols),
+        "datasets": [
+            full_market_dataset("moneyflow_dc", TushareMoneyflowDc),
+            full_market_dataset("cyq_perf", TushareCyqPerf),
+            {
+                "name": "limit_list_d",
+                "rows": len(limit_codes),
+                "matched_rows": limit_matched_rows,
+                "coverage_ratio": None,
+                "status": limit_status,
+            },
+        ],
+    }
 def _features(db: Session, trade_date: date | None) -> list[StockFeatureDaily]:
     if trade_date is None:
         return []

@@ -4,9 +4,19 @@ from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from services.engine.features.health import inspect_daily_data_health
+from services.engine.features.health import (
+    inspect_daily_data_health,
+    inspect_tushare_evidence_health,
+)
 from services.shared.database import Base
-from services.shared.models import DailyBar, Security, StockFeatureDaily
+from services.shared.models import (
+    DailyBar,
+    Security,
+    StockFeatureDaily,
+    TushareCyqPerf,
+    TushareLimitListD,
+    TushareMoneyflowDc,
+)
 
 
 def _daily_bar(
@@ -33,6 +43,93 @@ def _daily_bar(
         limit_down=close_value * Decimal("0.9"),
         is_suspended=False,
     )
+
+
+def test_inspect_tushare_evidence_health_reports_exact_date_coverage() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    trade_date = date(2026, 7, 10)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(
+                    symbol=f"{index:06d}",
+                    name=f"样本{index}",
+                    exchange="SZ",
+                    is_active=True,
+                    is_st=False,
+                )
+                for index in range(100)
+            ]
+        )
+        db.add_all(
+            [_daily_bar(f"{index:06d}", trade_date, amount="1000000000") for index in range(100)]
+        )
+        db.add_all(
+            [
+                TushareMoneyflowDc(ts_code=f"{index:06d}.SZ", trade_date=trade_date)
+                for index in range(90)
+            ]
+        )
+        db.add_all(
+            [
+                TushareCyqPerf(ts_code=f"{index:06d}.SZ", trade_date=trade_date)
+                for index in range(80)
+            ]
+        )
+        db.add_all(
+            [
+                TushareLimitListD(ts_code=f"{index:06d}.SZ", trade_date=trade_date)
+                for index in range(7)
+            ]
+        )
+        db.commit()
+
+        health = inspect_tushare_evidence_health(db, trade_date)
+
+    assert health == {
+        "trade_date": "2026-07-10",
+        "daily_symbol_count": 100,
+        "datasets": [
+            {
+                "name": "moneyflow_dc",
+                "rows": 90,
+                "matched_rows": 90,
+                "coverage_ratio": 0.9,
+                "status": "partial",
+            },
+            {
+                "name": "cyq_perf",
+                "rows": 80,
+                "matched_rows": 80,
+                "coverage_ratio": 0.8,
+                "status": "partial",
+            },
+            {
+                "name": "limit_list_d",
+                "rows": 7,
+                "matched_rows": 7,
+                "coverage_ratio": None,
+                "status": "ok",
+            },
+        ],
+    }
+
+
+def test_inspect_tushare_evidence_health_accepts_empty_limit_events_after_sync() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with sessionmaker(bind=engine)() as db:
+        health = inspect_tushare_evidence_health(
+            db,
+            date(2026, 7, 10),
+            sync_statuses={"limit_list_d": "ok"},
+        )
+
+    assert health["datasets"][-1]["status"] == "ok"
 
 
 def test_inspect_daily_data_health_flags_amount_and_feature_anomalies() -> None:

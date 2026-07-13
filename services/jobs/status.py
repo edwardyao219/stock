@@ -91,6 +91,7 @@ def build_after_close_status(
         "plan_count": _extract_first_int(r"生成\s+(\d+)\s+条交易计划", step_texts),
         "dingtalk_statuses": _extract_dingtalk_statuses(step_texts),
         "market_summary": _extract_market_summary(step_texts),
+        "tushare_evidence_health": result.get("tushare_evidence_health") or {},
         "source": "cache",
     }
 

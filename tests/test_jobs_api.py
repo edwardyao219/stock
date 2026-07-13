@@ -44,6 +44,11 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
             "plan_count": 0,
             "dingtalk_statuses": ["dingtalk:ok", "dingtalk:ok"],
             "market_summary": "市场 weak_trend / 压力大",
+            "tushare_evidence_health": {
+                "trade_date": trade_date,
+                "daily_symbol_count": 100,
+                "datasets": [],
+            },
             "source": "cache",
         },
     )
@@ -54,6 +59,7 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
     assert payload.candidate_count == 12
     assert payload.dingtalk_statuses == ["dingtalk:ok", "dingtalk:ok"]
     assert payload.market_summary == "市场 weak_trend / 压力大"
+    assert payload.tushare_evidence_health["daily_symbol_count"] == 100
 
 
 def test_after_close_status_returns_unknown_without_cache(monkeypatch) -> None:
