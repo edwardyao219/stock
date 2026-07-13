@@ -1131,17 +1131,34 @@ def run_after_close_session(
     use_learning_adjustments: bool = True,
     full_market_sync: bool = False,
 ) -> DailyPipelineResult:
-    steps = [
-        _run_step("sync_sector_moneyflow", lambda: _sync_sector_moneyflow_step(trade_date)),
-        _run_step(
-            "prepare_market_feature_universe",
-            lambda: _prepare_market_feature_universe_step(
-                trade_date,
-                None,
-                sync_daily=full_market_sync,
+    steps = []
+    if full_market_sync:
+        steps.append(
+            _run_step(
+                "sync_daily_market_data",
+                lambda: _sync_daily_market_data_step(
+                    trade_date,
+                    full_refresh=True,
+                    force=True,
+                ),
+            )
+        )
+    steps.extend(
+        [
+            _run_step(
+                "sync_sector_moneyflow",
+                lambda: _sync_sector_moneyflow_step(trade_date),
             ),
-        ),
-    ]
+            _run_step(
+                "prepare_market_feature_universe",
+                lambda: _prepare_market_feature_universe_step(
+                    trade_date,
+                    None,
+                    sync_daily=False,
+                ),
+            ),
+        ]
+    )
     candidate_gate = _run_step(
         "validate_daily_candidate_data",
         lambda: _daily_candidate_data_gate_step(trade_date),

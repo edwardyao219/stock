@@ -1,6 +1,14 @@
 from services.collector.contracts import CollectionResult
 
-TUSHARE_AFTER_CLOSE_DATASETS = ("daily", "daily_basic", "stk_limit", "moneyflow")
+TUSHARE_AFTER_CLOSE_DATASETS = (
+    "daily",
+    "daily_basic",
+    "stk_limit",
+    "moneyflow",
+    "moneyflow_dc",
+    "limit_list_d",
+    "cyq_perf",
+)
 
 
 def _failed_result(dataset: str, trade_date: str, exc: Exception) -> CollectionResult:

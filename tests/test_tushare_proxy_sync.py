@@ -5,9 +5,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from services.collector import daily, tushare_sync
 from services.collector import sync as collector_sync
 from services.collector import tushare_proxy_client as client
-from services.collector import tushare_sync
 from services.collector.tushare_sync import (
     sync_tushare_daily,
     sync_tushare_daily_basic,
@@ -29,6 +29,14 @@ from services.shared.models import (
     TushareMoneyflowIndDc,
     TushareStkLimit,
 )
+
+
+def test_tushare_5000_datasets_are_registered_for_after_close_sync() -> None:
+    expected = {"moneyflow_dc", "limit_list_d", "cyq_perf"}
+
+    assert expected <= set(collector_sync.TUSHARE_MARKET_DATASETS)
+    assert expected <= set(collector_sync._tushare_dataset_registry())
+    assert expected <= set(daily.TUSHARE_AFTER_CLOSE_DATASETS)
 
 
 def test_tushare_5000_sync_writes_idempotent_daily_rows(monkeypatch) -> None:

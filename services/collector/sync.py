@@ -23,10 +23,13 @@ from services.collector.repository import (
     upsert_trade_calendar,
 )
 from services.collector.tushare_sync import (
+    sync_tushare_cyq_perf,
     sync_tushare_daily,
     sync_tushare_daily_basic,
     sync_tushare_index_daily,
+    sync_tushare_limit_list_d,
     sync_tushare_moneyflow,
+    sync_tushare_moneyflow_dc,
     sync_tushare_moneyflow_ind_dc,
     sync_tushare_stk_limit,
     sync_tushare_stock_basic,
@@ -35,9 +38,12 @@ from services.shared.config import get_settings
 from services.shared.database import SessionLocal
 from services.shared.models import (
     TradingCalendar,
+    TushareCyqPerf,
     TushareDaily,
     TushareDailyBasic,
+    TushareLimitListD,
     TushareMoneyflow,
+    TushareMoneyflowDc,
     TushareMoneyflowIndDc,
     TushareStkLimit,
 )
@@ -317,6 +323,9 @@ TUSHARE_MARKET_DATASETS = (
     "stk_limit",
     "moneyflow",
     "moneyflow_ind_dc",
+    "moneyflow_dc",
+    "limit_list_d",
+    "cyq_perf",
 )
 
 
@@ -338,6 +347,9 @@ def _tushare_dataset_registry() -> dict[str, tuple[type, Callable]]:
         "stk_limit": (TushareStkLimit, sync_tushare_stk_limit),
         "moneyflow": (TushareMoneyflow, sync_tushare_moneyflow),
         "moneyflow_ind_dc": (TushareMoneyflowIndDc, sync_tushare_moneyflow_ind_dc),
+        "moneyflow_dc": (TushareMoneyflowDc, sync_tushare_moneyflow_dc),
+        "limit_list_d": (TushareLimitListD, sync_tushare_limit_list_d),
+        "cyq_perf": (TushareCyqPerf, sync_tushare_cyq_perf),
     }
 
 

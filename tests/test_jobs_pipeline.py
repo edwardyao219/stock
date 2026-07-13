@@ -600,6 +600,14 @@ def test_intraday_session_skips_outside_window(monkeypatch) -> None:
 def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatch) -> None:
     captured = {}
 
+    def fake_sync_daily(trade_date, *, full_refresh=False, force=False):
+        captured["full_sync"] = (trade_date, full_refresh, force)
+        return pipeline.PipelineStepResult(
+            name="sync_daily_market_data",
+            status="ok",
+            detail="market-synced",
+        )
+
     def fake_prepare_market_universe(trade_date, limit, sync_daily=False):
         captured["sync_daily"] = sync_daily
         return pipeline.PipelineStepResult(
@@ -613,6 +621,7 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         return f"paper:{account}"
 
     monkeypatch.setattr(pipeline, "_run_daily_paper_simulation_step", fake_paper_simulation)
+    monkeypatch.setattr(pipeline, "_sync_daily_market_data_step", fake_sync_daily)
     monkeypatch.setattr(
         pipeline,
         "_sync_sector_moneyflow_step",
@@ -686,6 +695,7 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
 
     assert result.stage == "after_close"
     assert [item.name for item in result.steps] == [
+        "sync_daily_market_data",
         "sync_sector_moneyflow",
         "prepare_market_feature_universe",
         "validate_daily_candidate_data",
@@ -698,11 +708,12 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         "prewarm_candidate_replay_effect",
         "generate_daily_review",
     ]
-    assert result.steps[3].detail == "candidates:2026-06-25:False"
-    assert result.steps[4].detail == "tracking:2026-06-24:200"
-    assert captured["sync_daily"] is True
+    assert result.steps[4].detail == "candidates:2026-06-25:False"
+    assert result.steps[5].detail == "tracking:2026-06-24:200"
+    assert captured["full_sync"] == ("2026-06-24", True, True)
+    assert captured["sync_daily"] is False
     assert captured["execute_entries"] is True
-    assert result.steps[6].detail == "reviews"
+    assert result.steps[7].detail == "reviews"
     assert result.steps[-1].detail == "daily"
     assert result.steps[-2].detail == "prewarm:2026-06-24"
 
@@ -710,6 +721,13 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
 def test_after_close_session_blocks_candidates_when_daily_data_gate_fails(monkeypatch) -> None:
     captured = {}
 
+    monkeypatch.setattr(
+        pipeline,
+        "_sync_daily_market_data_step",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("lightweight after-close session should not run full sync")
+        ),
+    )
     monkeypatch.setattr(
         pipeline,
         "_sync_sector_moneyflow_step",
