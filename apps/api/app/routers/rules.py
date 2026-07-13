@@ -820,6 +820,70 @@ def _scope_monthly_guarded_rows(
     return rows
 
 
+def diagnose_core_promotion_gate(
+    comparison: dict[str, Any],
+    *,
+    horizon: int,
+    scope: str = "action_long",
+    min_samples: int = 20,
+    min_months: int = 3,
+) -> dict[str, Any]:
+    row = _scope_diagnosis_row(
+        scope,
+        (comparison.get("scopes") or {}).get(scope) or {},
+        horizon,
+    )
+    monthly_rows = _scope_monthly_guarded_rows(
+        comparison,
+        scope=scope,
+        horizon=horizon,
+    )
+    positive_months = sum(1 for item in monthly_rows if (item["total_return"] or 0.0) > 0.0)
+    negative_months = sum(1 for item in monthly_rows if (item["total_return"] or 0.0) < 0.0)
+    sample_count = int(row["sample_count"] or 0)
+    total_return = row["total_return"] or 0.0
+    avg_return = row["avg_return"] or 0.0
+
+    if sample_count < min_samples or len(monthly_rows) < min_months:
+        status = "observe_only"
+        label = "证据不足，仅观察"
+        max_core_positions = 0
+        summary = (
+            f"{row['label']}当前样本{sample_count}，覆盖{len(monthly_rows)}个独立月份；"
+            f"核心升级至少需要{min_samples}个样本和{min_months}个月度观察，暂不进入钉钉核心。"
+        )
+    elif avg_return <= 0.0 or total_return <= 0.0 or positive_months < negative_months:
+        status = "unstable"
+        label = "稳定性不足，仅观察"
+        max_core_positions = 0
+        summary = (
+            f"{row['label']}虽然已有{len(monthly_rows)}个月度观察，但正收益月{positive_months}、"
+            f"负收益月{negative_months}，收益稳定性不足，暂不提高仓位。"
+        )
+    else:
+        status = "ready"
+        label = "证据通过，可小仓核心"
+        max_core_positions = 3
+        summary = (
+            f"{row['label']}样本{sample_count}，覆盖{len(monthly_rows)}个月度观察，"
+            f"正收益月{positive_months}、负收益月{negative_months}，允许在板块顺势时小仓核心跟踪。"
+        )
+
+    return {
+        "scope": scope,
+        "label": label,
+        "status": status,
+        "sample_count": sample_count,
+        "month_count": len(monthly_rows),
+        "positive_months": positive_months,
+        "negative_months": negative_months,
+        "min_samples": min_samples,
+        "min_months": min_months,
+        "max_core_positions": max_core_positions,
+        "summary": summary,
+    }
+
+
 def _strategy_pk_policy(
     *,
     scope: str,
@@ -1500,11 +1564,10 @@ def _market_stress_gate_policy_needs_enrichment(diagnosis: dict[str, Any]) -> bo
 
 def _enrich_candidate_replay_effect_payload(payload: dict[str, Any]) -> dict[str, Any]:
     diagnosis = payload.get("diagnosis") if isinstance(payload.get("diagnosis"), dict) else {}
+    needs_promotion_gate = not isinstance(diagnosis.get("core_promotion_gate"), dict)
     needs_sector_policy = _sector_leadership_policy_needs_enrichment(diagnosis)
     needs_strategy_pk = _strategy_pk_needs_enrichment(diagnosis)
     needs_market_stress_gate = _market_stress_gate_policy_needs_enrichment(diagnosis)
-    if not needs_sector_policy and not needs_strategy_pk and not needs_market_stress_gate:
-        return payload
     comparison = {
         "start_date": payload.get("start_date"),
         "end_date": payload.get("end_date"),
@@ -1512,6 +1575,13 @@ def _enrich_candidate_replay_effect_payload(payload: dict[str, Any]) -> dict[str
         "discovery_cache_dir": payload.get("discovery_cache_dir"),
     }
     horizon = int(diagnosis.get("horizon") or 20)
+    if needs_promotion_gate:
+        return {
+            **payload,
+            "diagnosis": diagnose_candidate_replay_effect(comparison, horizon=horizon),
+        }
+    if not needs_sector_policy and not needs_strategy_pk and not needs_market_stress_gate:
+        return payload
     enriched_diagnosis = {**diagnosis}
     if needs_sector_policy:
         enriched_diagnosis["sector_leadership_policy"] = diagnose_sector_leadership_policy(
@@ -1992,12 +2062,14 @@ def diagnose_dual_line_policy(
     horizon: int,
     market_phase_policy: dict[str, Any],
     potential_watch_policy: dict[str, Any],
+    core_promotion_gate: dict[str, Any],
 ) -> dict[str, Any]:
     main_row = _best_main_line_scope(comparison, horizon=horizon)
     main_is_positive = (
         (main_row["avg_return"] or 0.0) > 0.0
         and (main_row["total_return"] or 0.0) > 0.0
         and int(main_row["sample_count"] or 0) > 0
+        and str(core_promotion_gate.get("status") or "") == "ready"
     )
     phase_status = str(market_phase_policy.get("status") or "")
     support_status = str(potential_watch_policy.get("status") or "")
@@ -2109,7 +2181,12 @@ def diagnose_candidate_replay_effect(
     )
 
     scope = str(primary["scope"])
-    if scope == "action_long":
+    core_promotion_gate = diagnose_core_promotion_gate(comparison, horizon=horizon)
+    if scope == "action_long" and core_promotion_gate["status"] != "ready":
+        policy_label = str(core_promotion_gate["label"])
+        ding_policy = "hold"
+        summary_text = str(core_promotion_gate["summary"])
+    elif scope == "action_long":
         policy_label = "核心少量行动"
         ding_policy = "ding_core_only"
         summary_text = "长期行动池收益质量最好，钉钉继续只推少数核心票，扩散机会留在 Web 观察。"
@@ -2162,6 +2239,7 @@ def diagnose_candidate_replay_effect(
             primary_horizon=horizon,
         ),
         "overfit_guardrails": diagnose_overfit_guardrails(comparison, horizon=horizon),
+        "core_promotion_gate": core_promotion_gate,
         "tactical_opportunities": diagnose_tactical_opportunities(comparison),
         "potential_watch_policy": potential_watch_policy,
         "startup_preheat_policy": diagnose_style_gate_policy(
@@ -2182,6 +2260,7 @@ def diagnose_candidate_replay_effect(
             horizon=horizon,
             market_phase_policy=market_phase_policy,
             potential_watch_policy=potential_watch_policy,
+            core_promotion_gate=core_promotion_gate,
         ),
         "sector_leadership_policy": diagnose_sector_leadership_policy(
             comparison,

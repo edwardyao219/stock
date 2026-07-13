@@ -911,6 +911,19 @@ export interface CandidateReplayDiagnosis {
   reasons: string[];
   overfit_guardrails: string[];
   tactical_opportunities: string[];
+  core_promotion_gate: {
+    scope: string;
+    label: string;
+    status: string;
+    sample_count: number;
+    month_count: number;
+    positive_months: number;
+    negative_months: number;
+    min_samples: number;
+    min_months: number;
+    max_core_positions: number;
+    summary: string;
+  };
   potential_watch_policy: {
     status: string;
     label: string;

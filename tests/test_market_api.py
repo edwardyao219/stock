@@ -335,7 +335,7 @@ def test_get_market_overview_live_uses_live_snapshot_on_sqlite(monkeypatch) -> N
     assert payload.message == "live"
 
 
-def test_get_market_overview_live_falls_back_when_live_snapshot_is_slow(monkeypatch) -> None:
+def test_get_market_overview_live_uses_stored_snapshot_when_live_cache_is_slow(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -378,41 +378,9 @@ def test_get_market_overview_live_falls_back_when_live_snapshot_is_slow(monkeypa
         monkeypatch.setattr(market, "_try_cached_live_a_share_overview", lambda timeout: None)
         monkeypatch.setattr(
             market,
-            "fetch_sina_realtime_quotes",
-            lambda symbols: [
-                market.RealtimeQuoteRow(
-                    symbol="000001",
-                    trade_date="2026-07-02",
-                    quote_time=datetime(2026, 7, 2, 13, 30),
-                    price=Decimal("9.8"),
-                    open=Decimal("10"),
-                    high=Decimal("10"),
-                    low=Decimal("9.8"),
-                    pre_close=Decimal("10"),
-                    pct_change=None,
-                    volume=Decimal("100"),
-                    amount=Decimal("1000"),
-                    turnover_rate=None,
-                    source="sina.hq",
-                ),
-                market.RealtimeQuoteRow(
-                    symbol="000002",
-                    trade_date="2026-07-02",
-                    quote_time=datetime(2026, 7, 2, 13, 30),
-                    price=Decimal("19.6"),
-                    open=Decimal("20"),
-                    high=Decimal("20"),
-                    low=Decimal("19.6"),
-                    pre_close=Decimal("20"),
-                    pct_change=None,
-                    volume=Decimal("100"),
-                    amount=Decimal("2000"),
-                    turnover_rate=None,
-                    source="sina.hq",
-                ),
-            ],
+            "_try_sina_symbol_live_a_share_overview",
+            lambda _db: (_ for _ in ()).throw(RuntimeError("blocking fallback must not run")),
         )
-        monkeypatch.setattr(market, "_safe_live_market_indexes", lambda: [])
         monkeypatch.setattr(market, "_stored_market_overview", lambda db: stored_payload)
         monkeypatch.setattr(market, "LIVE_MARKET_TIMEOUT_SECONDS", 0.001, raising=False)
 
@@ -421,11 +389,8 @@ def test_get_market_overview_live_falls_back_when_live_snapshot_is_slow(monkeypa
         elapsed = time.monotonic() - started
 
     assert elapsed < 0.08
-    assert payload.trade_date == date(2026, 7, 2)
-    assert payload.up_count == 0
-    assert payload.down_count == 2
-    assert payload.message.startswith("A股新浪分批实时快照")
-    assert payload.indexes == []
+    assert payload.trade_date == date(2026, 7, 1)
+    assert payload.message == "stored"
 
 
 def test_sina_symbol_live_overview_filters_stale_quote_dates(monkeypatch) -> None:

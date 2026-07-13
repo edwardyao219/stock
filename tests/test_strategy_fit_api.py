@@ -9,6 +9,7 @@ from apps.api.app.main import create_app
 from apps.api.app.routers import rules
 from apps.api.app.routers.rules import (
     diagnose_candidate_replay_effect,
+    diagnose_core_promotion_gate,
     diagnose_strategy_pk,
     get_candidate_replay_effect,
     get_low_dimensional_replay,
@@ -118,6 +119,97 @@ def _candidate_scope_summary(
     }
 
 
+def test_core_promotion_gate_requires_independent_months_even_with_positive_return() -> None:
+    comparison = {
+        "scopes": {
+            "action_long": {
+                "candidate_count": 26,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 26,
+                            "avg_return": 0.02,
+                            "total_return": 0.52,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-05": {"guarded": {"sample_count": 13, "total_return": 0.25}},
+                        "2026-06": {"guarded": {"sample_count": 13, "total_return": 0.27}},
+                    }
+                },
+            }
+        }
+    }
+
+    gate = diagnose_core_promotion_gate(comparison, horizon=20)
+
+    assert gate["status"] == "observe_only"
+    assert gate["max_core_positions"] == 0
+    assert "月份" in gate["summary"]
+
+
+def test_core_promotion_gate_allows_stable_multi_month_evidence() -> None:
+    comparison = {
+        "scopes": {
+            "action_long": {
+                "candidate_count": 30,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 30,
+                            "avg_return": 0.02,
+                            "total_return": 0.6,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-03": {"guarded": {"sample_count": 10, "total_return": 0.12}},
+                        "2026-04": {"guarded": {"sample_count": 10, "total_return": -0.01}},
+                        "2026-05": {"guarded": {"sample_count": 10, "total_return": 0.14}},
+                    }
+                },
+            }
+        }
+    }
+
+    gate = diagnose_core_promotion_gate(comparison, horizon=20)
+
+    assert gate["status"] == "ready"
+    assert gate["max_core_positions"] == 3
+
+
+def test_candidate_replay_cache_enrichment_rebuilds_missing_promotion_gate() -> None:
+    payload = {
+        "start_date": "2026-03-01",
+        "end_date": "2026-06-30",
+        "scopes": {
+            "action_long": {
+                "candidate_count": 18,
+                "horizons": {
+                    20: {
+                        "guarded": {
+                            "sample_count": 18,
+                            "avg_return": 0.03,
+                            "total_return": 0.54,
+                        }
+                    }
+                },
+                "monthly_horizons": {
+                    20: {
+                        "2026-06": {"guarded": {"sample_count": 18, "total_return": 0.54}}
+                    }
+                },
+            }
+        },
+        "diagnosis": {"horizon": 20},
+    }
+
+    enriched = rules._enrich_candidate_replay_effect_payload(payload)
+
+    assert enriched["diagnosis"]["core_promotion_gate"]["status"] == "observe_only"
 def test_strategy_fit_route_is_registered() -> None:
     schema = create_app().openapi()
 
@@ -849,8 +941,9 @@ def test_get_candidate_replay_effect_compares_action_scopes_without_compounding(
     assert payload["data_coverage"]["overall"]["grade"] == "usable"
     assert diagnosis["horizon"] == 20
     assert diagnosis["primary_scope"] == "action_long"
-    assert diagnosis["policy_label"] == "核心少量行动"
-    assert diagnosis["ding_policy"] == "ding_core_only"
+    assert diagnosis["policy_label"] == "证据不足，仅观察"
+    assert diagnosis["ding_policy"] == "hold"
+    assert diagnosis["core_promotion_gate"]["status"] == "observe_only"
     assert any("长期行动池" in reason for reason in diagnosis["reasons"])
     assert any("潜力观察池" in item for item in diagnosis["overfit_guardrails"])
     monthly_posture = diagnosis["monthly_posture"]
@@ -1914,7 +2007,8 @@ def test_candidate_replay_diagnosis_uses_equal_weight_portfolio_metrics() -> Non
     diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
 
     assert diagnosis["primary_scope"] == "action_long"
-    assert diagnosis["policy_label"] == "核心少量行动"
+    assert diagnosis["policy_label"] == "证据不足，仅观察"
+    assert diagnosis["core_promotion_gate"]["status"] == "observe_only"
     assert diagnosis["scope_rows"][0]["total_return"] == 0.24
     assert diagnosis["monthly_posture"]["posture"] == "tighten_core"
     assert diagnosis["market_phase_policy"]["status"] == "risk_off"
@@ -2558,11 +2652,10 @@ def test_candidate_replay_dual_line_prefers_main_trend_in_strong_phase() -> None
     diagnosis = diagnose_candidate_replay_effect(comparison, horizon=20)
 
     dual_line = diagnosis["dual_line_policy"]
-    assert dual_line["active_line"] == "main_trend"
-    assert dual_line["main_line"]["status"] == "core_enabled"
-    assert dual_line["support_line"]["status"] == "monitor_only"
-    assert dual_line["ding_policy"] == "ding_core_main_line"
-    assert dual_line["max_core_positions"] == 3
+    assert dual_line["active_line"] == "cash_defense"
+    assert dual_line["main_line"]["status"] == "paused"
+    assert dual_line["ding_policy"] == "hold"
+    assert dual_line["max_core_positions"] == 0
 
 
 def test_candidate_replay_dual_line_uses_support_preheat_when_weak_but_watch_repairs() -> None:

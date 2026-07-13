@@ -4,7 +4,12 @@ from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from services.collector.akshare_client import RealtimeQuoteRow, fetch_sina_realtime_quotes
+from services.collector.akshare_client import (
+    RealtimeQuoteRow,
+    _exchange_for_symbol,
+    _market_prefix_for_symbol,
+    fetch_sina_realtime_quotes,
+)
 from services.collector.repository import upsert_realtime_quotes
 from services.engine.paper.realtime import (
     IntradayQuoteSnapshot,
@@ -99,6 +104,12 @@ def test_fetch_sina_realtime_quotes_parses_snapshot(monkeypatch) -> None:
     assert rows[0].price == Decimal("10.710")
     assert rows[0].high == Decimal("10.910")
     assert rows[0].source == "sina.hq"
+
+
+def test_north_exchange_92_prefix_uses_beijing_realtime_symbol() -> None:
+    assert _exchange_for_symbol("920344") == "BJ"
+    assert _market_prefix_for_symbol("920344") == "bj"
+    assert _exchange_for_symbol("900001") == "SH"
 
 
 def test_realtime_cutoff_is_earlier_than_close() -> None:

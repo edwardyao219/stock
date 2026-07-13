@@ -1302,10 +1302,6 @@ def get_market_overview(db: DbSession, live: bool = False) -> MarketOverviewResp
         overview = _try_cached_live_a_share_overview(LIVE_MARKET_TIMEOUT_SECONDS)
         if overview is not None:
             return overview
-        overview = _try_sina_symbol_live_a_share_overview(db)
-        if overview is not None:
-            _store_live_market_cache(overview)
-            return overview
 
     return _stored_market_overview(db)
 

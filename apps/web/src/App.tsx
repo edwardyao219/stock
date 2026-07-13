@@ -3687,6 +3687,15 @@ export function App() {
                       ))}
                     </div>
                   ) : null}
+                  <div className="replay-phase-policy">
+                    <strong>{uiText(candidateReplayEffect.diagnosis.core_promotion_gate.label)}</strong>
+                    <small>
+                      核心上限 {candidateReplayEffect.diagnosis.core_promotion_gate.max_core_positions} 只 / 样本{" "}
+                      {candidateReplayEffect.diagnosis.core_promotion_gate.sample_count} / 独立月份{" "}
+                      {candidateReplayEffect.diagnosis.core_promotion_gate.month_count}
+                    </small>
+                    <small>{uiText(candidateReplayEffect.diagnosis.core_promotion_gate.summary)}</small>
+                  </div>
                   {candidateReplayEffect.diagnosis.tactical_opportunities.length ? (
                     <div className="replay-tactical">
                       {candidateReplayEffect.diagnosis.tactical_opportunities.map((item) => (

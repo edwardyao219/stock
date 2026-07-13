@@ -126,6 +126,8 @@ def _decimal(value: Any) -> Decimal | None:
 
 
 def _exchange_for_symbol(symbol: str) -> str:
+    if symbol.startswith("92"):
+        return "BJ"
     if symbol.startswith(("6", "9")):
         return "SH"
     if symbol.startswith(("0", "2", "3")):
