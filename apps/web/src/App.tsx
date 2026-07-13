@@ -52,6 +52,7 @@ import {
   StrategyFitMetric,
   StrategyFitReport,
   TrackingSnapshot,
+  TrackingSignalItem,
   TrackingSignalSummary,
   WorkspaceStock,
 } from "./api";
@@ -1321,6 +1322,10 @@ export function App() {
     () => buildTrackingPathSummary(trackingHistory),
     [trackingHistory],
   );
+  const trackingSignalBySymbol = useMemo(
+    () => new Map((trackingSignalSummary?.items ?? []).map((item) => [item.symbol, item])),
+    [trackingSignalSummary],
+  );
   const trackingHistoryLatest = trackingHistory[0] ?? null;
   const trackingHistoryPrevious = trackingHistory[1] ?? null;
   const selectedTrackingState = {
@@ -1914,6 +1919,11 @@ export function App() {
   }
 
   function renderTrackingRow(profile: StockTrackingProfile) {
+    const signal: TrackingSignalItem | undefined = trackingSignalBySymbol.get(profile.symbol);
+    const signalTone = signal?.signal_alignment_tone ?? "neutral";
+    const signalLabel = signal?.signal_alignment_label ?? "样本沉淀";
+    const sampleText = signal ? `样本 ${signal.sample_count}` : "样本 0";
+    const returnText = signal ? `跟踪收益 ${pctPoint(signal.simple_return_pct)}` : "跟踪收益 -";
     return (
       <button
         className={`tracking-row ${profile.stage} ${selectedTrackingProfile?.symbol === profile.symbol ? "selected" : ""}`}
@@ -1931,7 +1941,8 @@ export function App() {
         </span>
         <span>
           <strong className={profile.scoreTone}>{profile.score.toFixed(1)}</strong>
-          <small>{profile.evidence[0] ?? "暂无追踪证据"}</small>
+          <small>{sampleText} / {returnText}</small>
+          <small className={signalTone}>{signalLabel}</small>
         </span>
       </button>
     );
@@ -2920,7 +2931,7 @@ export function App() {
               <div className="tracking-list-head">
                 <span>股票</span>
                 <span>阶段</span>
-                <span>追踪分</span>
+                <span>验证</span>
               </div>
               {loading && !trackingProfiles.length ? <div className="empty">加载中</div> : null}
               {!loading && !trackingProfiles.length ? (

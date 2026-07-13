@@ -23,6 +23,9 @@ assert(app.includes("信号验证"), "个股追踪页需要展示追踪分和真
 assert(app.includes("追踪状态"), "个股追踪页需要展示当前追踪状态");
 assert(app.includes("启动阶段"), "个股追踪页需要展示启动阶段");
 assert(app.includes("tracking-state-grid"), "追踪状态和启动阶段需要独立视觉区域");
+assert(app.includes("trackingSignalBySymbol"), "追踪列表需要融合真实快照验证数据");
+assert(app.includes("样本"), "追踪列表需要展示快照样本数");
+assert(app.includes("跟踪收益"), "追踪列表需要展示历史跟踪收益");
 assert(app.includes("生成今日快照"), "个股追踪页需要提供手动生成今日快照入口");
 assert(!app.includes("{!loading ? trackingProfiles.map(renderTrackingRow) : null}"), "刷新中有旧追踪数据时也要继续展示列表");
 assert(styles.includes(".tracking-workspace-panel"), "个股追踪需要独立布局样式");
