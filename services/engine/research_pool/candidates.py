@@ -131,6 +131,7 @@ CANDIDATE_RULE_SCORE_BONUSES = {
 }
 CANDIDATE_DEFAULT_LIMIT = 15
 FEATURE_DATE_MIN_COVERAGE_RATIO = 0.80
+FEATURE_DATE_COUNTS_CACHE_KEY = "research_pool_feature_date_counts"
 CANDIDATE_SECTOR_SOFT_PENALTIES = (0.0, 2.4, 5.8, 9.5, 13.0)
 ROBUST_FACTOR_PULLBACK_BONUS_MAX = 1.8
 ROBUST_FACTOR_TREND_RELATIVE_BONUS_MAX = 1.2
@@ -2543,14 +2544,21 @@ def _build_candidate(
 
 
 def _feature_date_counts(db: Session, *, before: date) -> list[tuple[date, int]]:
+    rows = db.info.get(FEATURE_DATE_COUNTS_CACHE_KEY)
+    if rows is None:
+        rows = [
+            (row.trade_date, int(row.feature_count))
+            for row in db.execute(
+                select(StockFeatureDaily.trade_date, func.count().label("feature_count"))
+                .group_by(StockFeatureDaily.trade_date)
+                .order_by(StockFeatureDaily.trade_date.desc())
+            ).all()
+        ]
+        db.info[FEATURE_DATE_COUNTS_CACHE_KEY] = rows
     return [
-        (row.trade_date, int(row.feature_count))
-        for row in db.execute(
-            select(StockFeatureDaily.trade_date, func.count().label("feature_count"))
-            .where(StockFeatureDaily.trade_date < before)
-            .group_by(StockFeatureDaily.trade_date)
-            .order_by(StockFeatureDaily.trade_date.desc())
-        ).all()
+        (trade_date, count)
+        for trade_date, count in rows
+        if trade_date < before
     ]
 
 

@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
 from services.engine.research_pool import candidates as candidate_module
@@ -217,6 +217,49 @@ def test_discover_next_session_candidates_falls_back_from_low_coverage_feature_d
     assert result["feature_coverage_ratio"] == 1.0
     assert result["requested_feature_date"] == "2026-06-25"
     assert len(result["candidates"]) == 3
+
+
+def test_effective_feature_date_reuses_session_feature_count_cache_without_future_dates() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    full_date = date(2026, 6, 24)
+    low_coverage_date = date(2026, 6, 25)
+    future_date = date(2026, 6, 27)
+    with Session(engine) as db:
+        for symbol in ("000001", "000002", "000003"):
+            db.add(_dated_feature(symbol, full_date))
+        db.add(_dated_feature("000001", low_coverage_date))
+        for index in range(10):
+            db.add(_dated_feature(f"300{index:03d}", future_date))
+        db.commit()
+
+        count_queries = 0
+
+        def count_feature_count_query(*_args) -> None:
+            nonlocal count_queries
+            statement = str(_args[2]).lower()
+            if "from stock_features_daily" in statement and "count" in statement:
+                count_queries += 1
+
+        event.listen(engine, "before_cursor_execute", count_feature_count_query)
+        try:
+            first = candidate_module._effective_feature_date(
+                db,
+                feature_date="2026-06-24",
+                next_trade_date="2026-06-25",
+            )
+            second = candidate_module._effective_feature_date(
+                db,
+                feature_date="2026-06-25",
+                next_trade_date="2026-06-26",
+            )
+        finally:
+            event.remove(engine, "before_cursor_execute", count_feature_count_query)
+
+    assert first == (full_date, "2026-06-24", 1.0)
+    assert second == (full_date, "2026-06-25", 1.0)
+    assert count_queries == 1
 
 
 def test_discover_next_session_candidates_reports_emotion_gate_without_changing_core_pick() -> None:
