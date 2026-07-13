@@ -121,6 +121,14 @@ assertEqual(
   "候选摘要里的风险枚举不能露出英文",
 );
 assertEqual(
+  manualTagTextForStock(
+    "candidate_summary:市场处于反弹修复未确认，情绪阀门caution，先保留少数观察票。",
+    startupPreheatCandidate,
+  ),
+  "市场处于反弹修复未确认，情绪阀门谨慎观察，先保留少数观察票。",
+  "候选摘要里的谨慎状态不能露出英文",
+);
+assertEqual(
   manualTagTextForStock("mode:potential_watch", startupPreheatCandidate),
   "潜力观察",
   "候选模式标签不能露出英文枚举",

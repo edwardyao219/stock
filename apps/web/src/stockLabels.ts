@@ -83,6 +83,7 @@ const displayTokenLabels: Record<string, string> = {
   observe_only: "只观察",
   risk_off: "弱市防守",
   risk_on: "风险偏好",
+  caution: "谨慎观察",
   simple_sum_no_compounding: "简单相加不复利",
   stand_down: "休息",
   startup_confirmed: "启动确认池",
