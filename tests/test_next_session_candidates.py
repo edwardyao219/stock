@@ -349,6 +349,75 @@ def test_discover_next_session_candidates_reports_emotion_gate_without_changing_
     assert result["market_regime_snapshot"]["emotion_gate"] == "risk_off"
 
 
+def test_discover_next_session_candidates_downgrades_unconfirmed_rebound_to_observation() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="000001",
+                    name="修复日强票",
+                    exchange="SZ",
+                    industry="半导体",
+                    is_active=True,
+                ),
+                _bar("000001"),
+                _feature(
+                    "000001",
+                    trend_score=82,
+                    relative_strength_score=72,
+                    sector_strength_score=70,
+                    volume_confirmation_score=66,
+                    risk_score=32,
+                    overheat_score=48,
+                    return_1d=0.02,
+                    return_5d=0.03,
+                ),
+            ]
+        )
+        for index in range(10):
+            symbol = f"601{index:03d}"
+            db.add_all(
+                [
+                    Security(
+                        symbol=symbol,
+                        name=f"修复背景{index}",
+                        exchange="SH",
+                        industry="普通行业",
+                        is_active=True,
+                    ),
+                    _bar(symbol),
+                    _feature(
+                        symbol,
+                        trend_score=25,
+                        relative_strength_score=30,
+                        sector_strength_score=30,
+                        volume_confirmation_score=30,
+                        risk_score=80,
+                        return_1d=0.01 if index < 7 else -0.01,
+                        return_5d=-0.06,
+                    ),
+                ]
+            )
+        db.commit()
+
+        result = discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            limit=10,
+        )
+
+    selected = next(item for item in result["candidates"] if item["symbol"] == "000001")
+    assert result["market_regime"] == "rebound_unconfirmed"
+    assert result["emotion_gate"]["state"] == "caution"
+    assert selected["selection_mode"] == "observation"
+    assert all(item["selection_mode"] != "formal_strategy" for item in result["candidates"])
+
+
 def test_discover_next_session_candidates_rejects_strong_stock_without_sector_mainline() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

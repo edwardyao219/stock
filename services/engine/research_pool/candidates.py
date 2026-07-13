@@ -229,6 +229,7 @@ LONG_HORIZON_WATCH_KEEP_RETIRE_AFTER = 5
 REGIME_SCORE_DELTAS = {
     "strong_trend": 2.0,
     "rebound": 1.0,
+    "rebound_unconfirmed": -4.0,
     "range": 0.0,
     "weak_trend": -6.0,
     "panic": -12.0,
@@ -655,7 +656,11 @@ def _market_regime_snapshot(
         volatility_score=volatility_score,
     )
     risk_level = (
-        "high" if regime in {"panic", "weak_trend"} else "medium" if regime == "range" else "normal"
+        "high"
+        if regime in {"panic", "weak_trend"}
+        else "medium"
+        if regime in {"range", "rebound_unconfirmed"}
+        else "normal"
     )
     return MarketRegimeSnapshot(
         trade_date=feature_date.isoformat(),
@@ -678,6 +683,10 @@ def _emotion_gate(snapshot: MarketRegimeSnapshot) -> dict[str, Any]:
         state = "risk_off"
         position_scale = 0.0
         notes.append("市场情绪偏弱，不新开仓或只保留观察。")
+    elif snapshot.regime == "rebound_unconfirmed":
+        state = "caution"
+        position_scale = 0.25
+        notes.append("上涨广度修复但中短趋势仍弱，先观察，不按反弹扩仓。")
     elif (
         snapshot.regime in {"strong_trend", "rebound"}
         and snapshot.emotion_score >= 55.0
@@ -710,7 +719,7 @@ def _regime_score_delta(
     return_5d = _float(context, "return_5d", 0.0)
     return_20d = _float(context, "return_20d", 0.0)
 
-    if regime in {"weak_trend", "panic"}:
+    if regime in {"weak_trend", "panic", "rebound_unconfirmed"}:
         if trend >= 80 and relative >= 70 and sector >= 65 and risk <= 45 and return_5d >= 0:
             delta += 3.0
         if overheat >= 68 or volume_trap >= 55:
@@ -739,6 +748,7 @@ def _regime_note(regime: str) -> str:
     mapping = {
         "strong_trend": "市场环境：强趋势，允许正常跟随上升信号",
         "rebound": "市场环境：反弹，优先选择趋势已确认的票",
+        "rebound_unconfirmed": "市场环境：反弹修复未确认，只观察高质量趋势票，不追高扩仓",
         "range": "市场环境：震荡，只看趋势和板块都较强的票",
         "weak_trend": "市场环境：弱趋势，做减法，只保留少数强趋势候选",
         "panic": "市场环境：恐慌，原则上不新开仓，只观察极少数逆势强票",
@@ -761,6 +771,16 @@ def _passes_market_regime_gate(
     volume = _float(context, "volume_confirmation_score", _float(context, "volume_score", 50.0))
     risk = _float(context, "risk_score", 50.0)
     overheat = _float(context, "overheat_score", 50.0)
+    if regime == "rebound_unconfirmed":
+        return (
+            selection_mode == "observation"
+            and trend >= 76
+            and relative >= 66
+            and sector >= 64
+            and volume >= 50
+            and risk <= 50
+            and overheat <= 60
+        )
     if regime == "range":
         if selection_mode == "potential_watch":
             if _is_startup_preheat_context(context):
@@ -939,6 +959,8 @@ def _regime_candidate_limit(
     base_limit = max(1, requested_limit)
     if regime in {"strong_trend", "rebound"}:
         cap = base_limit
+    elif regime == "rebound_unconfirmed":
+        cap = min(base_limit, 8)
     elif regime == "range":
         cap = min(base_limit, 20)
     elif regime == "weak_trend":
@@ -953,7 +975,7 @@ def _regime_candidate_limit(
     participation_score = participation_snapshot.get("participation_score", 50.0)
     liquidity_score = participation_snapshot.get("liquidity_score", 50.0)
 
-    if regime == "weak_trend":
+    if regime in {"weak_trend", "rebound_unconfirmed"}:
         if up_signal_rate >= 8.0 and strong_trend_rate >= 6.0 and participation_score >= 60.0:
             cap = min(cap, 15)
         elif up_signal_rate >= 5.0 and participation_score >= 55.0:
@@ -970,7 +992,7 @@ def _regime_candidate_limit(
         cap = min(cap, 3)
     elif participation_score < 55.0 or liquidity_score < 55.0:
         cap = min(cap, 5)
-    if regime == "weak_trend" and liquidity_score < 48.0:
+    if regime in {"weak_trend", "rebound_unconfirmed"} and liquidity_score < 48.0:
         cap = min(cap, 10)
     return max(1, cap)
 
@@ -1461,7 +1483,9 @@ def _candidate_reasons(
         reasons.append(f"支撑：{'，'.join(support)}")
     reasons.append(_style_horizon_reason(context))
     reasons.append(_regime_note(market_regime))
-    if market_regime in {"weak_trend", "panic"} and _float(context, "trend_score", 50.0) >= 76:
+    if market_regime in {"weak_trend", "panic", "rebound_unconfirmed"} and _float(
+        context, "trend_score", 50.0
+    ) >= 76:
         reasons.append("动态筛选：弱环境里只按逆势强趋势观察，仍需盘中触发确认")
     elif market_regime == "range":
         reasons.append("动态筛选：震荡环境优先趋势、相对强度和板块共振")
@@ -2267,7 +2291,7 @@ def _regime_rank_score_fn(
     regime: str,
     participation_snapshot: dict[str, float] | None = None,
 ) -> Any:
-    if regime in {"weak_trend", "panic"}:
+    if regime in {"weak_trend", "panic", "rebound_unconfirmed"}:
         return _weak_market_observation_score
     if regime == "range" and participation_snapshot:
         participation_score = participation_snapshot.get("participation_score", 50.0)
@@ -2417,8 +2441,12 @@ def _candidate_discovery_diagnostics(
         reasons.append(f"本地特征宇宙只有{universe_size}只，样本覆盖不足。")
     if effective_limit < requested_limit:
         reasons.append(f"市场状态把候选上限从{requested_limit}只收缩到{effective_limit}只。")
-    if market_regime in {"weak_trend", "panic"} or gate_state == "risk_off":
-        label = "恐慌" if market_regime == "panic" else "弱趋势"
+    if market_regime in {"weak_trend", "panic", "rebound_unconfirmed"} or gate_state == "risk_off":
+        label = {
+            "panic": "恐慌",
+            "weak_trend": "弱趋势",
+            "rebound_unconfirmed": "反弹修复未确认",
+        }.get(market_regime, "谨慎")
         reasons.append(f"市场处于{label}，情绪阀门{gate_state or 'neutral'}，先保留少数观察票。")
     if participation_score < 45.0 or liquidity_score < 48.0:
         reasons.append(f"资金参与偏弱，参与{participation_score:.1f}/流动性{liquidity_score:.1f}。")
@@ -2855,7 +2883,9 @@ def discover_next_session_candidates(
         ranked_observation,
         limit=remaining_slots,
         score_fn=rank_score_fn,
-        max_per_sector=1 if market_regime.regime in {"weak_trend", "panic"} else None,
+        max_per_sector=1
+        if market_regime.regime in {"weak_trend", "panic", "rebound_unconfirmed"}
+        else None,
     )
     action_symbols = {item.symbol for item in [*selected_formal, *selected_observation]}
     exploration_limit = max(requested_limit, effective_limit)

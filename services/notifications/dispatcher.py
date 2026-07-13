@@ -563,6 +563,7 @@ def _market_beta_core_block_reason(discovery: dict[str, Any], item: dict[str, An
     liquidity_score = _safe_float(participation_snapshot.get("liquidity_score"), 50.0)
     weak_market = (
         regime == "panic"
+        or regime == "rebound_unconfirmed"
         or gate_state == "risk_off"
         or breadth_score <= 42.0
         or (regime == "weak_trend" and breadth_score <= 45.0)
@@ -589,6 +590,10 @@ def _emotion_gate_state(discovery: dict[str, Any]) -> str:
 
 def _market_stress_core_limit(discovery: dict[str, Any], max_core_items: int) -> int:
     status = str(_market_stress_snapshot(discovery).get("stress_status") or "")
+    regime_snapshot = discovery.get("market_regime_snapshot") or {}
+    regime = str(discovery.get("market_regime") or regime_snapshot.get("regime") or "")
+    if regime == "rebound_unconfirmed":
+        return 0
     if status == "risk_off":
         return 0
     if _emotion_gate_state(discovery) == "risk_off":
@@ -648,6 +653,10 @@ def _market_stress_core_block_reason(
     if status == "risk_off":
         action_text = action or "停止扩散，只做观察和风控"
         return f"大盘压力大：{action_text}{reason_suffix}。"
+    regime_snapshot = discovery.get("market_regime_snapshot") or {}
+    regime = str(discovery.get("market_regime") or regime_snapshot.get("regime") or "")
+    if regime == "rebound_unconfirmed":
+        return "反弹修复尚未确认：上涨广度转暖但整体趋势仍弱，核心行动先降为观察。"
     if _emotion_gate_state(discovery) == "risk_off":
         if _market_beta_core_block_reason(discovery, item):
             return None

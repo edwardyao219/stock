@@ -3,7 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-MarketRegime = Literal["strong_trend", "weak_trend", "range", "panic", "rebound", "unknown"]
+MarketRegime = Literal[
+    "strong_trend",
+    "weak_trend",
+    "range",
+    "panic",
+    "rebound",
+    "rebound_unconfirmed",
+    "unknown",
+]
 
 
 @dataclass(frozen=True)
@@ -27,6 +35,8 @@ def classify_market_regime(
         return "panic"
     if trend_score >= 70 and breadth_score >= 60:
         return "strong_trend"
+    if trend_score <= 40 and breadth_score >= 55:
+        return "rebound_unconfirmed"
     if trend_score <= 35 and breadth_score <= 45:
         return "weak_trend"
     if trend_score >= 55 and emotion_score >= 50:
