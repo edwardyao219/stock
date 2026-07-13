@@ -164,7 +164,8 @@ def test_inspect_daily_data_health_allows_candidates_at_coverage_threshold() -> 
     assert report.candidate_block_reasons == []
 
 
-def test_inspect_daily_data_health_blocks_candidates_when_amount_missing_reaches_threshold() -> None:
+def test_inspect_daily_data_health_blocks_candidates_when_amount_missing_reaches_threshold(
+) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine, autoflush=False, autocommit=False)

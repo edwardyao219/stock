@@ -9,8 +9,8 @@ from services.engine.review.monthly_summary import generate_monthly_trade_summar
 from services.jobs.celery_app import celery_app
 from services.jobs.pipeline import (
     _is_open_trade_date,
-    _sync_sector_moneyflow_step,
     _sync_daily_market_data_step,
+    _sync_sector_moneyflow_step,
     prepare_next_trade_session,
     resolve_next_trade_date,
     run_after_close_session,

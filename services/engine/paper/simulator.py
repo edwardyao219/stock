@@ -13,6 +13,7 @@ from services.engine.paper.entry_quality import (
     HIGH_QUALITY_TREND_MIN,
     evaluate_plan_entry_quality,
 )
+from services.engine.paper.position_sizing import adjusted_position_size_pct
 from services.engine.paper.repository import (
     create_trade,
     get_or_create_account,
@@ -21,7 +22,6 @@ from services.engine.paper.repository import (
     load_open_positions,
     load_trade_plans_for_trade_date,
 )
-from services.engine.paper.position_sizing import adjusted_position_size_pct
 from services.shared.database import SessionLocal
 from services.shared.models import PaperOrder, PaperPosition, TradePlan
 
@@ -77,7 +77,9 @@ def _should_exit(position: PaperPosition, bar, trade_date: date) -> tuple[bool, 
     high = _decimal(bar.high)
     low = _decimal(bar.low)
     close = _decimal(bar.close)
-    baseline_stop = position.initial_stop if position.initial_stop is not None else position.entry_price
+    baseline_stop = (
+        position.initial_stop if position.initial_stop is not None else position.entry_price
+    )
     trailing_active = (
         position.take_profit_1 is not None
         and position.current_stop is not None
@@ -304,7 +306,10 @@ def run_daily_paper_simulation(
                 skipped += 1
                 messages.append(f"{plan.symbol} plan skipped: OBS001 requires realtime monitor")
                 continue
-            if allowed_strategy_types is not None and plan.strategy_type not in allowed_strategy_types:
+            if (
+                allowed_strategy_types is not None
+                and plan.strategy_type not in allowed_strategy_types
+            ):
                 skipped += 1
                 messages.append(f"{plan.symbol} plan skipped: short-term plan stays in observation")
                 continue
