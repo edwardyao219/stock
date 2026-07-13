@@ -41,6 +41,54 @@ export interface CapitalCurveView {
   defensivePointString: string;
 }
 
+export interface DefensiveValidationRow {
+  horizon: number;
+  label: string;
+  status: "passed" | "failed" | "insufficient";
+  statusLabel: "验证通过" | "验证失败" | "样本不足";
+  detail: string;
+  tone: ReplayTone;
+}
+
+export function defensiveValidationRows(
+  report: Pick<LowDimensionalReplayReport, "capital_curve_horizons"> | null,
+): DefensiveValidationRow[] {
+  return Object.entries(report?.capital_curve_horizons ?? {})
+    .map(([horizonValue, summary]) => {
+      const horizon = Number(horizonValue);
+      const validation = summary.defensive_validation;
+      if (!validation) return null;
+      const failedYears = validation.windows
+        .filter((item) => item.status === "failed")
+        .map((item) => item.window);
+      const statusLabels = {
+        passed: "验证通过",
+        failed: "验证失败",
+        insufficient: "样本不足",
+      } as const;
+      const detail = validation.status === "insufficient"
+        ? `有效${validation.valid_window_count}年 / 样本不足`
+        : `通过${validation.passed_window_count}/${validation.valid_window_count}年${
+            failedYears.length ? ` / ${failedYears.join("、")}未通过` : ""
+          }`;
+      const row: DefensiveValidationRow = {
+        horizon,
+        label: `${horizon}日`,
+        status: validation.status,
+        statusLabel: statusLabels[validation.status],
+        detail,
+        tone: validation.status === "passed"
+          ? "up"
+          : validation.status === "failed"
+          ? "down"
+          : "neutral",
+      };
+      return row;
+    })
+    .filter((item): item is DefensiveValidationRow => item !== null)
+    .sort((left, right) => left.horizon - right.horizon);
+}
+
 export function capitalCurveView(
   report: Pick<LowDimensionalReplayReport, "capital_curve_horizons"> | null,
   horizon: number,

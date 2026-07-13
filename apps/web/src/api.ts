@@ -612,6 +612,22 @@ export interface ReplayCapitalReturnSummary extends ReplayReturnSummary {
   curve: ReplayCapitalCurvePoint[];
 }
 
+export interface ReplayCapitalValidationWindow extends ReplayReturnSummary {
+  window: string;
+  status: "passed" | "failed" | "insufficient";
+  max_drawdown: number;
+  max_drawdown_limit_pct: number;
+  max_drawdown_passed: boolean;
+}
+
+export interface ReplayCapitalValidationSummary {
+  status: "passed" | "failed" | "insufficient";
+  min_samples_per_window: number;
+  valid_window_count: number;
+  passed_window_count: number;
+  windows: ReplayCapitalValidationWindow[];
+}
+
 export interface ReplayCapitalCurveHorizonSummary {
   max_positions: number;
   weighting: string;
@@ -621,6 +637,7 @@ export interface ReplayCapitalCurveHorizonSummary {
   raw: ReplayCapitalReturnSummary;
   guarded: ReplayCapitalReturnSummary;
   defensive_breadth: ReplayCapitalReturnSummary;
+  defensive_validation?: ReplayCapitalValidationSummary;
 }
 
 export interface ReplayStylePreference {

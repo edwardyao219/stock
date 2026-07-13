@@ -1,5 +1,5 @@
 // @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
-import { capitalCurveView, monthlyDefenseSignals, monthlyDefenseSimulation, monthlyPerformanceHealth, monthlyPerformanceRows } from "./replayInsights.ts";
+import { capitalCurveView, defensiveValidationRows, monthlyDefenseSignals, monthlyDefenseSimulation, monthlyPerformanceHealth, monthlyPerformanceRows } from "./replayInsights.ts";
 import type { CandidateReplayEffectReport, LowDimensionalReplayReport } from "./api";
 
 function assertClose(actual: number | null, expected: number, message: string) {
@@ -84,7 +84,7 @@ const riskAdjusted = monthlyDefenseSimulation([
 ], 0.03, 0.15);
 assertEqual(riskAdjusted.months[0].exposure, 0, "上月风险后次月暂停升级");
 
-const capitalCurve = capitalCurveView({
+const capitalReport = {
   capital_curve_horizons: {
     20: {
       max_positions: 3,
@@ -126,9 +126,20 @@ const capitalCurve = capitalCurveView({
           { entry_date: "2026-01-03", period_return: 0.12, cumulative_return: 0.12, drawdown: -0.04 },
         ],
       },
+      defensive_validation: {
+        status: "failed",
+        min_samples_per_window: 5,
+        valid_window_count: 2,
+        passed_window_count: 1,
+        windows: [
+          { window: "2024", status: "failed", sample_count: 7, avg_return: -0.01, win_rate: 0.4, total_return: -0.06, max_drawdown: -0.1, max_drawdown_limit_pct: 0.15, max_drawdown_passed: true },
+          { window: "2025", status: "passed", sample_count: 5, avg_return: 0.02, win_rate: 0.6, total_return: 0.1, max_drawdown: -0.05, max_drawdown_limit_pct: 0.15, max_drawdown_passed: true },
+        ],
+      },
     },
   },
-} as unknown as LowDimensionalReplayReport, 20);
+} as unknown as LowDimensionalReplayReport;
+const capitalCurve = capitalCurveView(capitalReport, 20);
 
 assertEqual(capitalCurve?.status, "passed", "15%以内显示通过");
 assertEqual(capitalCurve?.points.length, 3, "曲线包含零起点");
@@ -136,3 +147,9 @@ assertEqual(capitalCurve?.points[0].x, 2, "曲线左侧保留端点空间");
 assertEqual(capitalCurve?.points[2].x, 98, "曲线右侧保留端点空间");
 assertClose(capitalCurve?.defensiveMetric.total_return ?? null, 0.12, "保留多板块防守收益");
 assertEqual(capitalCurve?.defensiveStatus, "passed", "多板块防守单独判断红线");
+
+const validationRows = defensiveValidationRows(capitalReport);
+
+assertEqual(validationRows[0].label, "20日", "年度验证保留周期标签");
+assertEqual(validationRows[0].statusLabel, "验证失败", "存在负收益年度必须显示失败");
+assertEqual(validationRows[0].detail, "通过1/2年 / 2024未通过", "展示失败年份而非只给结论");

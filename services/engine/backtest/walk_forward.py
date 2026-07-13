@@ -727,12 +727,67 @@ def _non_compound_capital_summary(
     }
 
 
+def _capital_validation_summary(
+    points: list[tuple[str, float]],
+    *,
+    min_samples: int = 5,
+) -> dict[str, Any]:
+    points_by_year: dict[str, list[tuple[str, float]]] = {}
+    for entry_date, value in points:
+        points_by_year.setdefault(entry_date[:4], []).append((entry_date, value))
+
+    windows: list[dict[str, Any]] = []
+    for year, year_points in sorted(points_by_year.items()):
+        metric = _non_compound_capital_summary(year_points)
+        enough_samples = int(metric["sample_count"]) >= min_samples
+        status = (
+            "insufficient"
+            if not enough_samples
+            else "passed"
+            if float(metric["total_return"] or 0.0) > 0
+            and bool(metric["max_drawdown_passed"])
+            else "failed"
+        )
+        windows.append(
+            {
+                "window": year,
+                "status": status,
+                **{key: value for key, value in metric.items() if key != "curve"},
+            }
+        )
+
+    valid_windows = [item for item in windows if item["status"] != "insufficient"]
+    passed_windows = [item for item in windows if item["status"] == "passed"]
+    status = (
+        "failed"
+        if any(item["status"] == "failed" for item in valid_windows)
+        else "passed"
+        if len(valid_windows) >= 3
+        else "insufficient"
+    )
+    return {
+        "status": status,
+        "min_samples_per_window": min_samples,
+        "valid_window_count": len(valid_windows),
+        "passed_window_count": len(passed_windows),
+        "windows": windows,
+    }
+
+
 def _capital_curve_summary(
     days: list[WalkForwardDay],
     *,
     horizon: int,
     max_positions: int = PORTFOLIO_SUMMARY_MAX_POSITIONS,
 ) -> dict[str, Any]:
+    defensive_points = _non_overlapping_portfolio_return_points(
+        days,
+        horizon=horizon,
+        field_name="guarded_forward_returns",
+        max_positions=max_positions,
+        distinct_sectors=True,
+        min_positions=max_positions,
+    )
     return {
         "max_positions": max_positions,
         "weighting": "equal_weight_fixed_notional",
@@ -755,16 +810,8 @@ def _capital_curve_summary(
                 max_positions=max_positions,
             )
         ),
-        "defensive_breadth": _non_compound_capital_summary(
-            _non_overlapping_portfolio_return_points(
-                days,
-                horizon=horizon,
-                field_name="guarded_forward_returns",
-                max_positions=max_positions,
-                distinct_sectors=True,
-                min_positions=max_positions,
-            )
-        ),
+        "defensive_breadth": _non_compound_capital_summary(defensive_points),
+        "defensive_validation": _capital_validation_summary(defensive_points),
     }
 
 

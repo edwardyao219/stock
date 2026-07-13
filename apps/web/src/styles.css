@@ -3142,6 +3142,42 @@ button {
   vector-effect: non-scaling-stroke;
 }
 
+.replay-validation-strip {
+  border-bottom: 1px solid #dbe4ee;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.replay-validation-strip > div {
+  border-right: 1px solid #e2e8f0;
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px;
+}
+
+.replay-validation-strip > div:last-child {
+  border-right: 0;
+}
+
+.replay-validation-strip span,
+.replay-validation-strip small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.replay-validation-strip strong {
+  color: #475569;
+  font-size: 14px;
+}
+
+.replay-validation-strip .up strong {
+  color: #17623a;
+}
+
+.replay-validation-strip .down strong {
+  color: #9f2d20;
+}
+
 .replay-visual-board {
   display: grid;
   gap: 10px;

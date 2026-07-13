@@ -3058,3 +3058,28 @@ def test_capital_curve_reports_three_sector_defensive_scenario() -> None:
     assert capital["defensive_breadth"]["sample_count"] == 1
     assert capital["defensive_breadth"]["total_return"] == 0.1
     assert capital["defensive_breadth"]["max_drawdown_passed"] is True
+
+
+def test_defensive_capital_validation_requires_positive_years_with_enough_samples() -> None:
+    validation = walk_forward._capital_validation_summary(
+        [
+            *[(f"2024-0{month}-01", 0.01) for month in range(1, 6)],
+            *[(f"2025-0{month}-01", value) for month, value in enumerate(
+                (0.02, -0.03, 0.01, -0.02, 0.01),
+                start=1,
+            )],
+            *[(f"2026-0{month}-01", 0.02) for month in range(1, 5)],
+        ],
+        min_samples=5,
+    )
+
+    assert validation["status"] == "failed"
+    assert validation["valid_window_count"] == 2
+    assert validation["passed_window_count"] == 1
+    assert [item["status"] for item in validation["windows"]] == [
+        "passed",
+        "failed",
+        "insufficient",
+    ]
+    assert validation["windows"][0]["total_return"] == 0.05
+    assert validation["windows"][2]["sample_count"] == 4

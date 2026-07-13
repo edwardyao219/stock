@@ -66,6 +66,7 @@ import {
 import {
   capitalCurveView,
   candidateGateSummary,
+  defensiveValidationRows,
   dingPolicyText,
   dualLineLongReplaySummary,
   lineStatusText,
@@ -1772,6 +1773,7 @@ export function App() {
   const replay10d = replayHorizonMetric(lowDimensionalReplay, 10);
   const replay20d = replayHorizonMetric(lowDimensionalReplay, 20);
   const replayCapitalCurve20d = capitalCurveView(lowDimensionalReplay, 20);
+  const replayDefensiveValidationRows = defensiveValidationRows(lowDimensionalReplay);
   const replayMetricCards: Array<[string, ReplayReturnSummary | null]> = [
     ["5日", replay5d],
     ["10日", replay10d],
@@ -4145,6 +4147,17 @@ export function App() {
                         />
                       ) : null}
                     </svg>
+                  </div>
+                ) : null}
+                {replayDefensiveValidationRows.length ? (
+                  <div className="replay-validation-strip">
+                    {replayDefensiveValidationRows.map((row) => (
+                      <div className={row.tone} key={row.horizon}>
+                        <span>{row.label}年度验证</span>
+                        <strong>{row.statusLabel}</strong>
+                        <small>{row.detail}</small>
+                      </div>
+                    ))}
                   </div>
                 ) : null}
                 <div className="monthly-summary-lists">
