@@ -2971,7 +2971,11 @@ def discover_next_session_candidates(
         if item["symbol"] not in selected_symbol_set
         and item["status"] == "active"
         and "manual_focus" not in item["tags"]
-        and (_hold_until_date(item["tags"]) is None or _hold_until_date(item["tags"]) < today)
+        and (
+            not selected
+            or _hold_until_date(item["tags"]) is None
+            or _hold_until_date(item["tags"]) < today
+        )
         and (
             "after_close_candidate" in item["tags"]
             or "next_session" in item["tags"]
@@ -3002,7 +3006,7 @@ def discover_next_session_candidates(
         )
         item.tags_json = {"tags": list(dict.fromkeys(cleaned_tags))}
         item.updated_at = now
-        if next_keep >= retire_after:
+        if not selected or next_keep >= retire_after:
             item.status = "retired"
             retired += 1
         else:

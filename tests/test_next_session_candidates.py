@@ -889,6 +889,65 @@ def test_discover_next_session_candidates_retires_stale_auto_candidates() -> Non
     assert second_rows["000009"]["status"] == "retired"
 
 
+def test_discover_next_session_candidates_retires_auto_candidates_when_batch_is_empty(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="000009",
+                    status="active",
+                    tags_json={
+                        "tags": [
+                            "after_close_candidate",
+                            "next_session",
+                            "hold_until:2099-06-25",
+                        ]
+                    },
+                ),
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="000010",
+                    status="active",
+                    tags_json={"tags": ["manual_focus", "after_close_candidate"]},
+                ),
+                Security(
+                    symbol="000001",
+                    name="样本",
+                    exchange="SZ",
+                    industry="PCB",
+                    is_active=True,
+                ),
+                _bar("000001"),
+                _feature("000001"),
+            ]
+        )
+        db.commit()
+        monkeypatch.setattr(
+            candidate_module,
+            "_surface_fresh_potential_after_crowded_sector",
+            lambda _items: [],
+        )
+
+        result = discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            limit=10,
+        )
+        rows = {item.symbol: item.status for item in db.query(ResearchPoolItem).all()}
+
+    assert result["candidates"] == []
+    assert result["retired"] == 1
+    assert rows == {"000009": "retired", "000010": "active"}
+
+
 def test_discover_next_session_candidates_respects_hold_until_for_active_candidates() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
