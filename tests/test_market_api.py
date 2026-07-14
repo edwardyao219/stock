@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from apps.api.app.routers import market
 from apps.api.app.routers.market import (
     get_data_health,
+    get_intraday_market_turn,
     get_market_overview,
     get_sector_catalysts,
     get_sector_overview,
@@ -19,6 +20,7 @@ from services.engine.review.sector_replay import SectorReplayEvent, SectorReplay
 from services.shared.database import Base
 from services.shared.models import (
     DailyBar,
+    IntradayMarketTurnSnapshot,
     MarketMessageSnapshot,
     RealtimeQuote,
     SectorDaily,
@@ -27,6 +29,40 @@ from services.shared.models import (
     StockFeatureDaily,
     TushareMoneyflowIndDc,
 )
+
+
+def test_get_intraday_market_turn_returns_latest_current_snapshot() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    snapshot_time = datetime(2026, 7, 14, 10, 20)
+
+    with session() as db:
+        db.add(
+            IntradayMarketTurnSnapshot(
+                trade_date=date(2026, 7, 14),
+                snapshot_time=snapshot_time,
+                coverage_ratio=0.99,
+                breadth_ratio=0.58,
+                total_amount=123.0,
+                index_change_pct=-0.003,
+                sector_expansion_count=3,
+                state_json={
+                    "key": "repair_confirmed",
+                    "label": "修复确认",
+                    "summary": "允许跟踪启动观察。",
+                    "startup_watch_allowed": True,
+                    "core_action_allowed": False,
+                },
+            )
+        )
+        db.commit()
+
+        result = get_intraday_market_turn(db=db)
+
+    assert result.key == "repair_confirmed"
+    assert result.snapshot_time == snapshot_time
+    assert result.core_action_allowed is False
 
 
 def test_get_symbol_candles_returns_limited_ascending_bars_with_moving_average() -> None:

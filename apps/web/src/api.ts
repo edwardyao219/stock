@@ -93,6 +93,23 @@ export interface MarketOverview {
   indexes: MarketIndex[];
 }
 
+export interface IntradayMarketTurn {
+  trade_date: string | null;
+  snapshot_time: string | null;
+  key: string;
+  label: string;
+  summary: string;
+  data_ready: boolean;
+  startup_watch_allowed: boolean;
+  core_action_allowed: boolean;
+  coverage_ratio: number | null;
+  breadth_ratio: number | null;
+  index_change_pct: number | null;
+  sector_expansion_count: number | null;
+  confirmed_signals: string[];
+  pending_signals: string[];
+}
+
 export interface MarketIndex {
   code: string;
   name: string;
@@ -1248,6 +1265,10 @@ export function fetchMarketOverview(live = false) {
   const params = new URLSearchParams();
   if (live) params.set("live", "true");
   return request<MarketOverview>(`/market/overview${params.size ? `?${params.toString()}` : ""}`);
+}
+
+export function fetchIntradayMarketTurn() {
+  return request<IntradayMarketTurn>("/market/intraday-turn");
 }
 
 export function fetchSectorOverview() {

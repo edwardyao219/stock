@@ -36,6 +36,7 @@ from services.engine.sector.names import canonical_sector_name as _canonical_sec
 from services.shared.database import get_db
 from services.shared.models import (
     DailyBar,
+    IntradayMarketTurnSnapshot,
     RealtimeQuote,
     SectorDaily,
     SectorFeatureDaily,
@@ -122,6 +123,23 @@ class MarketOverviewResponse(BaseModel):
     stress_scope_label: str = "最近交易日压力"
     risk_action_label: str = "按原计划精选"
     indexes: list[MarketIndexResponse] = Field(default_factory=list)
+
+
+class IntradayMarketTurnResponse(BaseModel):
+    trade_date: date | None
+    snapshot_time: datetime | None
+    key: str
+    label: str
+    summary: str
+    data_ready: bool
+    startup_watch_allowed: bool
+    core_action_allowed: bool
+    coverage_ratio: float | None
+    breadth_ratio: float | None
+    index_change_pct: float | None
+    sector_expansion_count: int | None
+    confirmed_signals: list[str] = Field(default_factory=list)
+    pending_signals: list[str] = Field(default_factory=list)
 
 
 class DataHealthIssueResponse(BaseModel):
@@ -1390,6 +1408,47 @@ def _stored_sector_overview(db: Session) -> SectorOverviewResponse:
             ),
             reverse=True,
         )[:10],
+    )
+
+
+@router.get("/intraday-turn", response_model=IntradayMarketTurnResponse)
+def get_intraday_market_turn(db: DbSession) -> IntradayMarketTurnResponse:
+    row = db.execute(
+        select(IntradayMarketTurnSnapshot)
+        .order_by(IntradayMarketTurnSnapshot.snapshot_time.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if row is None:
+        return IntradayMarketTurnResponse(
+            trade_date=None,
+            snapshot_time=None,
+            key="watch_repair",
+            label="待采集",
+            summary="尚未采集盘中全市场快照，启动观察保持关闭。",
+            data_ready=False,
+            startup_watch_allowed=False,
+            core_action_allowed=False,
+            coverage_ratio=None,
+            breadth_ratio=None,
+            index_change_pct=None,
+            sector_expansion_count=None,
+        )
+    state = row.state_json or {}
+    return IntradayMarketTurnResponse(
+        trade_date=row.trade_date,
+        snapshot_time=row.snapshot_time,
+        key=str(state.get("key") or "watch_repair"),
+        label=str(state.get("label") or "观察修复"),
+        summary=str(state.get("summary") or "盘中信号不足，先观察。"),
+        data_ready=bool(state.get("data_ready")),
+        startup_watch_allowed=bool(state.get("startup_watch_allowed")),
+        core_action_allowed=bool(state.get("core_action_allowed")),
+        coverage_ratio=row.coverage_ratio,
+        breadth_ratio=row.breadth_ratio,
+        index_change_pct=row.index_change_pct,
+        sector_expansion_count=row.sector_expansion_count,
+        confirmed_signals=list(state.get("confirmed_signals") or []),
+        pending_signals=list(state.get("pending_signals") or []),
     )
 
 

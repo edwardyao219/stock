@@ -446,6 +446,24 @@ class MarketMessageSnapshot(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class IntradayMarketTurnSnapshot(Base):
+    __tablename__ = "intraday_market_turn_snapshots"
+    __table_args__ = (
+        UniqueConstraint("snapshot_time", name="uq_intraday_market_turn_snapshot_time"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    snapshot_time: Mapped[datetime] = mapped_column(DateTime, index=True)
+    coverage_ratio: Mapped[float] = mapped_column(Float)
+    breadth_ratio: Mapped[float] = mapped_column(Float)
+    total_amount: Mapped[float] = mapped_column(Float)
+    index_change_pct: Mapped[Optional[float]] = mapped_column(Float)
+    sector_expansion_count: Mapped[int] = mapped_column(Integer)
+    state_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class SectorProfile(Base):
     __tablename__ = "sector_profiles"
 

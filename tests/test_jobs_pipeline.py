@@ -942,6 +942,23 @@ def test_celery_has_early_midday_and_late_session_snapshot_jobs() -> None:
     assert late_job["task"] == "services.jobs.tasks.paper_late_session_snapshot_task"
 
 
+def test_celery_captures_early_market_repair_snapshots() -> None:
+    expected_times = {
+        "capture-intraday-market-turn-0935": (9, 35),
+        "capture-intraday-market-turn-0950": (9, 50),
+        "capture-intraday-market-turn-1005": (10, 5),
+        "capture-intraday-market-turn-1020": (10, 20),
+        "capture-intraday-market-turn-1030": (10, 30),
+    }
+
+    for job_name, (hour, minute) in expected_times.items():
+        job = celery_app.conf.beat_schedule[job_name]
+        schedule = job["schedule"]
+        assert job["task"] == "services.jobs.tasks.capture_intraday_market_turn_snapshot_task"
+        assert schedule.hour == {hour}
+        assert schedule.minute == {minute}
+
+
 def test_intraday_session_passes_stage_and_as_of_to_monitor(monkeypatch) -> None:
     from datetime import datetime
 

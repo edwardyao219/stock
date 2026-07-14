@@ -4,10 +4,15 @@ import re
 from datetime import date, datetime
 from uuid import uuid4
 
+from sqlalchemy import select
+
 from services.collector.realtime import sync_realtime_quotes
 from services.engine.features.health import (
     DAILY_CANDIDATE_MIN_COVERAGE_RATIO,
     inspect_tushare_evidence_health,
+)
+from services.engine.features.intraday_market_turn_snapshot import (
+    build_intraday_market_turn_snapshot,
 )
 from services.engine.intraday.candidates import early_sector_scan_symbols
 from services.engine.review.mechanical import generate_daily_mechanical_review
@@ -26,7 +31,7 @@ from services.jobs.pipeline import (
 from services.jobs.status import read_after_close_status, write_after_close_status
 from services.notifications.dispatcher import dispatch_monthly_trade_summary, dispatch_text
 from services.shared.database import SessionLocal
-from services.shared.models import Security
+from services.shared.models import IntradayMarketTurnSnapshot, Security
 from services.shared.time import now_local
 
 _DAILY_TASK_LOCK_TTL_SECONDS = 6 * 60 * 60
@@ -211,6 +216,80 @@ def capture_full_market_snapshot_task() -> dict[str, object]:
         "quote_count": len(quotes),
         "valid_quote_count": valid_quote_count,
         "coverage_ratio": round(coverage_ratio, 6),
+    }
+
+
+@celery_app.task(name="services.jobs.tasks.capture_intraday_market_turn_snapshot_task")
+def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
+    current_time = now_local().replace(tzinfo=None)
+    trade_date = current_time.date()
+    with SessionLocal() as db:
+        if not _is_open_trade_date(db, trade_date.isoformat()):
+            return {
+                "trade_date": trade_date.isoformat(),
+                "status": "skipped",
+                "message": "非交易日，已跳过盘中市场修复快照。",
+            }
+        securities = list(
+            db.query(Security)
+            .filter_by(is_active=True, is_st=False)
+            .all()
+        )
+
+    try:
+        quotes = sync_realtime_quotes(quote_time=current_time)
+        from apps.api.app.routers.market import _safe_live_market_indexes
+
+        index_change_pct = next(
+            (
+                item.change_pct
+                for item in _safe_live_market_indexes()
+                if item.code == "sh000001"
+            ),
+            None,
+        )
+    except Exception as exc:
+        return {
+            "trade_date": trade_date.isoformat(),
+            "status": "failed",
+            "message": f"盘中市场修复快照采集失败：{type(exc).__name__}: {exc}",
+        }
+
+    with SessionLocal() as db:
+        prior_snapshots = list(
+            db.execute(
+                select(IntradayMarketTurnSnapshot)
+                .where(IntradayMarketTurnSnapshot.trade_date == trade_date)
+                .where(IntradayMarketTurnSnapshot.snapshot_time < current_time)
+                .order_by(IntradayMarketTurnSnapshot.snapshot_time)
+            ).scalars()
+        )
+        snapshot = build_intraday_market_turn_snapshot(
+            quotes=quotes,
+            active_security_count=len(securities),
+            sector_by_symbol={item.symbol: item.industry for item in securities},
+            index_change_pct=index_change_pct,
+            prior_snapshots=prior_snapshots,
+        )
+        db.add(
+            IntradayMarketTurnSnapshot(
+                trade_date=trade_date,
+                snapshot_time=current_time,
+                coverage_ratio=float(snapshot["coverage_ratio"]),
+                breadth_ratio=float(snapshot["breadth_ratio"]),
+                total_amount=float(snapshot["total_amount"]),
+                index_change_pct=snapshot["index_change_pct"],
+                sector_expansion_count=int(snapshot["sector_expansion_count"]),
+                state_json=snapshot,
+            )
+        )
+        db.commit()
+
+    return {
+        "trade_date": trade_date.isoformat(),
+        "status": "ok" if snapshot["data_ready"] else "warning",
+        "message": f"盘中市场修复：{snapshot['label']}。{snapshot['summary']}",
+        "snapshot": snapshot,
     }
 
 

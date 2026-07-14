@@ -22,6 +22,7 @@ import {
   fetchCandidateReplayEffect,
   fetchCandles,
   fetchDataHealth,
+  fetchIntradayMarketTurn,
   fetchIntradayCandidateSnapshots,
   fetchIntradayCandidates,
   fetchLowDimensionalReplay,
@@ -39,6 +40,7 @@ import {
   ManualRefresh,
   IntradayCandidateList,
   IntradayCandidateSnapshotList,
+  IntradayMarketTurn,
   LowDimensionalReplayReport,
   MarketOverview,
   MechanicalReview,
@@ -1202,6 +1204,7 @@ export function App() {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [tradeDialogOpen, setTradeDialogOpen] = useState(false);
   const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(null);
+  const [intradayMarketTurn, setIntradayMarketTurn] = useState<IntradayMarketTurn | null>(null);
   const [intradayCandidates, setIntradayCandidates] = useState<IntradayCandidateList | null>(null);
   const [intradaySnapshots, setIntradaySnapshots] =
     useState<IntradayCandidateSnapshotList | null>(null);
@@ -1530,6 +1533,14 @@ export function App() {
     }
   }
 
+  async function loadIntradayMarketTurn() {
+    try {
+      setIntradayMarketTurn(await fetchIntradayMarketTurn());
+    } catch {
+      setIntradayMarketTurn(null);
+    }
+  }
+
   async function loadIntradayCandidates(refreshQuotes = false) {
     try {
       setIntradayCandidates(
@@ -1652,6 +1663,7 @@ export function App() {
 
   useEffect(() => {
     loadMarketOverview();
+    loadIntradayMarketTurn();
     loadIntradayCandidates();
     loadSectorOverview();
     loadSectorCatalysts();
@@ -1677,6 +1689,7 @@ export function App() {
       });
       if (plan.workspace) loadWorkspace({ refreshQuotes: true, silent: true });
       if (plan.marketOverview) loadMarketOverview();
+      if (plan.marketOverview) loadIntradayMarketTurn();
       if (plan.intradayCandidates) loadIntradayCandidates();
       if (plan.sectorOverview) loadSectorOverview();
       if (plan.sectorCatalysts) loadSectorCatalysts();
@@ -2107,6 +2120,17 @@ export function App() {
               <span>{marketStressScopeText}</span>
               <strong className={marketStressTone(marketOverview)}>{marketStressText}</strong>
               <small>{marketStressDetail(marketOverview)}</small>
+            </div>
+            <div>
+              <span>早盘修复</span>
+              <strong className={intradayMarketTurn?.startup_watch_allowed ? "up" : "down"}>
+                {intradayMarketTurn?.label ?? "待采集"}
+              </strong>
+              <small>
+                {intradayMarketTurn
+                  ? `${intradayMarketTurn.confirmed_signals.length}/4 确认，${intradayMarketTurn.snapshot_time ? timeText(new Date(intradayMarketTurn.snapshot_time)) : "等待快照"}，仅观察启动`
+                  : "等待全市场快照"}
+              </small>
             </div>
             <div>
               <span>今日可买</span>
