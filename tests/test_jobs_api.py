@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import create_engine
@@ -71,6 +71,22 @@ def test_after_close_status_returns_unknown_without_cache(monkeypatch) -> None:
     assert payload.status == "unknown"
     assert payload.trade_date == "2026-07-09"
     assert "还没有收盘推送记录" in payload.message
+
+
+def test_after_close_recovery_endpoint_enqueues_safe_task(monkeypatch) -> None:
+    captured = {}
+
+    class _Task:
+        def delay(self):
+            captured["called"] = True
+
+    monkeypatch.setattr(jobs, "now_local", lambda: datetime(2026, 7, 14, 18, 30))
+    monkeypatch.setattr(jobs, "run_after_close_safe_recovery_task", _Task())
+
+    payload = jobs.recover_after_close(trade_date="2026-07-14")
+
+    assert captured["called"] is True
+    assert payload["status"] == "queued"
 
 
 def test_build_after_close_status_keeps_scheduler_health() -> None:

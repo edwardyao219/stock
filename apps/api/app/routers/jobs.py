@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ from services.jobs.pipeline import (
     run_intraday_trade_session,
 )
 from services.jobs.status import read_after_close_status
+from services.jobs.tasks import run_after_close_safe_recovery_task
 from services.shared.database import get_db
 from services.shared.models import BacktestTradeRecord, RulePerformanceDaily
 from services.shared.time import now_local
@@ -253,6 +254,15 @@ def get_after_close_status(trade_date: str | None = None) -> AfterCloseStatusRes
         message=f"{target_date} 还没有收盘推送记录；如果刚重启过服务，请以钉钉和候选池为准。",
         source="empty",
     )
+
+
+@router.post("/after-close/recover")
+def recover_after_close(trade_date: str | None = None) -> dict[str, str]:
+    target_date = trade_date or _today()
+    if target_date != _today():
+        raise HTTPException(status_code=400, detail="only the current trade date can be recovered")
+    run_after_close_safe_recovery_task.delay()
+    return {"trade_date": target_date, "status": "queued"}
 
 
 @router.get("/rule-regression/status", response_model=RuleRegressionStatusResponse)
