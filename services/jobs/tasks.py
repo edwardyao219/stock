@@ -19,7 +19,7 @@ from services.jobs.pipeline import (
     run_daily_research_pipeline,
     run_intraday_trade_session,
 )
-from services.jobs.status import write_after_close_status
+from services.jobs.status import read_after_close_status, write_after_close_status
 from services.notifications.dispatcher import dispatch_monthly_trade_summary
 from services.shared.database import SessionLocal
 from services.shared.time import now_local
@@ -284,6 +284,34 @@ def run_after_close_session_task(force: bool = False) -> dict[str, object]:
             today,
             sync_statuses,
         )
+    write_after_close_status(result)
+    return result
+
+
+@celery_app.task(name="services.jobs.tasks.run_after_close_safe_recovery_task")
+def run_after_close_safe_recovery_task() -> dict[str, object]:
+    current_time = now_local()
+    trade_date = current_time.date().isoformat()
+    existing = read_after_close_status(trade_date)
+    if existing and existing.get("status") in {"ok", "warning"}:
+        return {
+            "trade_date": trade_date,
+            "status": "skipped",
+            "message": "after-close status already completed",
+        }
+    result = run_after_close_session(
+        trade_date,
+        resolve_next_trade_date(trade_date),
+        full_market_sync=True,
+        safe_recovery=True,
+    ).to_dict()
+    result["scheduler_health"] = {
+        "state": "completed",
+        "last_heartbeat_at": current_time.isoformat(),
+        "completed_steps": [step["name"] for step in result["steps"]],
+        "missing_steps": [],
+        "recovery_attempts": 1,
+    }
     write_after_close_status(result)
     return result
 

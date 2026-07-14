@@ -249,6 +249,56 @@ def test_celery_after_close_screening_runs_at_six_pm() -> None:
     assert schedule.minute == {0}
 
 
+def test_celery_after_close_recovery_checks_run_after_session(monkeypatch) -> None:
+    schedules = [
+        celery_app.conf.beat_schedule["after-close-safe-recovery-1820"]["schedule"],
+        celery_app.conf.beat_schedule["after-close-safe-recovery-1840"]["schedule"],
+    ]
+
+    assert [(item.hour, item.minute) for item in schedules] == [({18}, {20}), ({18}, {40})]
+
+
+def test_after_close_recovery_skips_completed_status(monkeypatch) -> None:
+    from datetime import datetime
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(tasks, "read_after_close_status", lambda trade_date: {"status": "ok"})
+
+    result = tasks.run_after_close_safe_recovery_task()
+
+    assert result["status"] == "skipped"
+
+
+def test_after_close_recovery_runs_safe_pipeline_when_status_is_missing(monkeypatch) -> None:
+    from datetime import datetime
+
+    captured = {}
+
+    class _Result:
+        def to_dict(self):
+            return {"trade_date": "2026-07-14", "next_trade_date": "2026-07-15", "steps": []}
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(tasks, "read_after_close_status", lambda trade_date: None)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-15")
+    monkeypatch.setattr(
+        tasks,
+        "run_after_close_session",
+        lambda trade_date, next_trade_date, **kwargs: captured.update(kwargs) or _Result(),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "write_after_close_status",
+        lambda result: captured.update(result=result),
+    )
+
+    result = tasks.run_after_close_safe_recovery_task()
+
+    assert captured["safe_recovery"] is True
+    assert result["scheduler_health"]["state"] == "completed"
+    assert captured["result"] == result
+
+
 def test_celery_daily_jobs_use_documented_wall_clock_times() -> None:
     expected = {
         "pre-market-check": ({8}, {30}),

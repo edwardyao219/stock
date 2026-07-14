@@ -54,6 +54,14 @@ celery_app.conf.beat_schedule = {
         "task": "services.jobs.tasks.run_after_close_session_task",
         "schedule": crontab(minute=0, hour=18),
     },
+    "after-close-safe-recovery-1820": {
+        "task": "services.jobs.tasks.run_after_close_safe_recovery_task",
+        "schedule": crontab(minute=20, hour=18),
+    },
+    "after-close-safe-recovery-1840": {
+        "task": "services.jobs.tasks.run_after_close_safe_recovery_task",
+        "schedule": crontab(minute=40, hour=18),
+    },
 }
 
 celery_app.conf.imports = ("services.jobs.tasks",)
