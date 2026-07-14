@@ -1467,6 +1467,26 @@ button {
   padding: 10px 12px;
 }
 
+.startup-tracking-strip {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.startup-tracking-row {
+  display: grid;
+  grid-template-columns: 88px 120px minmax(220px, 1fr) minmax(180px, 1fr);
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.startup-tracking-row b.startup_preheat { color: #a66a00; }
+.startup-tracking-row b.startup_confirmed { color: #0a7a45; }
+
 .candidate-tier-section {
   border-top: 1px solid #e1e8ef;
 }

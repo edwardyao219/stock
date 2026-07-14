@@ -31,6 +31,7 @@ import {
   fetchRuleRegressionStatus,
   fetchSectorCatalysts,
   fetchSectorOverview,
+  fetchStartupTracking,
   fetchStrategyFit,
   fetchTrackingSignalSummary,
   fetchTrackingSnapshots,
@@ -51,6 +52,7 @@ import {
   SectorOverviewItem,
   StrategyFitMetric,
   StrategyFitReport,
+  StartupTrackingRow,
   TrackingSnapshot,
   TrackingSignalItem,
   TrackingSignalSummary,
@@ -1186,6 +1188,7 @@ function trackingScoreDeltaText(
 export function App() {
   const [activePage, setActivePage] = useState<PageKey>("stocks");
   const [stocks, setStocks] = useState<WorkspaceStock[]>([]);
+  const [startupTracking, setStartupTracking] = useState<StartupTrackingRow[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [manualSymbol, setManualSymbol] = useState("");
@@ -1431,6 +1434,7 @@ export function App() {
         ? await refreshWorkspaceStocks("experiment", includeGrowthBoard)
         : await fetchWorkspaceStocks("experiment", includeGrowthBoard);
       setStocks(nextStocks);
+      setStartupTracking(await fetchStartupTracking("experiment"));
       setIntradayCandidates(
         await fetchIntradayCandidates(
           "experiment",
@@ -2565,6 +2569,19 @@ export function App() {
                           <small>{uiText(candidateGate.supportLineText)}</small>
                           {candidateGate.styleGateText ? <small>{uiText(candidateGate.styleGateText)}</small> : null}
                         </div>
+                      </div>
+                    ) : null}
+                    {startupTracking.length ? (
+                      <div className="startup-tracking-strip">
+                        <strong>启动追踪</strong>
+                        {startupTracking.map((item) => (
+                          <div className="startup-tracking-row" key={item.symbol}>
+                            <b className={item.signal_type}>{item.signal_label === "启动观察" ? "启动观察" : "启动确认"}</b>
+                            <span>{item.symbol} / {item.signal_date ?? "数据待补"}</span>
+                            <span>历史验证 5/10/20日平均收益 {Object.values(item.historical).map((metric) => metric.raw_return === null ? "样本不足" : `${(metric.raw_return * 100).toFixed(1)}%`).join(" / ")}</span>
+                            <span>当前跟踪 {item.current_tracking.realised_return === null ? "进行中" : `${(item.current_tracking.realised_return * 100).toFixed(1)}%`} / {Object.values(item.current_tracking.horizons).every((value) => value === "completed") ? "已完成" : "进行中"}</span>
+                          </div>
+                        ))}
                       </div>
                     ) : null}
                     {candidateBlockReason && !candidateTierGroups.coreAction.length ? (

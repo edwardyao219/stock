@@ -316,6 +316,17 @@ export interface WorkspaceStock {
   manual_refresh?: ManualRefresh | null;
 }
 
+export interface StartupTrackingRow {
+  symbol: string;
+  signal_type: "startup_preheat" | "startup_confirmed";
+  signal_label: string;
+  signal_date: string | null;
+  signal_score: number | null;
+  signal_reasons: string[];
+  historical: Record<number, { sample_count: number; win_rate: number | null; raw_return: number | null; guarded_return: number | null }>;
+  current_tracking: { realised_return: number | null; horizons: Record<number, "completed" | "in_progress" | "data_pending"> };
+}
+
 export interface TrackingSnapshot {
   symbol: string;
   snapshot_date: string;
@@ -1258,6 +1269,10 @@ export function fetchWorkspaceStocks(poolName = "experiment", includeGrowthBoard
   return request<WorkspaceStock[]>(`/workspace/stocks?${params.toString()}`).then((items) =>
     items.map(normalizeWorkspaceStock),
   );
+}
+
+export function fetchStartupTracking(poolName = "experiment") {
+  return request<StartupTrackingRow[]>(`/workspace/startup-tracking?pool_name=${poolName}`);
 }
 
 export function refreshWorkspaceStocks(poolName = "experiment", includeGrowthBoard = false) {
