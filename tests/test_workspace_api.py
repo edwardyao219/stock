@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from apps.api.app.routers.workspace import (
     ManualStockRequest,
     add_manual_stock,
+    get_startup_tracking,
     get_workspace_stock,
     list_intraday_candidate_snapshots,
     list_intraday_candidates,
@@ -26,6 +27,47 @@ from services.shared.models import (
     Security,
     TradePlan,
 )
+
+
+def test_get_startup_tracking_excludes_manual_focus(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+    monkeypatch.setattr(
+        "apps.api.app.routers.workspace.get_candidate_replay_effect",
+        lambda: {"scopes": {}},
+    )
+
+    with session() as db:
+        db.add_all(
+            [
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="000001",
+                    status="active",
+                    tags_json={"tags": ["candidate_pool:startup_preheat", "2026-07-01"]},
+                ),
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="000002",
+                    status="active",
+                    tags_json={"tags": ["candidate_pool:expansion_confirm", "2026-07-01"]},
+                ),
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="000003",
+                    status="active",
+                    tags_json={"tags": ["manual_focus", "2026-07-01"]},
+                ),
+            ]
+        )
+        db.commit()
+        payload = get_startup_tracking(db=db)
+
+    assert [row.symbol for row in payload] == ["000001", "000002"]
+    assert payload[0].signal_label == "启动观察"
+    assert payload[0].historical[5]["sample_count"] == 0
+    assert payload[0].current_tracking["realised_return"] is None
 
 
 def test_list_workspace_stocks_merges_auto_plans_and_manual_pool() -> None:

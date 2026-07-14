@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from apps.api.app.routers.rules import get_candidate_replay_effect
 from services.collector.realtime import sync_realtime_quotes
 from services.engine.intraday.candidates import (
     discover_intraday_candidates,
@@ -24,6 +25,11 @@ from services.engine.tracking.repository import (
     list_tracking_snapshots,
     summarize_tracking_signal_alignment,
     upsert_tracking_snapshot,
+)
+from services.engine.tracking.startup import (
+    StartupCandidate,
+    build_startup_historical_evidence,
+    build_startup_tracking_rows,
 )
 from services.engine.workspace.repository import (
     load_stock_workspace_item,
@@ -422,6 +428,17 @@ class WorkspaceStockResponse(BaseModel):
     paper_trade_summaries: list[PaperTradeSummaryResponse]
     recent_paper_trades: list[PaperTradeResponse]
     manual_refresh: ManualRefreshResponse | None = None
+
+
+class StartupTrackingResponse(BaseModel):
+    symbol: str
+    signal_type: str
+    signal_label: str
+    signal_date: str | None
+    signal_score: float | None
+    signal_reasons: list[str]
+    historical: dict[int, dict[str, float | int | None]]
+    current_tracking: dict[str, object]
 
 
 class TrackingSnapshotResponse(BaseModel):
@@ -1048,6 +1065,47 @@ def list_workspace_stocks(
             include_growth_board=include_growth_board,
             market_stress=market_stress,
         )
+    ]
+
+
+@router.get("/startup-tracking", response_model=list[StartupTrackingResponse])
+def get_startup_tracking(
+    db: DbSession,
+    pool_name: str = "experiment",
+) -> list[StartupTrackingResponse]:
+    items = list(
+        db.execute(
+            select(ResearchPoolItem)
+            .where(ResearchPoolItem.pool_name == pool_name)
+            .where(ResearchPoolItem.status == "active")
+        ).scalars()
+    )
+    rows = build_startup_tracking_rows(
+        db,
+        [
+            StartupCandidate(
+                symbol=item.symbol,
+                tags=tuple(str(tag) for tag in (item.tags_json or {}).get("tags", [])),
+            )
+            for item in items
+        ],
+    )
+    historical = build_startup_historical_evidence(get_candidate_replay_effect())
+    return [
+        StartupTrackingResponse(
+            symbol=row.symbol,
+            signal_type=row.signal_type,
+            signal_label=row.signal_label,
+            signal_date=row.signal_date.isoformat() if row.signal_date else None,
+            signal_score=row.signal_score,
+            signal_reasons=row.signal_reasons,
+            historical=historical[row.signal_type],
+            current_tracking={
+                "realised_return": row.realised_return,
+                "horizons": {key: value.status for key, value in row.horizons.items()},
+            },
+        )
+        for row in rows
     ]
 
 
