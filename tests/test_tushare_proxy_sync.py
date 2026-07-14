@@ -585,10 +585,20 @@ def test_tushare_stock_basic_sync_updates_security_industries(monkeypatch) -> No
     monkeypatch.setattr(client, "query", fake_query)
 
     with Session(engine) as db:
+        db.add(
+            Security(
+                symbol="000003",
+                name="退市样本",
+                exchange="SZ",
+                is_active=True,
+            )
+        )
+        db.commit()
         rows = sync_tushare_stock_basic(db)
         db.commit()
 
         assert rows == 2
-        assert db.query(Security).count() == 2
+        assert db.query(Security).count() == 3
         assert db.query(Security).filter(Security.symbol == "000001").one().industry == "银行"
         assert db.query(Security).filter(Security.symbol == "600519").one().industry == "白酒"
+        assert db.query(Security).filter(Security.symbol == "000003").one().is_active is False

@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 
 from services.collector import tushare_proxy_client as client
 from services.collector.akshare_client import DailyBarRow
@@ -463,6 +463,14 @@ def sync_tushare_stock_basic(db, *, list_status: str = "L") -> int:
                 "is_st": "ST" in name.upper(),
                 "is_active": True,
             }
+        )
+    listed_symbols = [str(row["symbol"]) for row in rows]
+    if listed_symbols and list_status == "L":
+        db.execute(
+            update(Security)
+            .where(Security.is_active.is_(True))
+            .where(Security.symbol.not_in(listed_symbols))
+            .values(is_active=False)
         )
     total = 0
     chunk_size = 500
