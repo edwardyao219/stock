@@ -1144,6 +1144,7 @@ export interface AfterCloseStatus {
   dingtalk_statuses: string[];
   market_summary: string | null;
   tushare_evidence_health: TushareEvidenceHealth;
+  scheduler_health: Record<string, unknown>;
   source: string;
 }
 

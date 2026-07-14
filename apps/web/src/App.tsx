@@ -2327,6 +2327,7 @@ export function App() {
                         <span>候选 {afterCloseStatus.candidate_count}</span>
                         <span>计划 {afterCloseStatus.plan_count}</span>
                         <span>{afterCloseDingText(afterCloseStatus)}</span>
+                        <span>调度健康 {String(afterCloseStatus.scheduler_health?.state ?? "正常") === "failed" ? "需人工处理" : String(afterCloseStatus.scheduler_health?.state ?? "正常") === "completed" ? "正常" : "恢复中"}</span>
                         <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>
                         <span>Tushare证据</span>
                         {(afterCloseStatus.tushare_evidence_health?.datasets ?? []).map((dataset) => {
