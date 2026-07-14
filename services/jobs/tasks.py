@@ -20,7 +20,7 @@ from services.jobs.pipeline import (
     run_intraday_trade_session,
 )
 from services.jobs.status import read_after_close_status, write_after_close_status
-from services.notifications.dispatcher import dispatch_monthly_trade_summary
+from services.notifications.dispatcher import dispatch_monthly_trade_summary, dispatch_text
 from services.shared.database import SessionLocal
 from services.shared.time import now_local
 
@@ -299,19 +299,37 @@ def run_after_close_safe_recovery_task() -> dict[str, object]:
             "status": "skipped",
             "message": "after-close status already completed",
         }
-    result = run_after_close_session(
-        trade_date,
-        resolve_next_trade_date(trade_date),
-        full_market_sync=True,
-        safe_recovery=True,
-    ).to_dict()
-    result["scheduler_health"] = {
-        "state": "completed",
-        "last_heartbeat_at": current_time.isoformat(),
-        "completed_steps": [step["name"] for step in result["steps"]],
-        "missing_steps": [],
-        "recovery_attempts": 1,
-    }
+    try:
+        result = run_after_close_session(
+            trade_date,
+            resolve_next_trade_date(trade_date),
+            full_market_sync=True,
+            safe_recovery=True,
+        ).to_dict()
+        result["scheduler_health"] = {
+            "state": "completed",
+            "last_heartbeat_at": current_time.isoformat(),
+            "completed_steps": [step["name"] for step in result["steps"]],
+            "missing_steps": [],
+            "recovery_attempts": 1,
+        }
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        result = {
+            "trade_date": trade_date,
+            "status": "failed",
+            "message": "盘后安全恢复失败",
+            "steps": [],
+            "scheduler_health": {
+                "state": "failed",
+                "last_heartbeat_at": current_time.isoformat(),
+                "completed_steps": [],
+                "missing_steps": ["safe_recovery"],
+                "recovery_attempts": 1,
+                "error": error,
+            },
+        }
+        dispatch_text(f"【盘后恢复失败】{trade_date}：{error}")
     write_after_close_status(result)
     return result
 

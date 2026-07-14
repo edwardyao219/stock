@@ -299,6 +299,36 @@ def test_after_close_recovery_runs_safe_pipeline_when_status_is_missing(monkeypa
     assert captured["result"] == result
 
 
+def test_after_close_recovery_records_and_alerts_failure(monkeypatch) -> None:
+    from datetime import datetime
+
+    captured = {}
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(tasks, "read_after_close_status", lambda trade_date: None)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-15")
+    monkeypatch.setattr(
+        tasks,
+        "run_after_close_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("sync unavailable")),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "write_after_close_status",
+        lambda result: captured.update(result=result),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "dispatch_text",
+        lambda content: captured.update(alert=content) or [],
+    )
+
+    result = tasks.run_after_close_safe_recovery_task()
+
+    assert result["scheduler_health"]["state"] == "failed"
+    assert "sync unavailable" in result["scheduler_health"]["error"]
+    assert "2026-07-14" in captured["alert"]
+
+
 def test_celery_daily_jobs_use_documented_wall_clock_times() -> None:
     expected = {
         "pre-market-check": ({8}, {30}),
