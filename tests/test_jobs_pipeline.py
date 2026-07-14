@@ -250,6 +250,95 @@ def test_celery_after_close_screening_runs_at_six_pm() -> None:
     assert schedule.minute == {0}
 
 
+def test_celery_captures_full_market_snapshot_after_close() -> None:
+    schedule = celery_app.conf.beat_schedule["capture-full-market-snapshot"]["schedule"]
+
+    assert schedule.hour == {15}
+    assert schedule.minute == {5}
+
+
+def test_celery_retries_full_market_snapshot_after_first_capture() -> None:
+    schedule = celery_app.conf.beat_schedule["retry-full-market-snapshot"]["schedule"]
+
+    assert schedule.hour == {15}
+    assert schedule.minute == {20}
+
+
+def test_full_market_snapshot_task_records_source_failure(monkeypatch) -> None:
+    from datetime import datetime
+
+    released = []
+
+    class _Query:
+        def filter_by(self, **kwargs):
+            return self
+
+        def count(self):
+            return 100
+
+    class _Db:
+        def query(self, model):
+            return _Query()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 15, 5))
+    monkeypatch.setattr(tasks, "SessionLocal", _Db)
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "_acquire_daily_task_lock", lambda *args: (True, "lock"))
+    monkeypatch.setattr(tasks, "_release_daily_task_lock", released.append, raising=False)
+    monkeypatch.setattr(
+        tasks,
+        "sync_realtime_quotes",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("source unavailable")),
+    )
+
+    result = tasks.capture_full_market_snapshot_task()
+
+    assert result["status"] == "failed"
+    assert "source unavailable" in result["message"]
+    assert released == ["lock"]
+
+
+def test_full_market_snapshot_task_releases_lock_when_coverage_is_low(monkeypatch) -> None:
+    from datetime import datetime
+
+    released = []
+
+    class _Query:
+        def filter_by(self, **kwargs):
+            return self
+
+        def count(self):
+            return 100
+
+    class _Db:
+        def query(self, model):
+            return _Query()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 15, 5))
+    monkeypatch.setattr(tasks, "SessionLocal", _Db)
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "_acquire_daily_task_lock", lambda *args: (True, "lock"))
+    monkeypatch.setattr(tasks, "_release_daily_task_lock", released.append, raising=False)
+    monkeypatch.setattr(tasks, "sync_realtime_quotes", lambda **kwargs: [])
+
+    result = tasks.capture_full_market_snapshot_task()
+
+    assert result["status"] == "warning"
+    assert released == ["lock"]
+
+
 def test_celery_after_close_recovery_checks_run_after_session(monkeypatch) -> None:
     schedules = [
         celery_app.conf.beat_schedule["after-close-safe-recovery-1820"]["schedule"],

@@ -247,13 +247,16 @@ def fetch_realtime_quotes(
 ) -> list[RealtimeQuoteRow]:
     ak = _akshare()
     current_time = quote_time or datetime.utcnow()
+    source = "akshare.stock_zh_a_spot_em"
     try:
         with _without_proxy_env():
             df = ak.stock_zh_a_spot_em()
     except Exception:
         if symbols:
             return fetch_sina_realtime_quotes(symbols=symbols, quote_time=current_time)
-        raise
+        with _without_proxy_env():
+            df = ak.stock_zh_a_spot()
+        source = "akshare.stock_zh_a_spot"
     rows: list[RealtimeQuoteRow] = []
     for raw in df.to_dict("records"):
         symbol = str(_first(raw, "代码", "股票代码") or "").strip()
@@ -273,6 +276,7 @@ def fetch_realtime_quotes(
                 volume=_decimal(_first(raw, "成交量")),
                 amount=_decimal(_first(raw, "成交额")),
                 turnover_rate=_decimal(_first(raw, "换手率")),
+                source=source,
             )
         )
     return rows

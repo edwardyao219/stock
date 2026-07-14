@@ -22,6 +22,14 @@ celery_app.conf.beat_schedule = {
         "task": "services.jobs.tasks.sync_daily_market_data_task",
         "schedule": crontab(minute=30, hour=15),
     },
+    "capture-full-market-snapshot": {
+        "task": "services.jobs.tasks.capture_full_market_snapshot_task",
+        "schedule": crontab(minute=5, hour=15),
+    },
+    "retry-full-market-snapshot": {
+        "task": "services.jobs.tasks.capture_full_market_snapshot_task",
+        "schedule": crontab(minute=20, hour=15),
+    },
     "compute-daily-features": {
         "task": "services.jobs.tasks.compute_daily_features_task",
         "schedule": crontab(minute=30, hour=16),

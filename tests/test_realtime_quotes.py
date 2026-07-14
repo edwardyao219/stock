@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -104,6 +105,40 @@ def test_fetch_sina_realtime_quotes_parses_snapshot(monkeypatch) -> None:
     assert rows[0].price == Decimal("10.710")
     assert rows[0].high == Decimal("10.910")
     assert rows[0].source == "sina.hq"
+
+
+def test_fetch_realtime_quotes_falls_back_to_sina_full_market_source(monkeypatch) -> None:
+    from services.collector import akshare_client
+
+    class _Akshare:
+        def stock_zh_a_spot_em(self):
+            raise RuntimeError("eastmoney unavailable")
+
+        def stock_zh_a_spot(self):
+            return pd.DataFrame(
+                [
+                    {
+                        "代码": "000001",
+                        "最新价": 10.5,
+                        "今开": 10.2,
+                        "最高": 10.8,
+                        "最低": 10.1,
+                        "昨收": 10,
+                        "涨跌幅": 5,
+                        "成交量": 100,
+                        "成交额": 1050,
+                        "换手率": 1.2,
+                    }
+                ]
+            )
+
+    monkeypatch.setattr(akshare_client, "_akshare", lambda: _Akshare())
+
+    rows = akshare_client.fetch_realtime_quotes(quote_time=datetime(2026, 7, 14, 15, 5))
+
+    assert len(rows) == 1
+    assert rows[0].symbol == "000001"
+    assert rows[0].source == "akshare.stock_zh_a_spot"
 
 
 def test_north_exchange_92_prefix_uses_beijing_realtime_symbol() -> None:

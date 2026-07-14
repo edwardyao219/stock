@@ -20,6 +20,7 @@ from services.shared.database import Base
 from services.shared.models import (
     DailyBar,
     MarketMessageSnapshot,
+    RealtimeQuote,
     SectorDaily,
     SectorFeatureDaily,
     Security,
@@ -391,6 +392,123 @@ def test_get_market_overview_live_uses_stored_snapshot_when_live_cache_is_slow(m
     assert elapsed < 0.08
     assert payload.trade_date == date(2026, 7, 1)
     assert payload.message == "stored"
+
+
+def test_get_market_overview_live_uses_current_full_market_archive_when_source_times_out(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    snapshot_time = datetime(2026, 7, 14, 15, 5)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(symbol="000001", name="样本1", exchange="SZ", is_active=True, is_st=False),
+                Security(symbol="000002", name="样本2", exchange="SZ", is_active=True, is_st=False),
+                Security(symbol="000003", name="样本3", exchange="SZ", is_active=True, is_st=False),
+                Security(
+                    symbol="000004",
+                    name="旧样本",
+                    exchange="SZ",
+                    is_active=False,
+                    is_st=False,
+                ),
+            ]
+        )
+        db.add_all(
+            [
+                RealtimeQuote(
+                    symbol=symbol,
+                    trade_date=date(2026, 7, 14),
+                    quote_time=snapshot_time,
+                    price=price,
+                    open=Decimal("10"),
+                    high=price,
+                    low=Decimal("9"),
+                    pre_close=Decimal("10"),
+                    pct_change=None,
+                    volume=Decimal("100"),
+                    amount=amount,
+                    turnover_rate=None,
+                    source="akshare.stock_zh_a_spot_em",
+                )
+                for symbol, price, amount in (
+                    ("000001", Decimal("11"), Decimal("1000")),
+                    ("000002", Decimal("9"), Decimal("2000")),
+                    ("000003", Decimal("10"), Decimal("3000")),
+                    ("000004", Decimal("20"), Decimal("9000")),
+                )
+            ]
+        )
+        db.commit()
+        monkeypatch.setattr(market, "now_local", lambda: datetime(2026, 7, 14, 15, 10))
+        monkeypatch.setattr(market, "_try_cached_live_a_share_overview", lambda timeout: None)
+        monkeypatch.setattr(market, "_safe_live_market_indexes", lambda: [])
+
+        payload = get_market_overview(db=db, live=True)
+
+    assert payload.trade_date == date(2026, 7, 14)
+    assert payload.is_full_market is True
+    assert payload.is_current_snapshot is True
+    assert payload.stock_count == 3
+    assert payload.up_count == 1
+    assert payload.down_count == 1
+    assert payload.total_amount == 6000
+    assert "归档" in payload.message
+
+
+def test_get_market_overview_live_ignores_stale_full_market_archive(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    snapshot_time = datetime(2026, 7, 13, 15, 5)
+
+    with session() as db:
+        db.add(
+            Security(symbol="000001", name="样本", exchange="SZ", is_active=True, is_st=False)
+        )
+        db.add(
+            RealtimeQuote(
+                symbol="000001",
+                trade_date=date(2026, 7, 13),
+                quote_time=snapshot_time,
+                price=Decimal("11"),
+                open=Decimal("10"),
+                high=Decimal("11"),
+                low=Decimal("10"),
+                pre_close=Decimal("10"),
+                pct_change=None,
+                volume=Decimal("100"),
+                amount=Decimal("1000"),
+                turnover_rate=None,
+                source="akshare.stock_zh_a_spot_em",
+            )
+        )
+        db.commit()
+        expected = market.MarketOverviewResponse(
+            trade_date=date(2026, 7, 10),
+            stock_count=1,
+            up_count=0,
+            down_count=1,
+            flat_count=0,
+            up_ratio=0.0,
+            avg_change_pct=-0.01,
+            total_amount=1000,
+            amount_change_pct=None,
+            active_security_count=1,
+            coverage_ratio=1.0,
+            is_full_market=True,
+            message="daily",
+        )
+        monkeypatch.setattr(market, "now_local", lambda: datetime(2026, 7, 14, 9, 0))
+        monkeypatch.setattr(market, "_try_cached_live_a_share_overview", lambda timeout: None)
+        monkeypatch.setattr(market, "_stored_market_overview", lambda db: expected)
+
+        payload = get_market_overview(db=db, live=True)
+
+    assert payload.message == "daily"
 
 
 def test_sina_symbol_live_overview_filters_stale_quote_dates(monkeypatch) -> None:

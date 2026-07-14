@@ -5,7 +5,10 @@ from datetime import date, datetime
 from uuid import uuid4
 
 from services.collector.realtime import sync_realtime_quotes
-from services.engine.features.health import inspect_tushare_evidence_health
+from services.engine.features.health import (
+    DAILY_CANDIDATE_MIN_COVERAGE_RATIO,
+    inspect_tushare_evidence_health,
+)
 from services.engine.intraday.candidates import early_sector_scan_symbols
 from services.engine.review.mechanical import generate_daily_mechanical_review
 from services.engine.review.monthly_summary import generate_monthly_trade_summary
@@ -23,6 +26,7 @@ from services.jobs.pipeline import (
 from services.jobs.status import read_after_close_status, write_after_close_status
 from services.notifications.dispatcher import dispatch_monthly_trade_summary, dispatch_text
 from services.shared.database import SessionLocal
+from services.shared.models import Security
 from services.shared.time import now_local
 
 _DAILY_TASK_LOCK_TTL_SECONDS = 6 * 60 * 60
@@ -46,6 +50,13 @@ def _acquire_daily_task_lock(task_name: str, trade_date: date) -> tuple[bool, st
     except Exception:
         return True, key
     return bool(acquired), key
+
+
+def _release_daily_task_lock(key: str) -> None:
+    try:
+        celery_app.backend.client.delete(key)
+    except Exception:
+        return
 
 
 def _acquire_after_close_recovery_lock(trade_date: str) -> tuple[str | None, str]:
@@ -143,6 +154,64 @@ def sync_daily_market_data_task() -> dict[str, str]:
         force=True,
     )
     return {"trade_date": trade_date, **step.to_dict()}
+
+
+@celery_app.task(name="services.jobs.tasks.capture_full_market_snapshot_task")
+def capture_full_market_snapshot_task() -> dict[str, object]:
+    current_time = now_local()
+    today = current_time.date()
+    trade_date = today.isoformat()
+    with SessionLocal() as db:
+        if not _is_open_trade_date(db, trade_date):
+            return {
+                "trade_date": trade_date,
+                "status": "skipped",
+                "message": "非交易日，已跳过全市场收盘快照。",
+            }
+        active_security_count = int(
+            db.query(Security)
+            .filter_by(is_active=True, is_st=False)
+            .count()
+        )
+
+    acquired, lock_key = _acquire_daily_task_lock("full-market-snapshot", today)
+    if not acquired:
+        return {
+            "trade_date": trade_date,
+            "status": "skipped",
+            "message": "当日全市场收盘快照已采集或正在采集。",
+            "lock_key": lock_key,
+        }
+
+    try:
+        quotes = sync_realtime_quotes(quote_time=current_time)
+    except Exception as exc:
+        _release_daily_task_lock(lock_key)
+        return {
+            "trade_date": trade_date,
+            "status": "failed",
+            "message": f"全市场收盘快照采集失败：{type(exc).__name__}: {exc}",
+        }
+    valid_quote_count = sum(
+        1
+        for quote in quotes
+        if quote.price is not None and quote.pre_close is not None and quote.pre_close > 0
+    )
+    coverage_ratio = valid_quote_count / active_security_count if active_security_count else 0.0
+    status = "ok" if coverage_ratio >= DAILY_CANDIDATE_MIN_COVERAGE_RATIO else "warning"
+    if status == "warning":
+        _release_daily_task_lock(lock_key)
+    return {
+        "trade_date": trade_date,
+        "status": status,
+        "message": (
+            f"全市场收盘快照：有效报价 {valid_quote_count}/{active_security_count}，"
+            f"覆盖率 {coverage_ratio:.1%}。"
+        ),
+        "quote_count": len(quotes),
+        "valid_quote_count": valid_quote_count,
+        "coverage_ratio": round(coverage_ratio, 6),
+    }
 
 
 @celery_app.task(name="services.jobs.tasks.compute_daily_features_task")

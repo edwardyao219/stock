@@ -36,6 +36,7 @@ from services.engine.sector.names import canonical_sector_name as _canonical_sec
 from services.shared.database import get_db
 from services.shared.models import (
     DailyBar,
+    RealtimeQuote,
     SectorDaily,
     SectorFeatureDaily,
     Security,
@@ -843,6 +844,94 @@ def _stored_market_overview(db: Session) -> MarketOverviewResponse:
     )
 
 
+def _stored_full_market_realtime_overview(db: Session) -> MarketOverviewResponse | None:
+    current_trade_date = now_local().date()
+    active_security_count = int(
+        db.execute(
+            select(func.count())
+            .select_from(Security)
+            .where(Security.is_active.is_(True))
+            .where(Security.is_st.is_(False))
+        ).scalar_one()
+    )
+    minimum_count = max(1, ceil(active_security_count * MARKET_DAILY_MIN_COVERAGE_RATIO))
+    snapshots = db.execute(
+        select(
+            RealtimeQuote.trade_date,
+            RealtimeQuote.quote_time,
+            func.count().label("quote_count"),
+        )
+        .join(Security, Security.symbol == RealtimeQuote.symbol)
+        .where(Security.is_active.is_(True))
+        .where(Security.is_st.is_(False))
+        .where(RealtimeQuote.trade_date == current_trade_date)
+        .where(RealtimeQuote.price.is_not(None))
+        .where(RealtimeQuote.pre_close.is_not(None))
+        .where(RealtimeQuote.pre_close > 0)
+        .group_by(RealtimeQuote.trade_date, RealtimeQuote.quote_time)
+        .order_by(RealtimeQuote.quote_time.desc())
+    ).all()
+    snapshot = next((item for item in snapshots if int(item.quote_count) >= minimum_count), None)
+    if snapshot is None:
+        return None
+
+    rows = list(
+        db.execute(
+            select(RealtimeQuote)
+            .join(Security, Security.symbol == RealtimeQuote.symbol)
+            .where(Security.is_active.is_(True))
+            .where(Security.is_st.is_(False))
+            .where(RealtimeQuote.trade_date == snapshot.trade_date)
+            .where(RealtimeQuote.quote_time == snapshot.quote_time)
+        ).scalars()
+    )
+    changes = [
+        float(item.price / item.pre_close - Decimal("1"))
+        for item in rows
+        if item.price is not None and item.pre_close is not None and item.pre_close > 0
+    ]
+    if not changes:
+        return None
+
+    up_count = sum(1 for value in changes if value > 0)
+    down_count = sum(1 for value in changes if value < 0)
+    flat_count = len(changes) - up_count - down_count
+    stock_count = len(changes)
+    coverage_ratio = (
+        round(stock_count / active_security_count, 6) if active_security_count else None
+    )
+    trade_date = snapshot.trade_date
+    scope = _market_snapshot_scope(trade_date=trade_date, is_live=True)
+    if scope["is_current_snapshot"]:
+        scope["snapshot_scope_label"] = "当日全市场归档"
+        scope["stress_scope_label"] = "今日归档压力"
+    return MarketOverviewResponse(
+        trade_date=trade_date,
+        stock_count=stock_count,
+        up_count=up_count,
+        down_count=down_count,
+        flat_count=flat_count,
+        up_ratio=up_count / stock_count if stock_count else None,
+        avg_change_pct=round(sum(changes) / stock_count, 6) if stock_count else None,
+        total_amount=sum(float(item.amount or 0) for item in rows),
+        amount_change_pct=None,
+        active_security_count=active_security_count,
+        coverage_ratio=coverage_ratio,
+        is_full_market=True,
+        message=(
+            f"A股全市场归档快照：上涨 {up_count}，下跌 {down_count}，"
+            f"平盘 {flat_count}；统计样本 {stock_count}/{active_security_count}。"
+        ),
+        **_market_stress_policy(
+            up_ratio=up_count / stock_count if stock_count else None,
+            avg_change_pct=round(sum(changes) / stock_count, 6) if stock_count else None,
+            amount_change_pct=None,
+        ),
+        **scope,
+        indexes=_safe_live_market_indexes(),
+    )
+
+
 def _latest_well_covered_daily_bar_date(db: Session) -> date | None:
     rows = list(
         db.execute(
@@ -1310,6 +1399,9 @@ def get_market_overview(db: DbSession, live: bool = False) -> MarketOverviewResp
         overview = _try_cached_live_a_share_overview(LIVE_MARKET_TIMEOUT_SECONDS)
         if overview is not None:
             return overview
+        archived = _stored_full_market_realtime_overview(db)
+        if archived is not None:
+            return archived
 
     return _stored_market_overview(db)
 
