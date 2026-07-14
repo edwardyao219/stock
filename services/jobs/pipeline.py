@@ -983,9 +983,14 @@ def _discover_next_session_candidates_step(
         if stress_label and stress_status in {"caution", "risk_off"}
         else ""
     )
+    market_turn = discovery.get("market_turn") if isinstance(discovery, dict) else {}
+    if not isinstance(market_turn, dict):
+        market_turn = {}
+    turn_label = str(market_turn.get("label") or "")
+    turn_suffix = f" / 转折 {turn_label}" if turn_label else ""
     details.insert(
         0,
-        f"市场环境 {discovery.get('market_regime') or '-'}{stress_suffix} / "
+        f"市场环境 {discovery.get('market_regime') or '-'}{stress_suffix}{turn_suffix} / "
         f"有效上限 {discovery.get('effective_limit', candidate_limit)} / "
         f"趋势 {float(market_snapshot.get('trend_score') or 0):.1f} / "
         f"上升信号 {float(market_snapshot.get('up_signal_rate') or 0):.1f}%",

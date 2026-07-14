@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.engine.features.market_regime import MarketRegimeSnapshot, classify_market_regime
+from services.engine.features.market_turn import classify_market_turn_state
 from services.engine.plans.repository import latest_feature_date, load_feature_contexts
 from services.engine.research_pool.repository import add_symbols_to_pool, list_pool_items
 from services.engine.rules.evaluator import evaluate_group
@@ -2687,6 +2688,14 @@ def discover_next_session_candidates(
     emotion_gate = _emotion_gate(market_regime)
     quality_snapshot = _market_quality_snapshot(contexts)
     participation_snapshot = _market_participation_snapshot(contexts)
+    market_turn = classify_market_turn_state(
+        trend_score=market_regime.trend_score,
+        breadth_score=market_regime.breadth_score,
+        emotion_score=market_regime.emotion_score,
+        liquidity_score=float(participation_snapshot.get("liquidity_score", 50.0)),
+        strong_trend_rate=float(quality_snapshot.get("strong_trend_rate", 0.0)),
+        up_signal_rate=float(quality_snapshot.get("up_signal_rate", 0.0)),
+    )
     rank_score_fn = _regime_rank_score_fn(market_regime.regime, participation_snapshot)
     requested_limit = max(1, min(limit, CANDIDATE_DEFAULT_LIMIT))
     effective_limit = _regime_candidate_limit(
@@ -3082,9 +3091,11 @@ def discover_next_session_candidates(
             "emotion_gate": emotion_gate["state"],
             "volatility_score": market_regime.volatility_score,
             "risk_level": market_regime.risk_level,
+            "market_turn": market_turn.to_dict(),
             **quality_snapshot,
         },
         "emotion_gate": emotion_gate,
+        "market_turn": market_turn.to_dict(),
         "market_participation_snapshot": participation_snapshot,
         "universe_warning": (
             ""

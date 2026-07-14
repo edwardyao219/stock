@@ -876,6 +876,64 @@ def test_build_candidate_tiers_blocks_all_core_when_market_stress_is_risk_off() 
     )
 
 
+def test_build_candidate_tiers_keeps_startup_state_out_of_core_action() -> None:
+    candidate = {
+        "symbol": "603061",
+        "name": "金海通",
+        "sector": "半导体",
+        "sector_style": "growth_cycle",
+        "suggested_horizon_days": 10,
+        "horizon_reason": "板块和个股共振，等承接确认",
+        "selection_mode": "formal_strategy",
+        "score": 88.0,
+        "selected_strategy_type": "long_term",
+        "reasons": ["低维主线：板块趋势和个股强度共振"],
+        "risk_flags": [],
+    }
+    discovery = {
+        "candidates": [candidate],
+        "long_action_candidates": [candidate],
+        "market_turn": {
+            "key": "startup_allowed",
+            "label": "允许启动候选",
+            "summary": "修复已有承接，允许跟踪启动候选。",
+            "pending_signals": ["趋势结构止跌", "强势结构扩散"],
+        },
+    }
+
+    tiers = build_candidate_tiers(discovery)
+
+    assert tiers["core_action"] == []
+    assert [item["symbol"] for item in tiers["watch_wait"]] == ["603061"]
+    assert "允许启动候选" in tiers["watch_wait"][0]["tier_reason"]
+    text = format_candidate_screening_text(discovery)
+    assert "市场转折：允许启动候选" in text
+    assert "待确认：趋势结构止跌、强势结构扩散" in text
+
+
+def test_build_candidate_tiers_fails_closed_for_unknown_market_turn_state() -> None:
+    candidate = {
+        "symbol": "603061",
+        "name": "金海通",
+        "sector": "半导体",
+        "selection_mode": "formal_strategy",
+        "score": 88.0,
+        "selected_strategy_type": "long_term",
+        "reasons": ["低维主线：板块趋势和个股强度共振"],
+        "risk_flags": [],
+    }
+    discovery = {
+        "candidates": [candidate],
+        "long_action_candidates": [candidate],
+        "market_turn": {"key": "unknown", "label": "待确认"},
+    }
+
+    tiers = build_candidate_tiers(discovery)
+
+    assert tiers["core_action"] == []
+    assert [item["symbol"] for item in tiers["watch_wait"]] == ["603061"]
+
+
 def test_build_candidate_tiers_blocks_core_when_emotion_gate_is_risk_off() -> None:
     candidate = {
         "symbol": "603061",

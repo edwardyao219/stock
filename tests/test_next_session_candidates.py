@@ -414,6 +414,7 @@ def test_discover_next_session_candidates_downgrades_unconfirmed_rebound_to_obse
     selected = next(item for item in result["candidates"] if item["symbol"] == "000001")
     assert result["market_regime"] == "rebound_unconfirmed"
     assert result["emotion_gate"]["state"] == "caution"
+    assert result["market_turn"]["key"] == "watch_repair"
     assert selected["selection_mode"] == "observation"
     assert all(item["selection_mode"] != "formal_strategy" for item in result["candidates"])
 

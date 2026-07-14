@@ -582,6 +582,26 @@ def _market_stress_snapshot(discovery: dict[str, Any]) -> dict[str, Any]:
     return snapshot if isinstance(snapshot, dict) else {}
 
 
+def _market_turn_snapshot(discovery: dict[str, Any]) -> dict[str, Any]:
+    snapshot = discovery.get("market_turn")
+    return snapshot if isinstance(snapshot, dict) else {}
+
+
+def _market_turn_summary(discovery: dict[str, Any]) -> str | None:
+    turn = _market_turn_snapshot(discovery)
+    label = str(turn.get("label") or "").strip()
+    if not label:
+        return None
+    summary = str(turn.get("summary") or "").strip()
+    pending = [str(item) for item in turn.get("pending_signals") or [] if item]
+    text = f"市场转折：{label}"
+    if summary:
+        text += f"。{summary}"
+    if pending:
+        text += f" 待确认：{'、'.join(pending)}。"
+    return text
+
+
 def _emotion_gate_state(discovery: dict[str, Any]) -> str:
     regime_snapshot = discovery.get("market_regime_snapshot") or {}
     emotion_gate = discovery.get("emotion_gate") or {}
@@ -589,6 +609,12 @@ def _emotion_gate_state(discovery: dict[str, Any]) -> str:
 
 
 def _market_stress_core_limit(discovery: dict[str, Any], max_core_items: int) -> int:
+    turn = _market_turn_snapshot(discovery)
+    if turn and (
+        str(turn.get("key") or "") != "actionable"
+        or turn.get("core_action_allowed") is not True
+    ):
+        return 0
     status = str(_market_stress_snapshot(discovery).get("stress_status") or "")
     regime_snapshot = discovery.get("market_regime_snapshot") or {}
     regime = str(discovery.get("market_regime") or regime_snapshot.get("regime") or "")
@@ -644,6 +670,12 @@ def _market_stress_core_block_reason(
     selected_core_count: int,
     max_core_items: int,
 ) -> str | None:
+    turn = _market_turn_snapshot(discovery)
+    turn_key = str(turn.get("key") or "")
+    if turn and (turn_key != "actionable" or turn.get("core_action_allowed") is not True):
+        label = str(turn.get("label") or "观察")
+        summary = str(turn.get("summary") or "市场确认不足，先保留观察。")
+        return f"市场转折状态为{label}：{summary}"
     snapshot = _market_stress_snapshot(discovery)
     status = str(snapshot.get("stress_status") or "")
     action = str(snapshot.get("risk_action_label") or "").strip()
@@ -1464,11 +1496,14 @@ def format_candidate_screening_text(
         lines.append(
             f"{' | '.join(feature_parts)} | "
             f"宇宙 {discovery.get('universe_size') or 0} "
-            f"| 正式 {formal_count} | 观察 {observation_count} | 淘汰 {retired_count}"
+            f"| 策略命中 {formal_count} | 观察 {observation_count} | 淘汰 {retired_count}"
         )
         warning = discovery.get("universe_warning")
         if warning:
             lines.append(f"提示：{warning}")
+        turn_summary = _market_turn_summary(discovery)
+        if turn_summary:
+            lines.append(turn_summary)
         _append_candidate_diagnostics(lines, discovery)
         lines.append(
             f"钉钉分层推送：核心行动 {len(core_candidates)} 只，"
@@ -1543,11 +1578,15 @@ def format_candidate_screening_text(
     lines.append(
         f"{' | '.join(feature_parts)} | "
         f"宇宙 {discovery.get('universe_size') or 0} "
-        f"| 正式 {formal_count} | 观察 {observation_count} | 淘汰 {discovery.get('retired') or 0}"
+        f"| 策略命中 {formal_count} | 观察 {observation_count} "
+        f"| 淘汰 {discovery.get('retired') or 0}"
     )
     warning = discovery.get("universe_warning")
     if warning:
         lines.append(f"提示：{warning}")
+    turn_summary = _market_turn_summary(discovery)
+    if turn_summary:
+        lines.append(turn_summary)
     _append_candidate_diagnostics(lines, discovery)
     if uses_core_action_candidates:
         tiers = candidate_tiers if isinstance(candidate_tiers, dict) else {}
