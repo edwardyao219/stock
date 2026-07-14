@@ -90,3 +90,83 @@ def classify_market_turn_state(
         startup_candidates_allowed=False,
         core_action_allowed=False,
     )
+
+
+def classify_verified_market_turn_state(
+    *,
+    breadth_ratio: float,
+    amount_change_pct: float | None,
+    limit_down_count: int | None,
+    index_change_pct: float | None,
+    sector_expansion_count: int,
+    data_ready: bool,
+) -> MarketTurnState:
+    if not data_ready:
+        return MarketTurnState(
+            key="watch_repair",
+            label="观察修复",
+            summary="全市场宽度、跌停或指数证据未齐，只保留观察，不升级核心行动。",
+            confirmed_signals=(),
+            pending_signals=("全市场数据完整性",),
+            startup_candidates_allowed=False,
+            core_action_allowed=False,
+        )
+
+    signals = {
+        "指数止跌": index_change_pct is not None and index_change_pct >= 0.0,
+        "市场宽度转暖": breadth_ratio >= 0.60,
+        "成交额承接": amount_change_pct is not None and amount_change_pct >= 0.0,
+        "跌停数量可控": limit_down_count is not None and limit_down_count <= 10,
+        "强势板块扩散": sector_expansion_count >= 3,
+    }
+    confirmed = tuple(label for label, value in signals.items() if value)
+    pending = tuple(label for label, value in signals.items() if not value)
+
+    if breadth_ratio <= 0.35 or (limit_down_count or 0) >= 30 or (index_change_pct or 0) <= -0.02:
+        return MarketTurnState(
+            key="defense",
+            label="防守",
+            summary="宽度、跌停或指数出现明显风险，停止扩散，只做观察和风控。",
+            confirmed_signals=confirmed,
+            pending_signals=pending,
+            startup_candidates_allowed=False,
+            core_action_allowed=False,
+        )
+    if len(confirmed) == len(signals):
+        return MarketTurnState(
+            key="actionable",
+            label="可行动",
+            summary="指数、宽度、成交、跌停和板块扩散五项真实确认同时成立。",
+            confirmed_signals=confirmed,
+            pending_signals=pending,
+            startup_candidates_allowed=True,
+            core_action_allowed=True,
+        )
+    if (
+        breadth_ratio >= 0.50
+        and index_change_pct is not None
+        and index_change_pct >= -0.005
+        and amount_change_pct is not None
+        and amount_change_pct >= -0.10
+        and limit_down_count is not None
+        and limit_down_count <= 20
+        and sector_expansion_count >= 2
+    ):
+        return MarketTurnState(
+            key="startup_allowed",
+            label="允许启动候选",
+            summary="修复已有承接，允许启动候选进入观察池，等待五项真实确认。",
+            confirmed_signals=confirmed,
+            pending_signals=pending,
+            startup_candidates_allowed=True,
+            core_action_allowed=False,
+        )
+    return MarketTurnState(
+        key="watch_repair",
+        label="观察修复",
+        summary="市场有修复迹象，但真实确认不足，先看承接和板块是否同步。",
+        confirmed_signals=confirmed,
+        pending_signals=pending,
+        startup_candidates_allowed=False,
+        core_action_allowed=False,
+    )

@@ -41,6 +41,7 @@ from services.shared.models import (
     TushareCyqPerf,
     TushareDaily,
     TushareDailyBasic,
+    TushareDatasetSyncReceipt,
     TushareLimitListD,
     TushareMoneyflow,
     TushareMoneyflowDc,
@@ -359,6 +360,16 @@ def _existing_tushare_rows(db, model: type, trade_date: date) -> int:
     ).scalar_one()
 
 
+def _has_completed_tushare_dataset(db, dataset: str, trade_date: date) -> bool:
+    return bool(
+        db.execute(
+            select(TushareDatasetSyncReceipt.id)
+            .where(TushareDatasetSyncReceipt.dataset == dataset)
+            .where(TushareDatasetSyncReceipt.trade_date == trade_date)
+        ).scalar_one_or_none()
+    )
+
+
 def sync_tushare_market_data_resumable(
     trade_date: str,
     *,
@@ -388,7 +399,12 @@ def sync_tushare_market_data_resumable(
 
             model, sync_func = registry[dataset]
             existing_rows = _existing_tushare_rows(db, model, trade_day)
-            if existing_rows and not force:
+            is_complete = dataset != "limit_list_d" or _has_completed_tushare_dataset(
+                db,
+                dataset,
+                trade_day,
+            )
+            if not force and is_complete and (existing_rows or dataset == "limit_list_d"):
                 results.append(
                     CollectionResult(
                         source="tushare_proxy",

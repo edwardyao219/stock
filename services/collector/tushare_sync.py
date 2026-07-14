@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
+
+from sqlalchemy import delete
 
 from services.collector import tushare_proxy_client as client
 from services.collector.akshare_client import DailyBarRow
@@ -12,6 +14,7 @@ from services.shared.models import (
     TushareCyqPerf,
     TushareDaily,
     TushareDailyBasic,
+    TushareDatasetSyncReceipt,
     TushareLimitListD,
     TushareMoneyflow,
     TushareMoneyflowDc,
@@ -305,6 +308,8 @@ def sync_tushare_moneyflow_dc(db, *, trade_date: str) -> int:
 
 def sync_tushare_limit_list_d(db, *, trade_date: str) -> int:
     response = client.query("limit_list_d", params={"trade_date": trade_date})
+    if getattr(response, "has_more", False):
+        raise RuntimeError("limit_list_d response is incomplete: more pages are available")
     rows = []
     for row in _rows(response.fields, response.items):
         ts_code, row_date = _required_row_keys(row)
@@ -333,7 +338,12 @@ def sync_tushare_limit_list_d(db, *, trade_date: str) -> int:
     update_columns = (
         [key for key in rows[0] if key not in {"ts_code", "trade_date"}] if rows else []
     )
-    return upsert_rows(
+    ts_codes = [str(row["ts_code"]) for row in rows]
+    stale_rows = delete(TushareLimitListD).where(TushareLimitListD.trade_date == _date(trade_date))
+    if ts_codes:
+        stale_rows = stale_rows.where(TushareLimitListD.ts_code.not_in(ts_codes))
+    db.execute(stale_rows)
+    written = upsert_rows(
         db,
         TushareLimitListD,
         rows,
@@ -341,6 +351,21 @@ def sync_tushare_limit_list_d(db, *, trade_date: str) -> int:
         constraint="uq_tushare_limit_list_d_code_date",
         index_elements=["ts_code", "trade_date"],
     )
+    receipt = {
+        "dataset": "limit_list_d",
+        "trade_date": _date(trade_date),
+        "row_count": len(rows),
+        "completed_at": datetime.now(UTC).replace(tzinfo=None),
+    }
+    upsert_rows(
+        db,
+        TushareDatasetSyncReceipt,
+        [receipt],
+        update_columns=["row_count", "completed_at"],
+        constraint="uq_tushare_dataset_sync_receipt",
+        index_elements=["dataset", "trade_date"],
+    )
+    return written
 
 
 def sync_tushare_cyq_perf(db, *, trade_date: str) -> int:

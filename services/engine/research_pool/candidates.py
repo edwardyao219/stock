@@ -8,13 +8,22 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.engine.features.market_regime import MarketRegimeSnapshot, classify_market_regime
-from services.engine.features.market_turn import classify_market_turn_state
+from services.engine.features.market_turn import classify_verified_market_turn_state
 from services.engine.plans.repository import latest_feature_date, load_feature_contexts
 from services.engine.research_pool.repository import add_symbols_to_pool, list_pool_items
 from services.engine.rules.evaluator import evaluate_group
 from services.engine.rules.seed_rules import MVP_RULES
 from services.engine.signals.route import build_signal_route
-from services.shared.models import ParameterRecommendation, ResearchPoolItem, StockFeatureDaily
+from services.shared.models import (
+    DailyBar,
+    ParameterRecommendation,
+    ResearchPoolItem,
+    SectorFeatureDaily,
+    Security,
+    StockFeatureDaily,
+    TushareDatasetSyncReceipt,
+    TushareLimitListD,
+)
 from services.shared.symbols import is_growth_board_symbol
 
 LEARNING_SOURCE_REPORT_TYPES = (
@@ -948,6 +957,150 @@ def _market_participation_snapshot(contexts: list[dict[str, Any]]) -> dict[str, 
         "volume_support_rate": round(volume_support_rate, 4),
         "leadership_rate": round(leadership_rate, 4),
     }
+
+
+def _verified_market_turn_snapshot(
+    db: Session,
+    *,
+    feature_date: date,
+    contexts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    eligible_symbols = set(
+        db.execute(
+            select(Security.symbol)
+            .where(Security.list_date.is_not(None))
+            .where(Security.list_date <= feature_date)
+        ).scalars()
+    )
+    current_bars = list(
+        db.execute(select(DailyBar).where(DailyBar.trade_date == feature_date)).scalars()
+    )
+    current_bars = [item for item in current_bars if item.symbol in eligible_symbols]
+    valid_bars = [item for item in current_bars if item.pre_close and item.pre_close > 0]
+    expected_bar_count = len(eligible_symbols)
+    coverage_ratio = len(valid_bars) / expected_bar_count if expected_bar_count else 0.0
+    breadth_ratio = (
+        sum(1 for item in valid_bars if item.close > item.pre_close) / len(valid_bars)
+        if valid_bars
+        else 0.0
+    )
+    previous_date = db.execute(
+        select(func.max(DailyBar.trade_date))
+        .where(DailyBar.trade_date < feature_date)
+    ).scalar_one_or_none()
+    previous_amount = 0.0
+    previous_coverage_ratio = 0.0
+    if previous_date is not None:
+        previous_bars = list(
+            db.execute(select(DailyBar).where(DailyBar.trade_date == previous_date)).scalars()
+        )
+        previous_amount_bars = [
+            item
+            for item in previous_bars
+            if item.symbol in eligible_symbols and item.amount is not None
+        ]
+        previous_coverage_ratio = (
+            len(previous_amount_bars) / expected_bar_count if expected_bar_count else 0.0
+        )
+        previous_amount = sum(float(item.amount) for item in previous_amount_bars)
+    current_amount_bars = [item for item in current_bars if item.amount is not None]
+    current_amount_coverage_ratio = (
+        len(current_amount_bars) / expected_bar_count if expected_bar_count else 0.0
+    )
+    current_amount = sum(float(item.amount) for item in current_amount_bars)
+    amount_change_pct = current_amount / previous_amount - 1 if previous_amount > 0 else None
+    index_bar = db.execute(
+        select(DailyBar)
+        .where(DailyBar.symbol == "sh000001")
+        .where(DailyBar.trade_date == feature_date)
+    ).scalar_one_or_none()
+    index_change_pct = (
+        float(index_bar.close / index_bar.pre_close - 1)
+        if index_bar and index_bar.pre_close and index_bar.pre_close > 0
+        else None
+    )
+    limit_rows = list(
+        db.execute(
+            select(TushareLimitListD.limit).where(TushareLimitListD.trade_date == feature_date)
+        ).scalars()
+    )
+    limit_receipt = db.execute(
+        select(TushareDatasetSyncReceipt)
+        .where(TushareDatasetSyncReceipt.dataset == "limit_list_d")
+        .where(TushareDatasetSyncReceipt.trade_date == feature_date)
+    ).scalar_one_or_none()
+    limit_list_complete = bool(
+        limit_receipt is not None and limit_receipt.row_count == len(limit_rows)
+    )
+    limit_down_count = sum(1 for value in limit_rows if str(value or "") == "D")
+    sector_rows = list(
+        db.execute(
+            select(SectorFeatureDaily).where(SectorFeatureDaily.trade_date == feature_date)
+        ).scalars()
+    )
+    expected_sector_count = len(
+        set(
+            db.execute(
+                select(Security.industry)
+                .where(Security.list_date.is_not(None))
+                .where(Security.list_date <= feature_date)
+                .where(Security.industry.is_not(None))
+            ).scalars()
+        )
+    )
+    sector_scores: dict[str, list[tuple[float, float]]] = {}
+    for row in sector_rows:
+        features = row.features or {}
+        sector_scores.setdefault(str(row.sector_code), []).append(
+            (
+                _float(features, "sector_strength_score", 50.0),
+                _float(features, "sector_breadth_score", 50.0),
+            )
+        )
+    sector_expansion_count = sum(
+        1
+        for values in sector_scores.values()
+        if len(values) >= 2
+        and _avg([item[0] for item in values]) >= 60.0
+        and _avg([item[1] for item in values]) >= 55.0
+    )
+    data_ready = bool(
+        coverage_ratio >= 0.98
+        and current_amount_coverage_ratio >= 0.98
+        and previous_coverage_ratio >= 0.98
+        and amount_change_pct is not None
+        and index_change_pct is not None
+        and limit_list_complete
+        and len(sector_rows) >= max(1, int(expected_sector_count * 0.80))
+    )
+    state = classify_verified_market_turn_state(
+        breadth_ratio=breadth_ratio,
+        amount_change_pct=amount_change_pct,
+        limit_down_count=limit_down_count if limit_list_complete else None,
+        index_change_pct=index_change_pct,
+        sector_expansion_count=sector_expansion_count,
+        data_ready=data_ready,
+    )
+    snapshot = state.to_dict()
+    snapshot.update(
+        {
+            "data_ready": data_ready,
+            "coverage_ratio": round(coverage_ratio, 6),
+            "current_amount_coverage_ratio": round(current_amount_coverage_ratio, 6),
+            "previous_amount_coverage_ratio": round(previous_coverage_ratio, 6),
+            "breadth_ratio": round(breadth_ratio, 6),
+            "amount_change_pct": round(amount_change_pct, 6)
+            if amount_change_pct is not None
+            else None,
+            "limit_down_count": limit_down_count if limit_list_complete else None,
+            "limit_list_complete": limit_list_complete,
+            "index_change_pct": round(index_change_pct, 6)
+            if index_change_pct is not None
+            else None,
+            "sector_expansion_count": sector_expansion_count,
+        }
+    )
+    return snapshot
 
 
 def _regime_candidate_limit(
@@ -2688,13 +2841,10 @@ def discover_next_session_candidates(
     emotion_gate = _emotion_gate(market_regime)
     quality_snapshot = _market_quality_snapshot(contexts)
     participation_snapshot = _market_participation_snapshot(contexts)
-    market_turn = classify_market_turn_state(
-        trend_score=market_regime.trend_score,
-        breadth_score=market_regime.breadth_score,
-        emotion_score=market_regime.emotion_score,
-        liquidity_score=float(participation_snapshot.get("liquidity_score", 50.0)),
-        strong_trend_rate=float(quality_snapshot.get("strong_trend_rate", 0.0)),
-        up_signal_rate=float(quality_snapshot.get("up_signal_rate", 0.0)),
+    market_turn = _verified_market_turn_snapshot(
+        db,
+        feature_date=effective_feature_date,
+        contexts=contexts,
     )
     rank_score_fn = _regime_rank_score_fn(market_regime.regime, participation_snapshot)
     requested_limit = max(1, min(limit, CANDIDATE_DEFAULT_LIMIT))
@@ -3091,11 +3241,11 @@ def discover_next_session_candidates(
             "emotion_gate": emotion_gate["state"],
             "volatility_score": market_regime.volatility_score,
             "risk_level": market_regime.risk_level,
-            "market_turn": market_turn.to_dict(),
+            "market_turn": market_turn,
             **quality_snapshot,
         },
         "emotion_gate": emotion_gate,
-        "market_turn": market_turn.to_dict(),
+        "market_turn": market_turn,
         "market_participation_snapshot": participation_snapshot,
         "universe_warning": (
             ""

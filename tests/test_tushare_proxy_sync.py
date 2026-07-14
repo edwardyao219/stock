@@ -187,6 +187,24 @@ def test_tushare_5000_sync_rejects_missing_primary_keys(monkeypatch) -> None:
         tushare_sync.sync_tushare_moneyflow_dc(db, trade_date="20260710")
 
 
+def test_limit_list_sync_rejects_incomplete_paginated_response(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    response = client.TushareResponse(
+        fields=["trade_date", "ts_code", "limit"],
+        items=[["20260710", "000001.SZ", "U"]],
+        has_more=True,
+        count=1,
+    )
+    monkeypatch.setattr(client, "query", lambda api_name, params=None: response)
+
+    with Session(engine) as db, pytest.raises(RuntimeError, match="incomplete"):
+        tushare_sync.sync_tushare_limit_list_d(db, trade_date="20260710")
+
+    with Session(engine) as db:
+        assert db.query(models.TushareLimitListD).count() == 0
+
+
 def test_tushare_sync_writes_core_tables(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

@@ -269,6 +269,19 @@ class TushareLimitListD(Base):
     limit: Mapped[Optional[str]] = mapped_column(String(4), index=True)
 
 
+class TushareDatasetSyncReceipt(Base):
+    __tablename__ = "tushare_dataset_sync_receipts"
+    __table_args__ = (
+        UniqueConstraint("dataset", "trade_date", name="uq_tushare_dataset_sync_receipt"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    dataset: Mapped[str] = mapped_column(String(32), index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class TushareCyqPerf(Base):
     __tablename__ = "tushare_cyq_perf"
     __table_args__ = (
