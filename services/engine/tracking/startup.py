@@ -13,6 +13,7 @@ STARTUP_TAGS = {
     "candidate_pool:expansion_confirm": ("startup_confirmed", "启动确认"),
 }
 HORIZONS = (5, 10, 20)
+HistoricalEvidence = dict[str, dict[int, dict[str, float | int | None]]]
 
 
 @dataclass(frozen=True)
@@ -120,3 +121,24 @@ def build_startup_tracking_rows(
             )
         )
     return rows
+
+
+def build_startup_historical_evidence(payload: dict) -> HistoricalEvidence:
+    evidence: HistoricalEvidence = {}
+    scopes = payload.get("scopes") if isinstance(payload.get("scopes"), dict) else {}
+    for signal_type in ("startup_preheat", "startup_confirmed"):
+        scope = scopes.get(signal_type) if isinstance(scopes.get(signal_type), dict) else {}
+        horizon_metrics: dict[int, dict[str, float | int | None]] = {}
+        for horizon in HORIZONS:
+            horizons = scope.get("horizons") if isinstance(scope.get("horizons"), dict) else {}
+            values = horizons.get(horizon) or horizons.get(str(horizon)) or {}
+            raw = values.get("raw") if isinstance(values.get("raw"), dict) else {}
+            guarded = values.get("guarded") if isinstance(values.get("guarded"), dict) else {}
+            horizon_metrics[horizon] = {
+                "sample_count": raw.get("sample_count", 0),
+                "win_rate": raw.get("win_rate"),
+                "raw_return": raw.get("avg_return"),
+                "guarded_return": guarded.get("avg_return"),
+            }
+        evidence[signal_type] = horizon_metrics
+    return evidence

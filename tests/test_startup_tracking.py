@@ -4,7 +4,11 @@ from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from services.engine.tracking.startup import StartupCandidate, build_startup_tracking_rows
+from services.engine.tracking.startup import (
+    StartupCandidate,
+    build_startup_historical_evidence,
+    build_startup_tracking_rows,
+)
 from services.shared.database import Base
 from services.shared.models import DailyBar
 
@@ -76,3 +80,33 @@ def test_startup_tracking_uses_signal_date_and_reports_horizon_progress() -> Non
     assert rows[1].signal_type == "startup_confirmed"
     assert rows[1].signal_label == "启动确认"
     assert rows[1].realised_return is None
+
+
+def test_startup_historical_evidence_reads_startup_scopes() -> None:
+    evidence = build_startup_historical_evidence(
+        {
+            "scopes": {
+                "startup_preheat": {
+                    "horizons": {
+                        5: {
+                            "raw": {"sample_count": 2, "win_rate": 0.5, "avg_return": 0.03},
+                            "guarded": {"sample_count": 2, "avg_return": 0.02},
+                        }
+                    }
+                },
+                "startup_confirmed": {
+                    "horizons": {
+                        5: {
+                            "raw": {"sample_count": 1, "win_rate": 1.0, "avg_return": 0.08},
+                            "guarded": {"sample_count": 1, "avg_return": 0.06},
+                        }
+                    }
+                },
+            }
+        }
+    )
+
+    assert evidence["startup_preheat"][5]["sample_count"] == 2
+    assert evidence["startup_preheat"][5]["win_rate"] == 0.5
+    assert evidence["startup_preheat"][5]["raw_return"] == 0.03
+    assert evidence["startup_confirmed"][5]["guarded_return"] == 0.06

@@ -66,7 +66,7 @@ git commit -m "feat: calculate startup candidate tracking"
 
 - [ ] **Step 1: Write failing completed-sample tests**
 
-Build a replay summary containing completed and incomplete forward returns. Assert each signal type returns 5/10/20-day sample count, win rate, median raw return and median guarded return using only non-`None` completed observations.
+Build replay scope summaries containing completed and incomplete forward returns. Assert the existing `startup_preheat` and `startup_confirmed` scopes return 5/10/20-day sample count, win rate and raw/guarded return metrics using only non-`None` completed observations.
 
 ```python
 assert evidence["startup_preheat"][5].sample_count == 2
@@ -82,7 +82,7 @@ Expected: failure because the startup evidence adapter does not exist.
 
 - [ ] **Step 3: Reuse replay cache data**
 
-Add a small adapter that reads `startup_signal_horizons` from the existing candidate replay-effect payload, maps the existing buckets to the two visible signal types, and preserves `sample_count`, `win_rate`, median raw and guarded returns. Do not rerun walk-forward replay per request and do not use incomplete observations.
+Add a small adapter that reads the existing `startup_preheat` and `startup_confirmed` scopes from the candidate replay-effect payload and preserves `sample_count`, `win_rate`, raw and guarded return metrics. Do not map score buckets to signal types, do not rerun walk-forward replay per request and do not use incomplete observations.
 
 - [ ] **Step 4: Verify GREEN and commit**
 
