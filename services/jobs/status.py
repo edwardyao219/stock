@@ -49,6 +49,21 @@ def _extract_market_summary(values: list[str]) -> str | None:
     return None
 
 
+def _step_status(steps: list[dict[str, Any]], name: str) -> str:
+    step = next((item for item in steps if item.get("name") == name), None)
+    return str(step.get("status") or "not_run") if step else "not_run"
+
+
+def _dingtalk_status(statuses: list[str]) -> str:
+    if not statuses:
+        return "not_sent"
+    if all(item.endswith(":ok") for item in statuses):
+        return "ok"
+    if any(item.endswith(":failed") for item in statuses):
+        return "failed"
+    return "warning"
+
+
 def build_after_close_status(
     result: dict[str, Any],
     *,
@@ -82,6 +97,7 @@ def build_after_close_status(
         else str(result.get("message") or "收盘推送状态已记录。")
     )
 
+    dingtalk_statuses = _extract_dingtalk_statuses(step_texts)
     return {
         "trade_date": str(result.get("trade_date") or ""),
         "next_trade_date": result.get("next_trade_date"),
@@ -90,7 +106,10 @@ def build_after_close_status(
         "updated_at": (updated_at or now_local()).isoformat(),
         "candidate_count": _extract_first_int(r"写入\s+(\d+)\s+只股票", step_texts),
         "plan_count": _extract_first_int(r"生成\s+(\d+)\s+条交易计划", step_texts),
-        "dingtalk_statuses": _extract_dingtalk_statuses(step_texts),
+        "dingtalk_statuses": dingtalk_statuses,
+        "candidate_web_status": _step_status(steps, "discover_next_session_candidates"),
+        "review_status": _step_status(steps, "generate_daily_review"),
+        "dingtalk_status": _dingtalk_status(dingtalk_statuses),
         "market_summary": _extract_market_summary(step_texts),
         "tushare_evidence_health": result.get("tushare_evidence_health") or {},
         "scheduler_health": result.get("scheduler_health") or {},

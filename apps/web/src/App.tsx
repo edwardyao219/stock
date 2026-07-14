@@ -2350,6 +2350,9 @@ export function App() {
                         <span>日期 {afterCloseStatus.trade_date}</span>
                         <span>候选 {afterCloseStatus.candidate_count}</span>
                         <span>计划 {afterCloseStatus.plan_count}</span>
+                        <span>候选 Web {afterCloseStatusLabel(afterCloseStatus.candidate_web_status)}</span>
+                        <span>复盘 {afterCloseStatusLabel(afterCloseStatus.review_status)}</span>
+                        <span>钉钉 {afterCloseStatusLabel(afterCloseStatus.dingtalk_status)}</span>
                         <span>{afterCloseDingText(afterCloseStatus)}</span>
                         <span>调度健康 {String(afterCloseStatus.scheduler_health?.state ?? "正常") === "failed" ? "需人工处理" : String(afterCloseStatus.scheduler_health?.state ?? "正常") === "completed" ? "正常" : "恢复中"}</span>
                         <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>

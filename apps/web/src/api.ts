@@ -1159,6 +1159,9 @@ export interface AfterCloseStatus {
   candidate_count: number;
   plan_count: number;
   dingtalk_statuses: string[];
+  candidate_web_status: string;
+  review_status: string;
+  dingtalk_status: string;
   market_summary: string | null;
   tushare_evidence_health: TushareEvidenceHealth;
   scheduler_health: Record<string, unknown>;

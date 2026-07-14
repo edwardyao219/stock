@@ -138,6 +138,9 @@ class AfterCloseStatusResponse(BaseModel):
     candidate_count: int = 0
     plan_count: int = 0
     dingtalk_statuses: list[str] = []
+    candidate_web_status: str = "not_run"
+    review_status: str = "not_run"
+    dingtalk_status: str = "not_sent"
     market_summary: str | None = None
     tushare_evidence_health: dict[str, Any] = Field(default_factory=dict)
     scheduler_health: dict[str, Any] = Field(default_factory=dict)

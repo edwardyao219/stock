@@ -1693,8 +1693,6 @@ def dispatch_paper_alerts(alerts: list[dict[str, Any]]) -> list[NotificationResu
 def dispatch_candidate_screening(discovery: dict[str, Any]) -> list[NotificationResult]:
     if not discovery:
         return []
-    if not _candidate_screening_items(discovery):
-        return []
     return _send_text(format_candidate_screening_text(discovery, max_items=15))
 
 

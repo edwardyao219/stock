@@ -1,4 +1,5 @@
 from services.notifications.dispatcher import (
+    NotificationResult,
     build_candidate_tiers,
     dispatch_candidate_screening,
     dispatch_monthly_trade_summary,
@@ -2070,4 +2071,33 @@ def test_dispatch_monthly_trade_summary_is_web_only(monkeypatch) -> None:
     results = dispatch_monthly_trade_summary("6月交易总结")
 
     assert results == []
+
+
+def test_dispatch_candidate_screening_reports_empty_pool_reason(monkeypatch) -> None:
+    sent: list[str] = []
+    monkeypatch.setattr(
+        "services.notifications.dispatcher._send_text",
+        lambda content: sent.append(content)
+        or [NotificationResult(channel="dingtalk", status="ok", message="sent")],
+    )
+
+    results = dispatch_candidate_screening(
+        {
+            "feature_date": "2026-07-14",
+            "universe_size": 5540,
+            "candidates": [],
+            "candidate_tiers": {
+                "core_action": [],
+                "sector_watch": [],
+                "watch_wait": [],
+                "risk_reject": [],
+                "summary": {"core_block_reason": "市场转折状态为防守，核心行动关闭。"},
+            },
+            "market_turn": {"label": "防守", "summary": "真实五项未确认。"},
+        }
+    )
+
+    assert [item.status for item in results] == ["ok"]
+    assert "暂无候选" in sent[0]
+    assert "核心行动关闭" in sent[0]
     get_settings.cache_clear()
