@@ -1130,6 +1130,7 @@ def run_after_close_session(
     account: str = "default",
     use_learning_adjustments: bool = True,
     full_market_sync: bool = False,
+    safe_recovery: bool = False,
 ) -> DailyPipelineResult:
     steps = []
     if full_market_sync:
@@ -1192,6 +1193,14 @@ def run_after_close_session(
                 summary="数据完整性不足",
                 details=candidate_gate.details,
             )
+        )
+
+    if safe_recovery:
+        return DailyPipelineResult(
+            trade_date=trade_date,
+            next_trade_date=next_trade_date,
+            stage="after_close",
+            steps=steps,
         )
 
     steps.extend(

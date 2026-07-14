@@ -832,6 +832,65 @@ def test_after_close_session_blocks_candidates_when_daily_data_gate_fails(monkey
     assert captured["execute_entries"] is False
 
 
+def test_after_close_safe_recovery_skips_paper_and_regression_steps(monkeypatch) -> None:
+    monkeypatch.setattr(
+        pipeline,
+        "_sync_daily_market_data_step",
+        lambda *args, **kwargs: pipeline.PipelineStepResult(
+            "sync_daily_market_data", "ok", "sync"
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_sync_sector_moneyflow_step",
+        lambda *args, **kwargs: pipeline.PipelineStepResult(
+            "sync_sector_moneyflow", "ok", "sector"
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_prepare_market_feature_universe_step",
+        lambda *args, **kwargs: pipeline.PipelineStepResult(
+            "prepare_market_feature_universe", "ok", "features"
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_daily_candidate_data_gate_step",
+        lambda *args, **kwargs: pipeline.PipelineStepResult(
+            "validate_daily_candidate_data", "warning", "blocked"
+        ),
+    )
+    for name in (
+        "_run_daily_paper_simulation_step",
+        "_generate_paper_reviews_step",
+        "_run_rule_regression_step",
+        "_generate_backtest_learning_step",
+        "_prewarm_candidate_replay_effect_step",
+        "_generate_daily_review_step",
+    ):
+        monkeypatch.setattr(
+            pipeline,
+            name,
+            lambda *args, _name=name, **kwargs: (_ for _ in ()).throw(AssertionError(_name)),
+        )
+
+    result = pipeline.run_after_close_session(
+        "2026-07-13",
+        "2026-07-14",
+        full_market_sync=True,
+        safe_recovery=True,
+    )
+
+    assert [step.name for step in result.steps] == [
+        "sync_daily_market_data",
+        "sync_sector_moneyflow",
+        "prepare_market_feature_universe",
+        "validate_daily_candidate_data",
+        "discover_next_session_candidates",
+    ]
+
+
 def test_record_tracking_snapshots_keeps_symbols_before_session_closes(monkeypatch) -> None:
     class _Db:
         closed = False
