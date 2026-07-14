@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.stock-research.celery-beat</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/REPLACE_WITH_YOUR_USER/stock/.venv/bin/celery</string>
+    <string>-A</string>
+    <string>services.jobs.celery_app.celery_app</string>
+    <string>beat</string>
+    <string>--loglevel=info</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/REPLACE_WITH_YOUR_USER/stock</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/REPLACE_WITH_YOUR_USER/stock/logs/celery-beat.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/REPLACE_WITH_YOUR_USER/stock/logs/celery-beat.log</string>
+</dict>
+</plist>

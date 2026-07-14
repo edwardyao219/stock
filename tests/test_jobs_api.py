@@ -108,6 +108,26 @@ def test_build_after_close_status_keeps_scheduler_health() -> None:
     assert payload["scheduler_health"]["recovery_attempts"] == 1
 
 
+def test_build_after_close_status_preserves_active_and_failed_states() -> None:
+    running = job_status.build_after_close_status(
+        {
+            "trade_date": "2026-07-14",
+            "status": "running",
+            "message": "盘后任务正在执行",
+        }
+    )
+    failed = job_status.build_after_close_status(
+        {
+            "trade_date": "2026-07-14",
+            "status": "failed",
+            "message": "盘后任务失败",
+        }
+    )
+
+    assert running["status"] == "running"
+    assert failed["status"] == "failed"
+
+
 def test_rule_regression_status_reads_latest_persisted_run(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

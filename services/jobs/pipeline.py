@@ -839,6 +839,7 @@ def _discover_next_session_candidates_step(
     next_trade_date: str,
     limit: int,
     use_learning_adjustments: bool,
+    suppress_candidate_notification: bool = False,
 ) -> PipelineStepResult:
     from services.engine.plans.sync import generate_and_store_trade_plans
     from services.engine.research_pool.candidates import (
@@ -927,7 +928,9 @@ def _discover_next_session_candidates_step(
         and effective_feature_date
         and str(effective_feature_date) != str(requested_feature_date)
     )
-    notification_results = [] if feature_date_fell_back else dispatch_candidate_screening(discovery)
+    notification_results = []
+    if not feature_date_fell_back and not suppress_candidate_notification:
+        notification_results = dispatch_candidate_screening(discovery)
 
     candidates = discovery["candidates"]
     action_candidates = discovery.get("action_candidates") or []
@@ -1017,6 +1020,8 @@ def _discover_next_session_candidates_step(
                 "已跳过钉钉推送，避免重复发送旧盘面候选。"
             ),
         )
+    elif suppress_candidate_notification:
+        details.insert(0, "钉钉提醒：已跳过，候选消息已在故障前发送。")
     written_count = int(discovery.get("written") or 0) + int(star_discovery.get("written") or 0)
     retired_count = int(discovery.get("retired") or 0) + int(star_discovery.get("retired") or 0)
     summary = (
@@ -1029,7 +1034,13 @@ def _discover_next_session_candidates_step(
     )
     return PipelineStepResult(
         name="discover_next_session_candidates",
-        status="warning" if discovery.get("universe_warning") or feature_date_fell_back else "ok",
+        status=(
+            "failed"
+            if any(str(item.status) == "failed" for item in notification_results)
+            else "warning"
+            if discovery.get("universe_warning") or feature_date_fell_back
+            else "ok"
+        ),
         detail=summary,
         summary=summary,
         details=details,
@@ -1131,6 +1142,7 @@ def run_after_close_session(
     use_learning_adjustments: bool = True,
     full_market_sync: bool = False,
     safe_recovery: bool = False,
+    suppress_candidate_notification: bool = False,
 ) -> DailyPipelineResult:
     steps = []
     if full_market_sync:
@@ -1171,11 +1183,21 @@ def run_after_close_session(
             [
                 _run_step(
                     "discover_next_session_candidates",
-                    lambda: _discover_next_session_candidates_step(
-                        trade_date,
-                        next_trade_date,
-                        limit,
-                        use_learning_adjustments,
+                    lambda: (
+                        _discover_next_session_candidates_step(
+                            trade_date,
+                            next_trade_date,
+                            limit,
+                            use_learning_adjustments,
+                            suppress_candidate_notification=True,
+                        )
+                        if suppress_candidate_notification
+                        else _discover_next_session_candidates_step(
+                            trade_date,
+                            next_trade_date,
+                            limit,
+                            use_learning_adjustments,
+                        )
                     ),
                 ),
                 _run_step(

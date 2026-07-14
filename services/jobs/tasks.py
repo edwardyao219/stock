@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
+from uuid import uuid4
 
 from services.collector.realtime import sync_realtime_quotes
 from services.engine.features.health import inspect_tushare_evidence_health
@@ -25,6 +26,8 @@ from services.shared.database import SessionLocal
 from services.shared.time import now_local
 
 _DAILY_TASK_LOCK_TTL_SECONDS = 6 * 60 * 60
+_AFTER_CLOSE_RECOVERY_LOCK_TTL_SECONDS = 30 * 60
+_AFTER_CLOSE_RECOVERY_MAX_ATTEMPTS = 2
 
 
 def _is_after_close_push_window(value: datetime) -> bool:
@@ -43,6 +46,67 @@ def _acquire_daily_task_lock(task_name: str, trade_date: date) -> tuple[bool, st
     except Exception:
         return True, key
     return bool(acquired), key
+
+
+def _acquire_after_close_recovery_lock(trade_date: str) -> tuple[str | None, str]:
+    key = f"stock:after-close-recovery:{trade_date}"
+    token = uuid4().hex
+    try:
+        acquired = celery_app.backend.client.set(
+            key,
+            token,
+            ex=_AFTER_CLOSE_RECOVERY_LOCK_TTL_SECONDS,
+            nx=True,
+        )
+    except Exception:
+        return token, key
+    return (token if acquired else None), key
+
+
+def _release_after_close_recovery_lock(key: str, token: str) -> None:
+    try:
+        celery_app.backend.client.eval(
+            """
+            if redis.call('get', KEYS[1]) == ARGV[1] then
+                return redis.call('del', KEYS[1])
+            end
+            return 0
+            """,
+            1,
+            key,
+            token,
+        )
+    except Exception:
+        return
+
+
+def _claim_after_close_recovery_slot(trade_date: str) -> tuple[bool, str]:
+    return _acquire_daily_task_lock("after-close", date.fromisoformat(trade_date))
+
+
+def _is_after_close_task_active() -> bool:
+    try:
+        active = celery_app.control.inspect(timeout=1.0).active()
+    except Exception:
+        return True
+    if active is None:
+        return True
+    return any(
+        task.get("name") == "services.jobs.tasks.run_after_close_session_task"
+        for worker_tasks in active.values()
+        for task in worker_tasks or []
+        if isinstance(task, dict)
+    )
+
+
+def _dispatch_after_close_failure_alert(trade_date: str, stage: str, error: str) -> None:
+    acquired, _ = _acquire_daily_task_lock(
+        f"after-close-failure-alert:{stage}",
+        date.fromisoformat(trade_date),
+    )
+    if acquired:
+        title = "盘后恢复失败" if stage == "safe-recovery" else "盘后任务失败"
+        dispatch_text(f"【{title}】{trade_date}：{error}")
 
 
 @celery_app.task(name="services.jobs.tasks.pre_market_check")
@@ -262,30 +326,94 @@ def run_after_close_session_task(force: bool = False) -> dict[str, object]:
                 "lock_key": lock_key,
             }
     next_trade_date = resolve_next_trade_date(today.isoformat())
-    result = run_after_close_session(
-        today.isoformat(),
-        next_trade_date,
-        full_market_sync=True,
-    ).to_dict()
-    sync_statuses: dict[str, str] = {}
-    for step in result.get("steps") or []:
-        if step.get("name") != "sync_daily_market_data":
-            continue
-        for detail in step.get("details") or []:
-            match = re.match(
-                r"^(moneyflow_dc|limit_list_d|cyq_perf): (ok|skipped|failed), rows=(\d+)",
-                str(detail),
+    write_after_close_status(
+        {
+            "trade_date": today.isoformat(),
+            "next_trade_date": next_trade_date,
+            "status": "running",
+            "message": "盘后任务正在执行",
+            "scheduler_health": {
+                "state": "running",
+                "last_heartbeat_at": current_time.isoformat(),
+                "completed_steps": [],
+                "missing_steps": [],
+                "recovery_attempts": 0,
+            },
+        }
+    )
+    result: dict[str, object] | None = None
+    try:
+        result = run_after_close_session(
+            today.isoformat(),
+            next_trade_date,
+            full_market_sync=True,
+        ).to_dict()
+        sync_statuses: dict[str, str] = {}
+        for step in result.get("steps") or []:
+            if step.get("name") != "sync_daily_market_data":
+                continue
+            for detail in step.get("details") or []:
+                match = re.match(
+                    r"^(moneyflow_dc|limit_list_d|cyq_perf): (ok|skipped|failed), rows=(\d+)",
+                    str(detail),
+                )
+                if match:
+                    sync_statuses[match.group(1)] = match.group(2)
+        with SessionLocal() as db:
+            result["tushare_evidence_health"] = inspect_tushare_evidence_health(
+                db,
+                today,
+                sync_statuses,
             )
-            if match:
-                sync_statuses[match.group(1)] = match.group(2)
-    with SessionLocal() as db:
-        result["tushare_evidence_health"] = inspect_tushare_evidence_health(
-            db,
-            today,
-            sync_statuses,
-        )
-    write_after_close_status(result)
-    return result
+        failed_steps = [
+            str(step.get("name") or "unknown")
+            for step in result.get("steps") or []
+            if step.get("status") == "failed"
+        ]
+        result["scheduler_health"] = {
+            "state": "failed" if failed_steps else "completed",
+            "last_heartbeat_at": now_local().isoformat(),
+            "completed_steps": [
+                str(step.get("name") or "unknown")
+                for step in result.get("steps") or []
+                if step.get("status") != "failed"
+            ],
+            "missing_steps": failed_steps,
+            "recovery_attempts": 0,
+        }
+        if failed_steps:
+            _dispatch_after_close_failure_alert(
+                today.isoformat(),
+                "normal",
+                f"failed steps: {', '.join(failed_steps)}",
+            )
+        write_after_close_status(result)
+        return result
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        failed_result = result or {
+            "trade_date": today.isoformat(),
+            "next_trade_date": next_trade_date,
+            "steps": [],
+        }
+        failed_result["status"] = "failed"
+        failed_result["message"] = "盘后任务失败"
+        failed_result["scheduler_health"] = {
+            "state": "failed",
+            "last_heartbeat_at": now_local().isoformat(),
+            "completed_steps": [
+                str(step.get("name") or "unknown")
+                for step in failed_result.get("steps") or []
+                if step.get("status") != "failed"
+            ],
+            "missing_steps": ["after_close_session"],
+            "recovery_attempts": 0,
+            "error": error,
+            "safe_recovery_url": f"/jobs/after-close/recover?trade_date={today.isoformat()}",
+        }
+        write_after_close_status(failed_result)
+        _dispatch_after_close_failure_alert(today.isoformat(), "normal", error)
+        raise
 
 
 @celery_app.task(name="services.jobs.tasks.run_after_close_safe_recovery_task")
@@ -299,20 +427,78 @@ def run_after_close_safe_recovery_task() -> dict[str, object]:
             "status": "skipped",
             "message": "after-close status already completed",
         }
+    if (
+        existing
+        and existing.get("status") in {"scheduled", "running"}
+        and _is_after_close_task_active()
+    ):
+        return {
+            "trade_date": trade_date,
+            "status": "skipped",
+            "message": "after-close task is still running",
+        }
+    if not existing:
+        claimed, slot_key = _claim_after_close_recovery_slot(trade_date)
+        if not claimed:
+            return {
+                "trade_date": trade_date,
+                "status": "skipped",
+                "message": "normal after-close task is pending or running",
+                "lock_key": slot_key,
+            }
+    scheduler_health = existing.get("scheduler_health") if isinstance(existing, dict) else {}
+    prior_attempts = 0
+    if isinstance(scheduler_health, dict):
+        try:
+            prior_attempts = int(scheduler_health.get("recovery_attempts") or 0)
+        except (TypeError, ValueError):
+            prior_attempts = 0
+    if prior_attempts >= _AFTER_CLOSE_RECOVERY_MAX_ATTEMPTS:
+        return {
+            "trade_date": trade_date,
+            "status": "skipped",
+            "message": "after-close recovery attempt limit reached",
+        }
+    token, lock_key = _acquire_after_close_recovery_lock(trade_date)
+    if not token:
+        return {
+            "trade_date": trade_date,
+            "status": "skipped",
+            "message": "after-close recovery already running",
+            "lock_key": lock_key,
+        }
+    recovery_attempts = prior_attempts + 1
     try:
         result = run_after_close_session(
             trade_date,
             resolve_next_trade_date(trade_date),
             full_market_sync=True,
             safe_recovery=True,
+            suppress_candidate_notification=bool(
+                isinstance(existing, dict) and existing.get("dingtalk_statuses")
+            ),
         ).to_dict()
+        failed_steps = [
+            str(step.get("name") or "unknown")
+            for step in result.get("steps") or []
+            if step.get("status") == "failed"
+        ]
         result["scheduler_health"] = {
-            "state": "completed",
+            "state": "failed" if failed_steps else "completed",
             "last_heartbeat_at": current_time.isoformat(),
-            "completed_steps": [step["name"] for step in result["steps"]],
-            "missing_steps": [],
-            "recovery_attempts": 1,
+            "completed_steps": [
+                str(step.get("name") or "unknown")
+                for step in result.get("steps") or []
+                if step.get("status") != "failed"
+            ],
+            "missing_steps": failed_steps,
+            "recovery_attempts": recovery_attempts,
+            "safe_recovery_url": f"/jobs/after-close/recover?trade_date={trade_date}",
         }
+        if failed_steps:
+            error = f"failed steps: {', '.join(failed_steps)}"
+            result["scheduler_health"]["error"] = error
+            _dispatch_after_close_failure_alert(trade_date, "safe-recovery", error)
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         result = {
@@ -325,11 +511,15 @@ def run_after_close_safe_recovery_task() -> dict[str, object]:
                 "last_heartbeat_at": current_time.isoformat(),
                 "completed_steps": [],
                 "missing_steps": ["safe_recovery"],
-                "recovery_attempts": 1,
+                "recovery_attempts": recovery_attempts,
                 "error": error,
+                "safe_recovery_url": f"/jobs/after-close/recover?trade_date={trade_date}",
             },
         }
-        dispatch_text(f"【盘后恢复失败】{trade_date}：{error}")
+        _dispatch_after_close_failure_alert(trade_date, "safe-recovery", error)
+    finally:
+        if isinstance(token, str):
+            _release_after_close_recovery_lock(lock_key, token)
     write_after_close_status(result)
     return result
 

@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -269,6 +270,61 @@ def test_after_close_recovery_skips_completed_status(monkeypatch) -> None:
     assert result["status"] == "skipped"
 
 
+def test_after_close_recovery_skips_active_normal_task(monkeypatch) -> None:
+    from datetime import datetime
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(
+        tasks,
+        "read_after_close_status",
+        lambda trade_date: {
+            "status": "running",
+            "scheduler_health": {"state": "running"},
+        },
+    )
+    monkeypatch.setattr(
+        tasks,
+        "run_after_close_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("recovery must not overlap an active normal task")
+        ),
+    )
+    monkeypatch.setattr(tasks, "_is_after_close_task_active", lambda: True, raising=False)
+
+    result = tasks.run_after_close_safe_recovery_task()
+
+    assert result["status"] == "skipped"
+    assert "still running" in result["message"]
+
+
+def test_after_close_recovery_resumes_stale_running_task(monkeypatch) -> None:
+    from datetime import datetime
+
+    class _Result:
+        def to_dict(self):
+            return {"trade_date": "2026-07-14", "steps": []}
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(
+        tasks,
+        "read_after_close_status",
+        lambda trade_date: {"status": "running", "scheduler_health": {"state": "running"}},
+    )
+    monkeypatch.setattr(tasks, "_is_after_close_task_active", lambda: False, raising=False)
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_after_close_recovery_lock",
+        lambda trade_date: (True, "lock"),
+    )
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-15")
+    monkeypatch.setattr(tasks, "run_after_close_session", lambda *args, **kwargs: _Result())
+    monkeypatch.setattr(tasks, "write_after_close_status", lambda result: None)
+
+    result = tasks.run_after_close_safe_recovery_task()
+
+    assert result["scheduler_health"]["state"] == "completed"
+
+
 def test_after_close_recovery_runs_safe_pipeline_when_status_is_missing(monkeypatch) -> None:
     from datetime import datetime
 
@@ -283,6 +339,17 @@ def test_after_close_recovery_runs_safe_pipeline_when_status_is_missing(monkeypa
     monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-15")
     monkeypatch.setattr(
         tasks,
+        "_acquire_after_close_recovery_lock",
+        lambda trade_date: (True, "lock"),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_claim_after_close_recovery_slot",
+        lambda trade_date: (True, "after-close-lock"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks,
         "run_after_close_session",
         lambda trade_date, next_trade_date, **kwargs: captured.update(kwargs) or _Result(),
     )
@@ -295,8 +362,161 @@ def test_after_close_recovery_runs_safe_pipeline_when_status_is_missing(monkeypa
     result = tasks.run_after_close_safe_recovery_task()
 
     assert captured["safe_recovery"] is True
+    assert captured["suppress_candidate_notification"] is False
     assert result["scheduler_health"]["state"] == "completed"
     assert captured["result"] == result
+
+
+def test_after_close_recovery_skips_candidate_notification_already_delivered(monkeypatch) -> None:
+    from datetime import datetime
+
+    captured = {}
+
+    class _Result:
+        def to_dict(self):
+            return {"trade_date": "2026-07-14", "steps": []}
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(
+        tasks,
+        "read_after_close_status",
+        lambda trade_date: {"status": "failed", "dingtalk_statuses": ["dingtalk:ok"]},
+    )
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-15")
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_after_close_recovery_lock",
+        lambda trade_date: (True, "lock"),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "run_after_close_session",
+        lambda *args, **kwargs: captured.update(kwargs) or _Result(),
+    )
+    monkeypatch.setattr(tasks, "write_after_close_status", lambda result: None)
+
+    tasks.run_after_close_safe_recovery_task()
+
+    assert captured["suppress_candidate_notification"] is True
+
+
+def test_after_close_recovery_releases_its_lock_after_completion(monkeypatch) -> None:
+    from datetime import datetime
+
+    released = []
+
+    class _Result:
+        def to_dict(self):
+            return {"trade_date": "2026-07-14", "steps": []}
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(tasks, "read_after_close_status", lambda trade_date: None)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-15")
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_after_close_recovery_lock",
+        lambda trade_date: ("recovery-token", "recovery-lock"),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_claim_after_close_recovery_slot",
+        lambda trade_date: (True, "after-close-lock"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_release_after_close_recovery_lock",
+        lambda *args: released.append(args),
+        raising=False,
+    )
+    monkeypatch.setattr(tasks, "run_after_close_session", lambda *args, **kwargs: _Result())
+    monkeypatch.setattr(tasks, "write_after_close_status", lambda result: None)
+
+    tasks.run_after_close_safe_recovery_task()
+
+    assert released == [("recovery-lock", "recovery-token")]
+
+
+def test_after_close_recovery_skips_when_another_recovery_holds_the_lock(monkeypatch) -> None:
+    from datetime import datetime
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(tasks, "read_after_close_status", lambda trade_date: None)
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_after_close_recovery_lock",
+        lambda trade_date: (False, "stock:after-close-recovery:2026-07-14"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_claim_after_close_recovery_slot",
+        lambda trade_date: (True, "after-close-lock"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks,
+        "run_after_close_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("recovery must not overlap another recovery")
+        ),
+    )
+
+    result = tasks.run_after_close_safe_recovery_task()
+
+    assert result["status"] == "skipped"
+    assert "recovery already running" in result["message"]
+
+
+def test_after_close_recovery_claims_missing_normal_task_slot(monkeypatch) -> None:
+    from datetime import datetime
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(tasks, "read_after_close_status", lambda trade_date: None)
+    monkeypatch.setattr(
+        tasks,
+        "_claim_after_close_recovery_slot",
+        lambda trade_date: (False, "stock:daily-task:after-close:2026-07-14"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks,
+        "run_after_close_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("normal task reservation must prevent recovery overlap")
+        ),
+    )
+
+    result = tasks.run_after_close_safe_recovery_task()
+
+    assert result["status"] == "skipped"
+    assert "normal after-close task" in result["message"]
+
+
+def test_after_close_recovery_stops_after_two_attempts(monkeypatch) -> None:
+    from datetime import datetime
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 40))
+    monkeypatch.setattr(
+        tasks,
+        "read_after_close_status",
+        lambda trade_date: {
+            "status": "failed",
+            "scheduler_health": {"recovery_attempts": 2},
+        },
+    )
+    monkeypatch.setattr(
+        tasks,
+        "run_after_close_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("recovery attempt limit must prevent another run")
+        ),
+    )
+
+    result = tasks.run_after_close_safe_recovery_task()
+
+    assert result["status"] == "skipped"
+    assert "attempt limit" in result["message"]
 
 
 def test_after_close_recovery_records_and_alerts_failure(monkeypatch) -> None:
@@ -306,6 +526,21 @@ def test_after_close_recovery_records_and_alerts_failure(monkeypatch) -> None:
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
     monkeypatch.setattr(tasks, "read_after_close_status", lambda trade_date: None)
     monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-15")
+    monkeypatch.setattr(
+        tasks,
+        "_claim_after_close_recovery_slot",
+        lambda trade_date: (True, "after-close-lock"),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_after_close_recovery_lock",
+        lambda trade_date: (True, "lock"),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_daily_task_lock",
+        lambda task_name, trade_date: (True, "alert-lock"),
+    )
     monkeypatch.setattr(
         tasks,
         "run_after_close_session",
@@ -327,6 +562,46 @@ def test_after_close_recovery_records_and_alerts_failure(monkeypatch) -> None:
     assert result["scheduler_health"]["state"] == "failed"
     assert "sync unavailable" in result["scheduler_health"]["error"]
     assert "2026-07-14" in captured["alert"]
+
+
+def test_after_close_recovery_alerts_each_failed_stage_once(monkeypatch) -> None:
+    from datetime import datetime
+
+    alerts = []
+    alert_locks = iter([(True, "alert-lock"), (False, "alert-lock")])
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(tasks, "read_after_close_status", lambda trade_date: None)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-15")
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_after_close_recovery_lock",
+        lambda trade_date: (True, "lock"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_claim_after_close_recovery_slot",
+        lambda trade_date: (True, "after-close-lock"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_daily_task_lock",
+        lambda task_name, trade_date: next(alert_locks),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "run_after_close_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("sync unavailable")),
+    )
+    monkeypatch.setattr(tasks, "write_after_close_status", lambda result: None)
+    monkeypatch.setattr(tasks, "dispatch_text", alerts.append)
+
+    tasks.run_after_close_safe_recovery_task()
+    tasks.run_after_close_safe_recovery_task()
+
+    assert len(alerts) == 1
+    assert "盘后恢复失败" in alerts[0]
 
 
 def test_celery_daily_jobs_use_documented_wall_clock_times() -> None:
@@ -433,7 +708,8 @@ def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) ->
     result = tasks.run_after_close_session_task()
 
     assert result["stage"] == "after_close"
-    assert written == [result]
+    assert written[0]["status"] == "running"
+    assert written[-1] == result
     assert captured["trade_date"] == "2026-06-30"
     assert captured["next_trade_date"] == "2026-07-01"
     assert captured["full_market_sync"] is True
@@ -442,6 +718,64 @@ def test_after_close_task_uses_full_market_sync_before_screening(monkeypatch) ->
         "limit_list_d": "ok",
         "cyq_perf": "ok",
     }
+
+
+def test_after_close_task_writes_running_heartbeat_before_pipeline(monkeypatch) -> None:
+    from datetime import datetime
+
+    writes = []
+
+    class _Result:
+        def to_dict(self):
+            return {
+                "trade_date": "2026-06-30",
+                "next_trade_date": "2026-07-01",
+                "stage": "after_close",
+                "steps": [{"name": "sync_daily_market_data", "status": "ok"}],
+            }
+
+    class _Db:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 30, 18, 0))
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-01")
+    monkeypatch.setattr(tasks, "run_after_close_session", lambda *args, **kwargs: _Result())
+    monkeypatch.setattr(tasks, "SessionLocal", _Db)
+    monkeypatch.setattr(tasks, "inspect_tushare_evidence_health", lambda *args: {})
+    monkeypatch.setattr(tasks, "write_after_close_status", writes.append)
+    monkeypatch.setattr(tasks, "_acquire_daily_task_lock", lambda *args: (True, "lock"))
+
+    tasks.run_after_close_session_task()
+
+    assert writes[0]["status"] == "running"
+    assert writes[0]["scheduler_health"]["state"] == "running"
+    assert writes[-1]["scheduler_health"]["state"] == "completed"
+
+
+def test_after_close_task_records_failure_when_pipeline_raises(monkeypatch) -> None:
+    from datetime import datetime
+
+    writes = []
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 30, 18, 0))
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-01")
+    monkeypatch.setattr(tasks, "_acquire_daily_task_lock", lambda *args: (True, "lock"))
+    monkeypatch.setattr(tasks, "write_after_close_status", writes.append)
+    monkeypatch.setattr(tasks, "_dispatch_after_close_failure_alert", lambda *args: None)
+    monkeypatch.setattr(
+        tasks,
+        "run_after_close_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("sync unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="sync unavailable"):
+        tasks.run_after_close_session_task()
+
+    assert writes[-1]["status"] == "failed"
+    assert writes[-1]["scheduler_health"]["state"] == "failed"
 
 
 def test_after_close_task_skips_duplicate_daily_push(monkeypatch) -> None:

@@ -14,6 +14,23 @@
 - 三条 MVP 规则
 - 机械复盘占位
 
+## macOS 后台调度
+
+使用 `infra/launchd/` 中的两个模板启动 Celery worker 和 beat。先将模板内的
+`REPLACE_WITH_YOUR_USER` 替换为本机用户名，复制到 `~/Library/LaunchAgents/`，再执行：
+
+```bash
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.stock-research.celery-worker.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.stock-research.celery-beat.plist
+```
+
+worker 默认 `--concurrency=2`，避免本机在盘中被大量 fork 进程抢占。状态确认：
+
+```bash
+redis-cli ping
+.venv/bin/celery -A services.jobs.celery_app.celery_app inspect ping --timeout=3
+```
+
 ## 下一步开发顺序
 
 ### 1. 数据库模型和迁移

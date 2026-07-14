@@ -56,8 +56,9 @@ def build_after_close_status(
 ) -> dict[str, Any]:
     steps = _step_dicts(result)
     step_statuses = [str(step.get("status") or "") for step in steps]
-    if str(result.get("status") or "") == "skipped":
-        status = "skipped"
+    result_status = str(result.get("status") or "")
+    if result_status in {"scheduled", "running", "skipped", "failed"}:
+        status = result_status
     elif any(item == "failed" for item in step_statuses):
         status = "failed"
     elif any(item in {"warning", "skipped"} for item in step_statuses):
