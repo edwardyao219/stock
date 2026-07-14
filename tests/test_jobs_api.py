@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from apps.api.app.main import create_app
 from apps.api.app.routers import jobs
 from services.jobs import run_pipeline as run_pipeline_cli
+from services.jobs import status as job_status
 from services.jobs.pipeline import DailyPipelineResult, PipelineStepResult
 from services.shared.database import Base
 from services.shared.models import BacktestTradeRecord, RulePerformanceDaily
@@ -70,6 +71,25 @@ def test_after_close_status_returns_unknown_without_cache(monkeypatch) -> None:
     assert payload.status == "unknown"
     assert payload.trade_date == "2026-07-09"
     assert "还没有收盘推送记录" in payload.message
+
+
+def test_build_after_close_status_keeps_scheduler_health() -> None:
+    payload = job_status.build_after_close_status(
+        {
+            "trade_date": "2026-07-14",
+            "scheduler_health": {
+                "state": "failed",
+                "last_heartbeat_at": "2026-07-14T18:20:00+08:00",
+                "completed_steps": ["sync_daily_market_data"],
+                "missing_steps": ["discover_next_session_candidates"],
+                "recovery_attempts": 1,
+                "safe_recovery_url": "/jobs/after-close/recover?trade_date=2026-07-14",
+            },
+        }
+    )
+
+    assert payload["scheduler_health"]["state"] == "failed"
+    assert payload["scheduler_health"]["recovery_attempts"] == 1
 
 
 def test_rule_regression_status_reads_latest_persisted_run(monkeypatch) -> None:

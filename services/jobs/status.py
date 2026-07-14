@@ -92,6 +92,7 @@ def build_after_close_status(
         "dingtalk_statuses": _extract_dingtalk_statuses(step_texts),
         "market_summary": _extract_market_summary(step_texts),
         "tushare_evidence_health": result.get("tushare_evidence_health") or {},
+        "scheduler_health": result.get("scheduler_health") or {},
         "source": "cache",
     }
 

@@ -139,6 +139,7 @@ class AfterCloseStatusResponse(BaseModel):
     dingtalk_statuses: list[str] = []
     market_summary: str | None = None
     tushare_evidence_health: dict[str, Any] = Field(default_factory=dict)
+    scheduler_health: dict[str, Any] = Field(default_factory=dict)
     source: str = "cache"
 
 
