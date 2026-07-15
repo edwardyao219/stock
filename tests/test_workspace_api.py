@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from apps.api.app.routers.workspace import (
     ManualStockRequest,
+    _sustained_startup_sectors,
     add_manual_stock,
     get_startup_tracking,
     get_workspace_stock,
@@ -19,6 +20,7 @@ from services.engine.research_pool import manual_research
 from services.shared.database import Base
 from services.shared.models import (
     DailyBar,
+    IntradayMarketTurnSnapshot,
     PaperAccount,
     PaperPosition,
     RealtimeQuote,
@@ -544,6 +546,38 @@ def test_list_intraday_candidates_returns_live_candidate_watchlist(monkeypatch) 
     assert payload["candidate_count"] == 1
     assert payload["candidates"][0]["symbol"] == "600001"
     assert payload["candidates"][0]["intraday_score"] > 0
+
+
+def test_sustained_startup_sectors_uses_latest_ready_snapshot() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(
+            IntradayMarketTurnSnapshot(
+                trade_date=date(2026, 1, 22),
+                snapshot_time=datetime(2026, 1, 22, 10, 20),
+                coverage_ratio=0.99,
+                breadth_ratio=0.58,
+                total_amount=123.0,
+                index_change_pct=0.003,
+                sector_expansion_count=3,
+                state_json={
+                    "data_ready": True,
+                    "sustained_expanding_sectors": [{"sector": "半导体"}],
+                },
+            )
+        )
+        db.commit()
+
+        result = _sustained_startup_sectors(
+            db,
+            trade_date=date(2026, 1, 22),
+            as_of=datetime(2026, 1, 22, 10, 30),
+        )
+
+    assert result == {"半导体"}
 
 
 def test_list_intraday_candidates_honors_as_of_without_future_quotes(monkeypatch) -> None:

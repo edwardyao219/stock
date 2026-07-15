@@ -141,6 +141,9 @@ class IntradayMarketTurnResponse(BaseModel):
     confirmed_signals: list[str] = Field(default_factory=list)
     pending_signals: list[str] = Field(default_factory=list)
     expanding_sectors: list["IntradayExpandingSectorResponse"] = Field(default_factory=list)
+    sustained_expanding_sectors: list["IntradaySustainedExpandingSectorResponse"] = Field(
+        default_factory=list
+    )
 
 
 class IntradayExpandingSectorResponse(BaseModel):
@@ -149,6 +152,12 @@ class IntradayExpandingSectorResponse(BaseModel):
     up_count: int
     up_ratio: float
     avg_change_pct: float
+
+
+class IntradaySustainedExpandingSectorResponse(IntradayExpandingSectorResponse):
+    prior_up_ratio: float
+    prior_avg_change_pct: float
+    consecutive_snapshots: int
 
 
 class DataHealthIssueResponse(BaseModel):
@@ -1442,6 +1451,7 @@ def get_intraday_market_turn(db: DbSession) -> IntradayMarketTurnResponse:
             index_change_pct=None,
             sector_expansion_count=None,
             expanding_sectors=[],
+            sustained_expanding_sectors=[],
         )
     state = row.state_json or {}
     return IntradayMarketTurnResponse(
@@ -1460,6 +1470,7 @@ def get_intraday_market_turn(db: DbSession) -> IntradayMarketTurnResponse:
         confirmed_signals=list(state.get("confirmed_signals") or []),
         pending_signals=list(state.get("pending_signals") or []),
         expanding_sectors=list(state.get("expanding_sectors") or []),
+        sustained_expanding_sectors=list(state.get("sustained_expanding_sectors") or []),
     )
 
 

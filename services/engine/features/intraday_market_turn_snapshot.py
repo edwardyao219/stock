@@ -7,6 +7,8 @@ from services.engine.features.intraday_market_turn import classify_intraday_mark
 
 INTRADAY_MARKET_MIN_COVERAGE_RATIO = 0.98
 INTRADAY_SECTOR_MIN_SYMBOLS = 5
+INTRADAY_SECTOR_MAX_UP_RATIO_DECAY = 0.05
+INTRADAY_SECTOR_MAX_AVG_CHANGE_DECAY = 0.005
 
 
 def _float(value: Any) -> float | None:
@@ -14,6 +16,46 @@ def _float(value: Any) -> float | None:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _sustained_expanding_sectors(
+    expanding_sectors: list[dict[str, object]],
+    prior_snapshots: list[Any],
+) -> list[dict[str, object]]:
+    if not prior_snapshots:
+        return []
+    prior_state = getattr(prior_snapshots[-1], "state_json", None) or {}
+    prior_by_sector = {
+        str(item.get("sector") or ""): item
+        for item in prior_state.get("expanding_sectors") or []
+        if isinstance(item, dict) and str(item.get("sector") or "")
+    }
+    sustained: list[dict[str, object]] = []
+    for item in expanding_sectors:
+        sector = str(item["sector"])
+        prior = prior_by_sector.get(sector)
+        if prior is None:
+            continue
+        up_ratio = float(item["up_ratio"])
+        avg_change_pct = float(item["avg_change_pct"])
+        prior_up_ratio = _float(prior.get("up_ratio"))
+        prior_avg_change_pct = _float(prior.get("avg_change_pct"))
+        if (
+            prior_up_ratio is None
+            or prior_avg_change_pct is None
+            or up_ratio < prior_up_ratio - INTRADAY_SECTOR_MAX_UP_RATIO_DECAY
+            or avg_change_pct < prior_avg_change_pct - INTRADAY_SECTOR_MAX_AVG_CHANGE_DECAY
+        ):
+            continue
+        sustained.append(
+            {
+                **item,
+                "prior_up_ratio": round(prior_up_ratio, 6),
+                "prior_avg_change_pct": round(prior_avg_change_pct, 6),
+                "consecutive_snapshots": 2,
+            }
+        )
+    return sustained
 
 
 def build_intraday_market_turn_snapshot(
@@ -74,6 +116,10 @@ def build_intraday_market_turn_snapshot(
         )
     )
     sector_expansion_count = len(expanding_sectors)
+    sustained_expanding_sectors = _sustained_expanding_sectors(
+        expanding_sectors,
+        prior_snapshots,
+    )
     prior_index_values = [
         _float(getattr(item, "index_change_pct", None))
         for item in prior_snapshots
@@ -116,6 +162,8 @@ def build_intraday_market_turn_snapshot(
             "amount_supported": amount_supported,
             "sector_expansion_count": sector_expansion_count,
             "expanding_sectors": expanding_sectors,
+            "sustained_sector_count": len(sustained_expanding_sectors),
+            "sustained_expanding_sectors": sustained_expanding_sectors,
         }
     )
     return snapshot

@@ -109,6 +109,7 @@ export interface IntradayMarketTurn {
   confirmed_signals: string[];
   pending_signals: string[];
   expanding_sectors: IntradayExpandingSector[];
+  sustained_expanding_sectors: IntradaySustainedExpandingSector[];
 }
 
 export interface IntradayExpandingSector {
@@ -117,6 +118,12 @@ export interface IntradayExpandingSector {
   up_count: number;
   up_ratio: number;
   avg_change_pct: number;
+}
+
+export interface IntradaySustainedExpandingSector extends IntradayExpandingSector {
+  prior_up_ratio: number;
+  prior_avg_change_pct: number;
+  consecutive_snapshots: number;
 }
 
 export interface MarketIndex {

@@ -104,3 +104,39 @@ def test_intraday_snapshot_excludes_quotes_outside_active_universe() -> None:
 
     assert snapshot["coverage_ratio"] == round(29 / 30, 6)
     assert snapshot["data_ready"] is False
+
+
+def test_intraday_snapshot_marks_sector_as_sustained_after_two_stable_snapshots() -> None:
+    quotes = [
+        SimpleNamespace(symbol=f"600{index:03d}", price=10.4, pre_close=10, amount=110)
+        for index in range(1, 6)
+    ]
+    previous = [
+        SimpleNamespace(
+            index_change_pct=0.001,
+            total_amount=300,
+            state_json={
+                "expanding_sectors": [
+                    {
+                        "sector": "半导体",
+                        "symbol_count": 5,
+                        "up_count": 4,
+                        "up_ratio": 0.8,
+                        "avg_change_pct": 0.035,
+                    }
+                ]
+            },
+        )
+    ]
+
+    snapshot = build_intraday_market_turn_snapshot(
+        quotes=quotes,
+        active_security_count=5,
+        sector_by_symbol={quote.symbol: "半导体" for quote in quotes},
+        index_change_pct=0.002,
+        prior_snapshots=previous,
+    )
+
+    assert snapshot["sustained_sector_count"] == 1
+    assert snapshot["sustained_expanding_sectors"][0]["sector"] == "半导体"
+    assert snapshot["sustained_expanding_sectors"][0]["consecutive_snapshots"] == 2

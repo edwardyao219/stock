@@ -37,7 +37,12 @@ from services.engine.workspace.repository import (
     load_workspace_symbols,
 )
 from services.shared.database import get_db
-from services.shared.models import RealtimeQuote, ResearchPoolItem, Security
+from services.shared.models import (
+    IntradayMarketTurnSnapshot,
+    RealtimeQuote,
+    ResearchPoolItem,
+    Security,
+)
 from services.shared.symbols import is_growth_board_symbol
 from services.shared.time import now_local
 
@@ -208,6 +213,31 @@ class IntradayCandidateListResponse(BaseModel):
 class IntradayCandidateSnapshotResponse(IntradayCandidateListResponse):
     stage: str
     stage_label: str
+
+
+def _sustained_startup_sectors(
+    db: Session,
+    *,
+    trade_date: date,
+    as_of: datetime,
+) -> set[str] | None:
+    row = db.execute(
+        select(IntradayMarketTurnSnapshot)
+        .where(IntradayMarketTurnSnapshot.trade_date == trade_date)
+        .where(IntradayMarketTurnSnapshot.snapshot_time <= as_of)
+        .order_by(IntradayMarketTurnSnapshot.snapshot_time.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    state = row.state_json or {}
+    if not state.get("data_ready"):
+        return None
+    return {
+        str(item.get("sector") or "").strip()
+        for item in state.get("sustained_expanding_sectors") or []
+        if isinstance(item, dict) and str(item.get("sector") or "").strip()
+    }
 
 
 def _active_intraday_candidate_symbols(
@@ -734,6 +764,11 @@ def list_intraday_candidates(
             sync_realtime_quotes(symbols=symbols, quote_time=parsed_as_of)
             db.expire_all()
     market_stress = None if as_of else _live_market_stress_snapshot(db)
+    sustained_startup_sectors = _sustained_startup_sectors(
+        db,
+        trade_date=current_time.date(),
+        as_of=parsed_as_of,
+    )
     result = discover_intraday_candidates(
         db,
         trade_date=current_time.date(),
@@ -744,6 +779,7 @@ def list_intraday_candidates(
         include_growth_board=include_growth_board,
         as_of=parsed_as_of,
         market_stress=market_stress,
+        sustained_startup_sectors=sustained_startup_sectors,
     )
     result["quote_coverage"] = _early_hot_sector_quote_coverage(
         db,

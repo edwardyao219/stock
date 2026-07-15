@@ -2128,7 +2128,7 @@ export function App() {
               </strong>
               <small>
                 {intradayMarketTurn
-                  ? `${intradayMarketTurn.confirmed_signals.length}/4 确认，${intradayMarketTurn.snapshot_time ? timeText(new Date(intradayMarketTurn.snapshot_time)) : "等待快照"}，${intradayMarketTurn.expanding_sectors.length ? `扩散：${intradayMarketTurn.expanding_sectors.slice(0, 3).map((item) => `${item.sector} ${pct(item.up_ratio)}`).join("、")}` : "未见板块扩散"}，仅观察启动`
+                  ? `${intradayMarketTurn.confirmed_signals.length}/4 确认，${intradayMarketTurn.snapshot_time ? timeText(new Date(intradayMarketTurn.snapshot_time)) : "等待快照"}，${intradayMarketTurn.sustained_expanding_sectors.length ? `持续：${intradayMarketTurn.sustained_expanding_sectors.slice(0, 3).map((item) => `${item.sector} ${pct(item.up_ratio)}`).join("、")}` : "尚无连续板块确认"}，仅观察启动`
                   : "等待全市场快照"}
               </small>
             </div>

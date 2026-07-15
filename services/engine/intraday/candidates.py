@@ -1039,6 +1039,7 @@ def discover_intraday_candidates(
     as_of: datetime | None = None,
     sector_feedback: dict[str, dict[str, int]] | None = None,
     market_stress: dict[str, Any] | None = None,
+    sustained_startup_sectors: set[str] | None = None,
 ) -> dict[str, Any]:
     source_pool_items = _candidate_items_source(db, pool_name=pool_name)
     candidate_batch = candidate_batch_summary(source_pool_items)
@@ -1171,6 +1172,14 @@ def discover_intraday_candidates(
             caution_reasons=caution_reasons,
             intraday_score=intraday_score,
         )
+        sector_name = security.industry if security else None
+        if sustained_startup_sectors is not None:
+            if sector_name in sustained_startup_sectors:
+                support_flags.append("intraday_sector_startup_sustained")
+            elif selection_tier == "formal":
+                selection_tier = "watch"
+                selection_tier_label = SELECTION_TIER_LABELS["watch"]
+                selection_reason = "板块未形成连续扩散，个股即使走强也只做观察确认"
         candidates.append(
             IntradayCandidate(
                 symbol=item.symbol,

@@ -1019,12 +1019,22 @@ def test_discover_intraday_candidates_marks_formal_tier_for_confirmed_volume() -
             pool_name="experiment",
             limit=10,
         )
+        unconfirmed_result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            sustained_startup_sectors=set(),
+        )
 
     candidate = result["candidates"][0]
+    unconfirmed_candidate = unconfirmed_result["candidates"][0]
     assert candidate["selection_tier"] == "formal"
     assert candidate["selection_tier_label"] == "正式候选"
     assert "intraday_volume_confirmed" in candidate["support_flags"]
     assert "强势板块" in candidate["selection_reason"]
+    assert unconfirmed_candidate["selection_tier"] == "watch"
+    assert "板块未形成连续扩散" in unconfirmed_candidate["selection_reason"]
 
 
 def test_discover_intraday_candidates_marks_watch_tier_when_pullback_needs_confirmation() -> None:
