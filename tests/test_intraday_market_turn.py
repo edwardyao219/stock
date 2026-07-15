@@ -64,3 +64,37 @@ def test_intraday_snapshot_uses_full_market_breadth_and_sector_return_flow() -> 
     assert snapshot["coverage_ratio"] == 1.0
     assert snapshot["sector_expansion_count"] == 3
     assert snapshot["core_action_allowed"] is False
+
+
+def test_intraday_snapshot_excludes_quotes_outside_active_universe() -> None:
+    active_quotes = [
+        SimpleNamespace(
+            symbol=f"600{index:03d}",
+            price=11,
+            pre_close=10,
+            amount=110,
+        )
+        for index in range(1, 30)
+    ]
+    inactive_quotes = [
+        SimpleNamespace(
+            symbol=f"300{index:03d}",
+            price=11,
+            pre_close=10,
+            amount=110,
+        )
+        for index in range(1, 10)
+    ]
+    active_symbols = {quote.symbol for quote in active_quotes}
+
+    snapshot = build_intraday_market_turn_snapshot(
+        quotes=[*active_quotes, *inactive_quotes],
+        active_security_count=30,
+        active_symbols=active_symbols,
+        sector_by_symbol={symbol: "半导体" for symbol in active_symbols},
+        index_change_pct=0.003,
+        prior_snapshots=[SimpleNamespace(index_change_pct=0.001, total_amount=2000)],
+    )
+
+    assert snapshot["coverage_ratio"] == round(29 / 30, 6)
+    assert snapshot["data_ready"] is False

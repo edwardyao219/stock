@@ -20,12 +20,16 @@ def build_intraday_market_turn_snapshot(
     *,
     quotes: list[Any],
     active_security_count: int,
+    active_symbols: set[str] | None = None,
     sector_by_symbol: dict[str, str | None],
     index_change_pct: float | None,
     prior_snapshots: list[Any],
 ) -> dict[str, object]:
     valid_quotes = []
     for quote in quotes:
+        symbol = str(getattr(quote, "symbol", ""))
+        if active_symbols is not None and symbol not in active_symbols:
+            continue
         price = _float(getattr(quote, "price", None))
         pre_close = _float(getattr(quote, "pre_close", None))
         if price is not None and pre_close is not None and pre_close > 0:

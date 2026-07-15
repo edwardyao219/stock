@@ -276,6 +276,9 @@ def test_full_market_snapshot_task_records_source_failure(monkeypatch) -> None:
         def count(self):
             return 100
 
+        def all(self):
+            return []
+
     class _Db:
         def query(self, model):
             return _Query()
@@ -316,6 +319,9 @@ def test_full_market_snapshot_task_releases_lock_when_coverage_is_low(monkeypatc
         def count(self):
             return 100
 
+        def all(self):
+            return []
+
     class _Db:
         def query(self, model):
             return _Query()
@@ -336,6 +342,50 @@ def test_full_market_snapshot_task_releases_lock_when_coverage_is_low(monkeypatc
     result = tasks.capture_full_market_snapshot_task()
 
     assert result["status"] == "warning"
+    assert released == ["lock"]
+
+
+def test_full_market_snapshot_coverage_excludes_inactive_symbols(monkeypatch) -> None:
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    released = []
+
+    class _Query:
+        def filter_by(self, **kwargs):
+            return self
+
+        def count(self):
+            return 2
+
+        def all(self):
+            return [SimpleNamespace(symbol="000001"), SimpleNamespace(symbol="000002")]
+
+    class _Db:
+        def query(self, model):
+            return _Query()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    quotes = [
+        SimpleNamespace(symbol="000001", price=10, pre_close=9),
+        SimpleNamespace(symbol="600000", price=10, pre_close=9),
+    ]
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 15, 5))
+    monkeypatch.setattr(tasks, "SessionLocal", _Db)
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "_acquire_daily_task_lock", lambda *args: (True, "lock"))
+    monkeypatch.setattr(tasks, "_release_daily_task_lock", released.append, raising=False)
+    monkeypatch.setattr(tasks, "sync_realtime_quotes", lambda **kwargs: quotes)
+
+    result = tasks.capture_full_market_snapshot_task()
+
+    assert result["status"] == "warning"
+    assert result["coverage_ratio"] == 0.5
     assert released == ["lock"]
 
 

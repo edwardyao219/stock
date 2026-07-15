@@ -194,11 +194,11 @@ def capture_full_market_snapshot_task() -> dict[str, object]:
                 "status": "skipped",
                 "message": "非交易日，已跳过全市场收盘快照。",
             }
-        active_security_count = int(
-            db.query(Security)
-            .filter_by(is_active=True, is_st=False)
-            .count()
-        )
+        active_symbols = {
+            item.symbol
+            for item in db.query(Security).filter_by(is_active=True, is_st=False).all()
+        }
+        active_security_count = len(active_symbols)
 
     acquired, lock_key = _acquire_daily_task_lock("full-market-snapshot", today)
     if not acquired:
@@ -221,7 +221,10 @@ def capture_full_market_snapshot_task() -> dict[str, object]:
     valid_quote_count = sum(
         1
         for quote in quotes
-        if quote.price is not None and quote.pre_close is not None and quote.pre_close > 0
+        if quote.symbol in active_symbols
+        and quote.price is not None
+        and quote.pre_close is not None
+        and quote.pre_close > 0
     )
     coverage_ratio = valid_quote_count / active_security_count if active_security_count else 0.0
     status = "ok" if coverage_ratio >= DAILY_CANDIDATE_MIN_COVERAGE_RATIO else "warning"
@@ -288,6 +291,7 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
         snapshot = build_intraday_market_turn_snapshot(
             quotes=quotes,
             active_security_count=len(securities),
+            active_symbols={item.symbol for item in securities},
             sector_by_symbol={item.symbol: item.industry for item in securities},
             index_change_pct=index_change_pct,
             prior_snapshots=prior_snapshots,
