@@ -3117,6 +3117,7 @@ def discover_next_session_candidates(
     external_challengers = build_external_challengers(
         signals=load_external_market_signals(db, signal_date=effective_feature_date),
         sector_focus=sector_focus,
+        market_turn=market_turn,
     )
     candidate_diagnostics = _candidate_discovery_diagnostics(
         candidate_count=len(selected),

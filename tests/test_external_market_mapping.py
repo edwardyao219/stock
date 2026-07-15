@@ -33,6 +33,31 @@ def test_external_market_mapping_creates_watch_only_challenger_without_promoting
     assert challengers[0]["market_confirmed"] is False
 
 
+def test_external_market_mapping_marks_defensive_a_share_market_as_unconfirmed() -> None:
+    challengers = build_external_challengers(
+        signals=[
+            {
+                "source": "naver.finance.realtime.stock",
+                "title": "SK海力士大涨",
+                "change_pct": 0.11,
+                "a_share_sectors": ["半导体", "元器件", "通信设备"],
+            }
+        ],
+        sector_focus=[
+            {
+                "sector": "半导体",
+                "focus_score": 64.0,
+                "breadth_score": 62.0,
+                "leadership_score": 61.0,
+            }
+        ],
+        market_turn={"key": "defense", "startup_candidates_allowed": False},
+    )
+
+    assert challengers[0]["a_share_confirmation"] == "市场防守，A股未确认"
+    assert challengers[0]["market_confirmed"] is False
+
+
 def test_external_market_signals_are_limited_to_the_signal_date() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

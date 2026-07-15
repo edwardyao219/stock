@@ -2145,12 +2145,14 @@ def test_candidate_screening_text_shows_external_market_challenger_as_watch_only
                     "title": "SK海力士大涨",
                     "a_share_sectors": ["半导体", "元器件", "通信设备"],
                     "label": "外盘映射待确认",
-                    "summary": "需等待A股板块扩散、量能和龙头承接确认。",
+                    "a_share_confirmation": "市场防守，A股未确认",
+                    "summary": "市场防守，A股未确认。不单独升级候选。",
                 }
             ],
         }
     )
 
     assert "外盘映射待确认：SK海力士大涨 -> 半导体、元器件、通信设备" in text
+    assert "市场防守，A股未确认" in text
     assert "不单独升级候选" in text
     get_settings.cache_clear()

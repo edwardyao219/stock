@@ -41,6 +41,7 @@ def build_external_challengers(
     *,
     signals: list[dict[str, Any]],
     sector_focus: list[dict[str, Any]],
+    market_turn: dict[str, Any] | None = None,
 ) -> list[dict[str, object]]:
     focus_scores = {
         str(item.get("sector") or "").strip(): float(item.get("focus_score") or 0.0)
@@ -48,6 +49,9 @@ def build_external_challengers(
         if str(item.get("sector") or "").strip()
     }
     challengers: list[dict[str, object]] = []
+    market_turn = market_turn or {}
+    startup_candidates_allowed = bool(market_turn.get("startup_candidates_allowed"))
+    market_turn_key = str(market_turn.get("key") or "").strip()
     for signal in signals:
         sectors = [
             str(value).strip()
@@ -56,21 +60,34 @@ def build_external_challengers(
         ]
         if not sectors:
             continue
+        matched_focus_scores = {
+            sector: round(focus_scores[sector], 4)
+            for sector in sectors
+            if sector in focus_scores
+        }
+        if not startup_candidates_allowed:
+            a_share_confirmation = "市场防守，A股未确认"
+        elif not matched_focus_scores:
+            a_share_confirmation = "市场修复中，映射板块未确认"
+        else:
+            a_share_confirmation = "仅板块有响应，仍待量能和龙头承接确认"
         challengers.append(
             {
                 "source": str(signal.get("source") or "external"),
                 "title": str(signal.get("title") or "外盘信号"),
                 "change_pct": signal.get("change_pct"),
                 "a_share_sectors": sectors,
-                "mapped_focus_scores": {
-                    sector: round(focus_scores[sector], 4)
-                    for sector in sectors
-                    if sector in focus_scores
-                },
+                "mapped_focus_scores": matched_focus_scores,
                 "label": "外盘映射待确认",
                 "startup_watch_allowed": False,
                 "market_confirmed": False,
-                "summary": "外盘异动仅列入观察，需等待A股板块扩散、量能和龙头承接确认。",
+                "a_share_confirmation": a_share_confirmation,
+                "summary": (
+                    "外盘异动仅列入观察，"
+                    f"{a_share_confirmation}。"
+                    "不单独升级候选，需等待A股板块扩散、量能和龙头承接确认。"
+                ),
+                "market_turn_key": market_turn_key,
             }
         )
     return challengers

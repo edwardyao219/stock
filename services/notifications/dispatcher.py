@@ -615,8 +615,10 @@ def _append_external_challengers(lines: list[str], discovery: dict[str, Any]) ->
         sectors = "、".join(str(value) for value in item.get("a_share_sectors") or [] if value)
         if not sectors:
             continue
+        confirmation = str(item.get("a_share_confirmation") or "").strip()
+        confirmation_text = f"；{confirmation}" if confirmation else ""
         lines.append(
-            f"外盘映射待确认：{title} -> {sectors}；不单独升级候选，"
+            f"外盘映射待确认：{title} -> {sectors}{confirmation_text}；不单独升级候选，"
             "需等待A股板块扩散、量能和龙头承接确认。"
         )
 
