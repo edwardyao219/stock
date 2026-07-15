@@ -18,6 +18,10 @@ celery_app.conf.beat_schedule = {
         "task": "services.jobs.tasks.pre_market_check",
         "schedule": crontab(minute=30, hour=8),
     },
+    "capture-korea-semiconductor-signal": {
+        "task": "services.jobs.tasks.capture_korea_semiconductor_signal_task",
+        "schedule": crontab(minute=55, hour=8),
+    },
     "sync-daily-market-data": {
         "task": "services.jobs.tasks.sync_daily_market_data_task",
         "schedule": crontab(minute=30, hour=15),

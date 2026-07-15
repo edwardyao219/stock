@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 
 from services.engine.features.market_regime import MarketRegimeSnapshot, classify_market_regime
 from services.engine.features.market_turn import classify_verified_market_turn_state
+from services.engine.news.external_mapping import (
+    build_external_challengers,
+    load_external_market_signals,
+)
 from services.engine.plans.repository import latest_feature_date, load_feature_contexts
 from services.engine.research_pool.repository import add_symbols_to_pool, list_pool_items
 from services.engine.rules.evaluator import evaluate_group
@@ -3110,6 +3114,10 @@ def discover_next_session_candidates(
     selected = _surface_fresh_potential_after_crowded_sector(selected)
     sector_groups = _candidate_sector_groups(selected)
     sector_focus = _sector_focus_groups(contexts)
+    external_challengers = build_external_challengers(
+        signals=load_external_market_signals(db, signal_date=effective_feature_date),
+        sector_focus=sector_focus,
+    )
     candidate_diagnostics = _candidate_discovery_diagnostics(
         candidate_count=len(selected),
         requested_limit=limit,
@@ -3255,6 +3263,7 @@ def discover_next_session_candidates(
         "candidates": [item.to_dict() for item in selected],
         "sector_groups": sector_groups,
         "sector_focus": sector_focus,
+        "external_challengers": external_challengers,
         "candidate_diagnostics": candidate_diagnostics,
         "written": written,
         "retired": retired,

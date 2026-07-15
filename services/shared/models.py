@@ -446,6 +446,19 @@ class MarketMessageSnapshot(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ExternalMarketSignal(Base):
+    __tablename__ = "external_market_signals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    source: Mapped[str] = mapped_column(String(64), index=True)
+    title: Mapped[str] = mapped_column(String(256))
+    change_pct: Mapped[Optional[float]] = mapped_column(Float)
+    a_share_sectors_json: Mapped[list[str]] = mapped_column(PortableJSON, default=list)
+    source_url: Mapped[Optional[str]] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class IntradayMarketTurnSnapshot(Base):
     __tablename__ = "intraday_market_turn_snapshots"
     __table_args__ = (

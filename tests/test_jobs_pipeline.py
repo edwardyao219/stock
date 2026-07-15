@@ -959,6 +959,15 @@ def test_celery_captures_early_market_repair_snapshots() -> None:
         assert schedule.minute == {minute}
 
 
+def test_celery_captures_korea_semiconductor_signal_before_a_share_open() -> None:
+    job = celery_app.conf.beat_schedule["capture-korea-semiconductor-signal"]
+    schedule = job["schedule"]
+
+    assert job["task"] == "services.jobs.tasks.capture_korea_semiconductor_signal_task"
+    assert schedule.hour == {8}
+    assert schedule.minute == {55}
+
+
 def test_intraday_session_passes_stage_and_as_of_to_monitor(monkeypatch) -> None:
     from datetime import datetime
 

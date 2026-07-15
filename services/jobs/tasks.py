@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
+from services.collector.external_market import sync_korea_semiconductor_signal
 from services.collector.realtime import sync_realtime_quotes
 from services.engine.features.health import (
     DAILY_CANDIDATE_MIN_COVERAGE_RATIO,
@@ -130,6 +131,26 @@ def pre_market_check() -> dict[str, str]:
     today = now_local().date().isoformat()
     result = prepare_next_trade_session(today, resolve_next_trade_date(today))
     return result.to_dict()
+
+
+@celery_app.task(name="services.jobs.tasks.capture_korea_semiconductor_signal_task")
+def capture_korea_semiconductor_signal_task() -> dict[str, object]:
+    with SessionLocal() as db:
+        signal = sync_korea_semiconductor_signal(db)
+        db.commit()
+        signal_id = signal.id if signal is not None else None
+        observed_at = signal.observed_at.isoformat() if signal is not None else None
+    if signal is None:
+        return {
+            "status": "skipped",
+            "message": "韩国半导体信号未达到观察阈值。",
+        }
+    return {
+        "status": "ok",
+        "message": "韩国半导体观察信号已记录，等待A股盘中确认。",
+        "signal_id": signal_id,
+        "observed_at": observed_at,
+    }
 
 
 @celery_app.task(name="services.jobs.tasks.sync_daily_market_data_task")

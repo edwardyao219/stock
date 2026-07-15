@@ -604,6 +604,23 @@ def _market_turn_summary(discovery: dict[str, Any]) -> str | None:
     return text
 
 
+def _append_external_challengers(lines: list[str], discovery: dict[str, Any]) -> None:
+    challengers = discovery.get("external_challengers") or []
+    if not isinstance(challengers, list):
+        return
+    for item in challengers[:3]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "外盘信号").strip()
+        sectors = "、".join(str(value) for value in item.get("a_share_sectors") or [] if value)
+        if not sectors:
+            continue
+        lines.append(
+            f"外盘映射待确认：{title} -> {sectors}；不单独升级候选，"
+            "需等待A股板块扩散、量能和龙头承接确认。"
+        )
+
+
 def _emotion_gate_state(discovery: dict[str, Any]) -> str:
     regime_snapshot = discovery.get("market_regime_snapshot") or {}
     emotion_gate = discovery.get("emotion_gate") or {}
@@ -1506,6 +1523,7 @@ def format_candidate_screening_text(
         turn_summary = _market_turn_summary(discovery)
         if turn_summary:
             lines.append(turn_summary)
+        _append_external_challengers(lines, discovery)
         _append_candidate_diagnostics(lines, discovery)
         lines.append(
             f"钉钉分层推送：核心行动 {len(core_candidates)} 只，"
@@ -1589,6 +1607,7 @@ def format_candidate_screening_text(
     turn_summary = _market_turn_summary(discovery)
     if turn_summary:
         lines.append(turn_summary)
+    _append_external_challengers(lines, discovery)
     _append_candidate_diagnostics(lines, discovery)
     if uses_core_action_candidates:
         tiers = candidate_tiers if isinstance(candidate_tiers, dict) else {}

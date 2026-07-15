@@ -2132,4 +2132,25 @@ def test_dispatch_candidate_screening_reports_empty_pool_reason(monkeypatch) -> 
     assert [item.status for item in results] == ["ok"]
     assert "暂无候选" in sent[0]
     assert "核心行动关闭" in sent[0]
+
+
+def test_candidate_screening_text_shows_external_market_challenger_as_watch_only() -> None:
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-07-15",
+            "universe_size": 5315,
+            "candidates": [],
+            "external_challengers": [
+                {
+                    "title": "SK海力士大涨",
+                    "a_share_sectors": ["半导体", "元器件", "通信设备"],
+                    "label": "外盘映射待确认",
+                    "summary": "需等待A股板块扩散、量能和龙头承接确认。",
+                }
+            ],
+        }
+    )
+
+    assert "外盘映射待确认：SK海力士大涨 -> 半导体、元器件、通信设备" in text
+    assert "不单独升级候选" in text
     get_settings.cache_clear()
