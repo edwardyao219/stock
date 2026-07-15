@@ -63,6 +63,12 @@ def test_intraday_snapshot_uses_full_market_breadth_and_sector_return_flow() -> 
     assert snapshot["key"] == "repair_confirmed"
     assert snapshot["coverage_ratio"] == 1.0
     assert snapshot["sector_expansion_count"] == 3
+    assert [item["sector"] for item in snapshot["expanding_sectors"]] == [
+        "板块0",
+        "板块1",
+        "板块2",
+    ]
+    assert snapshot["expanding_sectors"][0]["up_ratio"] == 1.0
     assert snapshot["core_action_allowed"] is False
 
 

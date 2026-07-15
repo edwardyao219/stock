@@ -108,6 +108,15 @@ export interface IntradayMarketTurn {
   sector_expansion_count: number | null;
   confirmed_signals: string[];
   pending_signals: string[];
+  expanding_sectors: IntradayExpandingSector[];
+}
+
+export interface IntradayExpandingSector {
+  sector: string;
+  symbol_count: number;
+  up_count: number;
+  up_ratio: number;
+  avg_change_pct: number;
 }
 
 export interface MarketIndex {

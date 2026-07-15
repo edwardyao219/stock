@@ -41,18 +41,39 @@ def build_intraday_market_turn_snapshot(
         if valid_quotes
         else 0.0
     )
-    total_amount = sum(_float(getattr(quote, "amount", None)) or 0.0 for quote in quotes)
+    total_amount = sum(
+        _float(getattr(quote, "amount", None)) or 0.0 for quote, _change_pct in valid_quotes
+    )
     sector_changes: dict[str, list[float]] = defaultdict(list)
     for quote, change_pct in valid_quotes:
         sector = sector_by_symbol.get(str(getattr(quote, "symbol", "")))
         if sector:
             sector_changes[sector].append(change_pct)
-    sector_expansion_count = sum(
-        1
-        for changes in sector_changes.values()
-        if len(changes) >= INTRADAY_SECTOR_MIN_SYMBOLS
-        and sum(1 for value in changes if value > 0) / len(changes) >= 0.55
+    expanding_sectors = []
+    for sector, changes in sector_changes.items():
+        symbol_count = len(changes)
+        up_count = sum(1 for value in changes if value > 0)
+        up_ratio = up_count / symbol_count if symbol_count else 0.0
+        if symbol_count < INTRADAY_SECTOR_MIN_SYMBOLS or up_ratio < 0.55:
+            continue
+        expanding_sectors.append(
+            {
+                "sector": sector,
+                "symbol_count": symbol_count,
+                "up_count": up_count,
+                "up_ratio": round(up_ratio, 6),
+                "avg_change_pct": round(sum(changes) / symbol_count, 6),
+            }
+        )
+    expanding_sectors.sort(
+        key=lambda item: (
+            -float(item["avg_change_pct"]),
+            -float(item["up_ratio"]),
+            -int(item["symbol_count"]),
+            str(item["sector"]),
+        )
     )
+    sector_expansion_count = len(expanding_sectors)
     prior_index_values = [
         _float(getattr(item, "index_change_pct", None))
         for item in prior_snapshots
@@ -94,6 +115,7 @@ def build_intraday_market_turn_snapshot(
             else None,
             "amount_supported": amount_supported,
             "sector_expansion_count": sector_expansion_count,
+            "expanding_sectors": expanding_sectors,
         }
     )
     return snapshot
