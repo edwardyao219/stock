@@ -74,6 +74,21 @@ def test_get_intraday_market_turn_returns_latest_current_snapshot() -> None:
                             "consecutive_snapshots": 2,
                         }
                     ],
+                    "leading_sustained_sectors": [
+                        {
+                            "sector": "半导体",
+                            "symbol_count": 18,
+                            "up_count": 14,
+                            "up_ratio": 0.777778,
+                            "avg_change_pct": 0.023,
+                            "total_amount": 123456789.0,
+                            "leader_symbol": "600001",
+                            "leader_change_pct": 0.061,
+                            "prior_up_ratio": 0.75,
+                            "prior_avg_change_pct": 0.02,
+                            "consecutive_snapshots": 2,
+                        }
+                    ],
                 },
             )
         )
@@ -85,6 +100,7 @@ def test_get_intraday_market_turn_returns_latest_current_snapshot() -> None:
     assert result.snapshot_time == snapshot_time
     assert result.expanding_sectors[0].sector == "半导体"
     assert result.sustained_expanding_sectors[0].consecutive_snapshots == 2
+    assert result.leading_sustained_sectors[0].leader_symbol == "600001"
     assert result.core_action_allowed is False
 
 

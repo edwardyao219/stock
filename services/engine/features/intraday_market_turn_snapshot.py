@@ -9,6 +9,9 @@ INTRADAY_MARKET_MIN_COVERAGE_RATIO = 0.98
 INTRADAY_SECTOR_MIN_SYMBOLS = 5
 INTRADAY_SECTOR_MAX_UP_RATIO_DECAY = 0.05
 INTRADAY_SECTOR_MAX_AVG_CHANGE_DECAY = 0.005
+INTRADAY_LEADING_SECTOR_LIMIT = 6
+INTRADAY_LEADING_SECTOR_MIN_AVG_CHANGE = 0.015
+INTRADAY_LEADING_SECTOR_MIN_LEADER_CHANGE = 0.03
 
 
 def _float(value: Any) -> float | None:
@@ -87,10 +90,18 @@ def build_intraday_market_turn_snapshot(
         _float(getattr(quote, "amount", None)) or 0.0 for quote, _change_pct in valid_quotes
     )
     sector_changes: dict[str, list[float]] = defaultdict(list)
+    sector_quotes: dict[str, list[tuple[str, float, float]]] = defaultdict(list)
     for quote, change_pct in valid_quotes:
         sector = sector_by_symbol.get(str(getattr(quote, "symbol", "")))
         if sector:
             sector_changes[sector].append(change_pct)
+            sector_quotes[sector].append(
+                (
+                    str(getattr(quote, "symbol", "")),
+                    change_pct,
+                    _float(getattr(quote, "amount", None)) or 0.0,
+                )
+            )
     expanding_sectors = []
     for sector, changes in sector_changes.items():
         symbol_count = len(changes)
@@ -98,6 +109,11 @@ def build_intraday_market_turn_snapshot(
         up_ratio = up_count / symbol_count if symbol_count else 0.0
         if symbol_count < INTRADAY_SECTOR_MIN_SYMBOLS or up_ratio < 0.55:
             continue
+        ranked_quotes = sorted(
+            sector_quotes[sector],
+            key=lambda value: (-value[1], -value[2], value[0]),
+        )
+        leader_symbol, leader_change_pct, _leader_amount = ranked_quotes[0]
         expanding_sectors.append(
             {
                 "sector": sector,
@@ -105,6 +121,9 @@ def build_intraday_market_turn_snapshot(
                 "up_count": up_count,
                 "up_ratio": round(up_ratio, 6),
                 "avg_change_pct": round(sum(changes) / symbol_count, 6),
+                "total_amount": round(sum(value[2] for value in sector_quotes[sector]), 2),
+                "leader_symbol": leader_symbol,
+                "leader_change_pct": round(leader_change_pct, 6),
             }
         )
     expanding_sectors.sort(
@@ -120,6 +139,12 @@ def build_intraday_market_turn_snapshot(
         expanding_sectors,
         prior_snapshots,
     )
+    leading_sustained_sectors = [
+        item
+        for item in sustained_expanding_sectors
+        if float(item["avg_change_pct"]) >= INTRADAY_LEADING_SECTOR_MIN_AVG_CHANGE
+        and float(item["leader_change_pct"]) >= INTRADAY_LEADING_SECTOR_MIN_LEADER_CHANGE
+    ][:INTRADAY_LEADING_SECTOR_LIMIT]
     prior_index_values = [
         _float(getattr(item, "index_change_pct", None))
         for item in prior_snapshots
@@ -164,6 +189,8 @@ def build_intraday_market_turn_snapshot(
             "expanding_sectors": expanding_sectors,
             "sustained_sector_count": len(sustained_expanding_sectors),
             "sustained_expanding_sectors": sustained_expanding_sectors,
+            "leading_sustained_sector_count": len(leading_sustained_sectors),
+            "leading_sustained_sectors": leading_sustained_sectors,
         }
     )
     return snapshot

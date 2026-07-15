@@ -565,7 +565,7 @@ def test_sustained_startup_sectors_uses_latest_ready_snapshot() -> None:
                 sector_expansion_count=3,
                 state_json={
                     "data_ready": True,
-                    "sustained_expanding_sectors": [{"sector": "半导体"}],
+                    "leading_sustained_sectors": [{"sector": "半导体"}],
                 },
             )
         )

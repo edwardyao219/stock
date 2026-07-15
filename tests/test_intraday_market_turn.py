@@ -140,3 +140,5 @@ def test_intraday_snapshot_marks_sector_as_sustained_after_two_stable_snapshots(
     assert snapshot["sustained_sector_count"] == 1
     assert snapshot["sustained_expanding_sectors"][0]["sector"] == "半导体"
     assert snapshot["sustained_expanding_sectors"][0]["consecutive_snapshots"] == 2
+    assert snapshot["leading_sustained_sector_count"] == 1
+    assert snapshot["leading_sustained_sectors"][0]["leader_symbol"] == "600001"

@@ -235,7 +235,7 @@ def _sustained_startup_sectors(
         return None
     return {
         str(item.get("sector") or "").strip()
-        for item in state.get("sustained_expanding_sectors") or []
+        for item in state.get("leading_sustained_sectors") or []
         if isinstance(item, dict) and str(item.get("sector") or "").strip()
     }
 
