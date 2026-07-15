@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
@@ -19,7 +20,7 @@ from services.jobs.pipeline import (
 from services.jobs.status import read_after_close_status
 from services.jobs.tasks import run_after_close_safe_recovery_task
 from services.shared.database import get_db
-from services.shared.models import BacktestTradeRecord, RulePerformanceDaily
+from services.shared.models import BacktestTradeRecord, ReviewReport, RulePerformanceDaily
 from services.shared.time import now_local
 
 router = APIRouter()
@@ -246,10 +247,22 @@ def run_historical_replay_job(payload: HistoricalReplayRunRequest) -> Historical
 
 
 @router.get("/after-close/status", response_model=AfterCloseStatusResponse)
-def get_after_close_status(trade_date: str | None = None) -> AfterCloseStatusResponse:
+def get_after_close_status(db: DbSession, trade_date: str | None = None) -> AfterCloseStatusResponse:
     target_date = trade_date or _today()
     cached = read_after_close_status(target_date)
     if cached:
+        if cached.get("review_status") == "skipped":
+            try:
+                report_date = date.fromisoformat(target_date)
+            except ValueError:
+                report_date = None
+            if report_date is not None and db.execute(
+                select(ReviewReport.id)
+                .where(ReviewReport.report_date == report_date)
+                .where(ReviewReport.report_type == "daily_mechanical")
+                .limit(1)
+            ).scalar_one_or_none() is not None:
+                cached = {**cached, "review_status": "ok"}
         return AfterCloseStatusResponse(**cached)
     return AfterCloseStatusResponse(
         trade_date=target_date,

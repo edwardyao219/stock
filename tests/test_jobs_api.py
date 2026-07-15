@@ -10,7 +10,7 @@ from services.jobs import run_pipeline as run_pipeline_cli
 from services.jobs import status as job_status
 from services.jobs.pipeline import DailyPipelineResult, PipelineStepResult
 from services.shared.database import Base
-from services.shared.models import BacktestTradeRecord, RulePerformanceDaily
+from services.shared.models import BacktestTradeRecord, ReviewReport, RulePerformanceDaily
 
 
 def _result(stage: str) -> DailyPipelineResult:
@@ -54,7 +54,7 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
         },
     )
 
-    payload = jobs.get_after_close_status(trade_date="2026-07-09")
+    payload = jobs.get_after_close_status(db=None, trade_date="2026-07-09")
 
     assert payload.status == "ok"
     assert payload.candidate_count == 12
@@ -66,11 +66,42 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
 def test_after_close_status_returns_unknown_without_cache(monkeypatch) -> None:
     monkeypatch.setattr(jobs, "read_after_close_status", lambda trade_date: None)
 
-    payload = jobs.get_after_close_status(trade_date="2026-07-09")
+    payload = jobs.get_after_close_status(db=None, trade_date="2026-07-09")
 
     assert payload.status == "unknown"
     assert payload.trade_date == "2026-07-09"
     assert "还没有收盘推送记录" in payload.message
+
+
+def test_after_close_status_marks_delayed_review_complete_when_report_exists(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "status": "warning",
+            "message": "候选已推送，复盘任务延后。",
+            "review_status": "skipped",
+            "source": "cache",
+        },
+    )
+
+    with session() as db:
+        db.add(
+            ReviewReport(
+                report_date=date(2026, 7, 14),
+                report_type="daily_mechanical",
+                content_md="复盘内容",
+            )
+        )
+        db.commit()
+
+        payload = jobs.get_after_close_status(trade_date="2026-07-14", db=db)
+
+    assert payload.review_status == "ok"
 
 
 def test_after_close_recovery_endpoint_enqueues_safe_task(monkeypatch) -> None:
