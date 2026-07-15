@@ -238,6 +238,8 @@ def filter_hot_sector_candidates(
             if str(item.get("sector") or "").strip() in hot_sectors
             or _candidate_has_hot_sector_reason(item)
             or _is_potential_watch(item)
+            or str(item.get("selection_mode") or "").strip()
+            in {"formal_strategy", "observation"}
         ]
     if "sector_focus" in discovery:
         return [

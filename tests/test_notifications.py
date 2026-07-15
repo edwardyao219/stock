@@ -1554,7 +1554,7 @@ def test_format_candidate_screening_text_shows_defensive_sector_watch_section() 
     assert "学习观察（非买点，盘中验证）" in text
 
 
-def test_filter_hot_sector_candidates_keeps_potential_watch_outside_hot_sector() -> None:
+def test_filter_hot_sector_candidates_keeps_observations_outside_current_leader() -> None:
     discovery = {
         "sector_focus": [
             {
@@ -1589,7 +1589,39 @@ def test_filter_hot_sector_candidates_keeps_potential_watch_outside_hot_sector()
 
     filtered = filter_hot_sector_candidates(discovery, candidates)
 
-    assert [item["symbol"] for item in filtered] == ["601066", "600673"]
+    assert [item["symbol"] for item in filtered] == ["601066", "600673", "600000"]
+
+
+def test_filter_hot_sector_candidates_keeps_qualified_challenger_outside_current_leader() -> None:
+    discovery = {
+        "sector_focus": [
+            {
+                "sector": "生物制药",
+                "focus_score": 76,
+                "continuity_score": 74,
+                "avg_return_20d_pct": 11,
+                "positive_ratio": 0.66,
+            }
+        ]
+    }
+    candidates = [
+        {
+            "symbol": "002001",
+            "sector": "生物制药",
+            "selection_mode": "formal_strategy",
+            "reasons": ["板块20日主线扩散较好"],
+        },
+        {
+            "symbol": "688008",
+            "sector": "半导体",
+            "selection_mode": "observation",
+            "reasons": ["趋势强度领先", "量能确认"],
+        },
+    ]
+
+    filtered = filter_hot_sector_candidates(discovery, candidates)
+
+    assert [item["symbol"] for item in filtered] == ["002001", "688008"]
 
 
 def test_filter_hot_sector_candidates_keeps_defensive_sector_resilience_observation() -> None:
