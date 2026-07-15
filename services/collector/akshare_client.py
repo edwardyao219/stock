@@ -148,6 +148,14 @@ def _market_prefix_for_symbol(symbol: str) -> str:
     return ""
 
 
+def _normalize_a_share_symbol(value: Any) -> str:
+    symbol = str(value or "").strip()
+    lowered = symbol.lower()
+    if len(lowered) == 8 and lowered[:2] in {"sh", "sz", "bj"} and lowered[2:].isdigit():
+        return lowered[2:]
+    return symbol
+
+
 def _first(raw: dict[str, Any], *keys: str) -> Any:
     for key in keys:
         value = raw.get(key)
@@ -259,7 +267,7 @@ def fetch_realtime_quotes(
         source = "akshare.stock_zh_a_spot"
     rows: list[RealtimeQuoteRow] = []
     for raw in df.to_dict("records"):
-        symbol = str(_first(raw, "代码", "股票代码") or "").strip()
+        symbol = _normalize_a_share_symbol(_first(raw, "代码", "股票代码"))
         if not symbol or (symbols and symbol not in symbols):
             continue
         rows.append(

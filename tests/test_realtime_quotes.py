@@ -141,6 +141,35 @@ def test_fetch_realtime_quotes_falls_back_to_sina_full_market_source(monkeypatch
     assert rows[0].source == "akshare.stock_zh_a_spot"
 
 
+def test_fetch_realtime_quotes_normalizes_exchange_prefixed_symbols(monkeypatch) -> None:
+    from services.collector import akshare_client
+
+    class _Akshare:
+        def stock_zh_a_spot_em(self):
+            return pd.DataFrame(
+                [
+                    {
+                        "代码": "sz000001",
+                        "最新价": 10.5,
+                        "今开": 10.2,
+                        "最高": 10.8,
+                        "最低": 10.1,
+                        "昨收": 10,
+                        "涨跌幅": 5,
+                        "成交量": 100,
+                        "成交额": 1050,
+                        "换手率": 1.2,
+                    }
+                ]
+            )
+
+    monkeypatch.setattr(akshare_client, "_akshare", lambda: _Akshare())
+
+    rows = akshare_client.fetch_realtime_quotes(quote_time=datetime(2026, 7, 15, 10, 35))
+
+    assert rows[0].symbol == "000001"
+
+
 def test_north_exchange_92_prefix_uses_beijing_realtime_symbol() -> None:
     assert _exchange_for_symbol("920344") == "BJ"
     assert _market_prefix_for_symbol("920344") == "bj"
