@@ -16,6 +16,7 @@ import {
   CandidateReplayEffectQuery,
   CandidateReplayEffectReport,
   ConfirmedMainlineOutcome,
+  MainlineOutcomeSummary,
   DataHealth,
   addManualStock,
   createTrackingSnapshots,
@@ -23,6 +24,7 @@ import {
   fetchCandidateReplayEffect,
   fetchCandles,
   fetchConfirmedMainlineOutcomes,
+  fetchMainlineOutcomeSummary,
   fetchDataHealth,
   fetchIntradayMarketTurn,
   fetchIntradayCandidateSnapshots,
@@ -1256,6 +1258,8 @@ export function App() {
   const [confirmedMainlineOutcomes, setConfirmedMainlineOutcomes] = useState<
     ConfirmedMainlineOutcome[]
   >([]);
+  const [mainlineOutcomeSummary, setMainlineOutcomeSummary] =
+    useState<MainlineOutcomeSummary | null>(null);
   const [intradayCandidates, setIntradayCandidates] = useState<IntradayCandidateList | null>(null);
   const [intradaySnapshots, setIntradaySnapshots] =
     useState<IntradayCandidateSnapshotList | null>(null);
@@ -1594,9 +1598,15 @@ export function App() {
 
   async function loadConfirmedMainlineOutcomes() {
     try {
-      setConfirmedMainlineOutcomes(await fetchConfirmedMainlineOutcomes());
+      const [outcomes, summary] = await Promise.all([
+        fetchConfirmedMainlineOutcomes(),
+        fetchMainlineOutcomeSummary(),
+      ]);
+      setConfirmedMainlineOutcomes(outcomes);
+      setMainlineOutcomeSummary(summary);
     } catch {
       setConfirmedMainlineOutcomes([]);
+      setMainlineOutcomeSummary(null);
     }
   }
 
@@ -3505,6 +3515,15 @@ export function App() {
               <strong>启动信号回看</strong>
               <small>统计10:30确认主线与强启动对照；收益按信号日收盘计算。</small>
             </div>
+            {mainlineOutcomeSummary ? (
+              <div className="review-strip-meta">
+                {mainlineOutcomeSummary.horizons.map((item) => (
+                  <span key={item.horizon}>
+                    {item.horizon}日 样本{item.sample_count} / 平均收益 {pct(item.avg_return_pct)} / 胜率 {pct(item.win_rate)} / 失效率 {pct(item.failure_rate)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             {confirmedMainlineOutcomes.length ? (
               <div className="sector-catalyst-list">
                 {confirmedMainlineOutcomes.slice(0, 6).map((item) => (

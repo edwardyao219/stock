@@ -66,6 +66,34 @@ def _horizons(bars: list[DailyBar]) -> dict[int, MainlineHorizonOutcome]:
     }
 
 
+def summarize_mainline_outcomes(
+    outcomes: list[ConfirmedMainlineOutcome],
+    *,
+    signal_type: str = "strong_benchmark",
+) -> dict[int, dict[str, int | float | None]]:
+    summary: dict[int, dict[str, int | float | None]] = {}
+    for horizon in MAINLINE_HORIZONS:
+        values = [
+            item.horizons[horizon].return_pct
+            for item in outcomes
+            if item.signal_type == signal_type
+            and horizon in item.horizons
+            and item.horizons[horizon].status == "completed"
+            and item.horizons[horizon].return_pct is not None
+        ]
+        count = len(values)
+        summary[horizon] = {
+            "horizon": horizon,
+            "sample_count": count,
+            "avg_return_pct": round(sum(values) / count, 6) if count else None,
+            "win_rate": round(sum(value > 0 for value in values) / count, 6) if count else None,
+            "failure_rate": round(sum(value <= 0 for value in values) / count, 6)
+            if count
+            else None,
+        }
+    return summary
+
+
 def list_confirmed_mainline_outcomes(
     db: Session,
     *,

@@ -33,7 +33,10 @@ from services.engine.news.repository import (
 )
 from services.engine.review.sector_replay import replay_sector_month
 from services.engine.sector.names import canonical_sector_name as _canonical_sector_name
-from services.engine.tracking.mainline import list_confirmed_mainline_outcomes
+from services.engine.tracking.mainline import (
+    list_confirmed_mainline_outcomes,
+    summarize_mainline_outcomes,
+)
 from services.shared.database import get_db
 from services.shared.models import (
     DailyBar,
@@ -166,6 +169,19 @@ class ConfirmedCandidateOutcomeResponse(BaseModel):
     symbol: str
     sector: str
     horizons: list[MainlineOutcomeHorizonResponse] = Field(default_factory=list)
+
+
+class MainlineOutcomeSummaryHorizonResponse(BaseModel):
+    horizon: int
+    sample_count: int
+    avg_return_pct: float | None
+    win_rate: float | None
+    failure_rate: float | None
+
+
+class MainlineOutcomeSummaryResponse(BaseModel):
+    signal_type: str
+    horizons: list[MainlineOutcomeSummaryHorizonResponse] = Field(default_factory=list)
 
 
 class IntradayMarketTurnResponse(BaseModel):
@@ -1582,6 +1598,15 @@ def get_confirmed_mainline_outcomes(
         )
         for item in list_confirmed_mainline_outcomes(db, limit=limit)
     ]
+
+
+@router.get("/mainline-outcome-summary", response_model=MainlineOutcomeSummaryResponse)
+def get_mainline_outcome_summary(db: DbSession) -> MainlineOutcomeSummaryResponse:
+    rows = summarize_mainline_outcomes(list_confirmed_mainline_outcomes(db, limit=120))
+    return MainlineOutcomeSummaryResponse(
+        signal_type="strong_benchmark",
+        horizons=[MainlineOutcomeSummaryHorizonResponse(**item) for item in rows.values()],
+    )
 
 
 @router.get("/overview", response_model=MarketOverviewResponse)

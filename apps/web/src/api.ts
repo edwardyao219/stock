@@ -165,6 +165,17 @@ export interface ConfirmedCandidateOutcome {
   horizons: MainlineOutcomeHorizon[];
 }
 
+export interface MainlineOutcomeSummary {
+  signal_type: string;
+  horizons: Array<{
+    horizon: number;
+    sample_count: number;
+    avg_return_pct: number | null;
+    win_rate: number | null;
+    failure_rate: number | null;
+  }>;
+}
+
 export interface IntradayExpandingSector {
   sector: string;
   symbol_count: number;
@@ -1368,6 +1379,10 @@ export function fetchIntradayMarketTurn() {
 
 export function fetchConfirmedMainlineOutcomes() {
   return request<ConfirmedMainlineOutcome[]>("/market/mainline-outcomes");
+}
+
+export function fetchMainlineOutcomeSummary() {
+  return request<MainlineOutcomeSummary>("/market/mainline-outcome-summary");
 }
 
 export function fetchSectorOverview() {

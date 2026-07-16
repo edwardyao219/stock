@@ -188,9 +188,12 @@ def test_get_confirmed_mainline_outcomes_returns_matured_leader_returns() -> Non
         db.commit()
 
         result = get_confirmed_mainline_outcomes(db=db)
+        summary = market.get_mainline_outcome_summary(db=db)
 
     assert result[0].sector == "半导体"
     assert result[0].horizons[0].return_pct == 0.1
+    assert summary.signal_type == "strong_benchmark"
+    assert summary.horizons[0].sample_count == 0
 
 
 def test_get_symbol_candles_returns_limited_ascending_bars_with_moving_average() -> None:

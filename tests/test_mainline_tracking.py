@@ -4,7 +4,10 @@ from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from services.engine.tracking import mainline
 from services.engine.tracking.mainline import (
+    ConfirmedMainlineOutcome,
+    MainlineHorizonOutcome,
     build_confirmed_mainline_candidate_bindings,
     list_confirmed_mainline_outcomes,
 )
@@ -134,3 +137,33 @@ def test_strong_sector_benchmark_outcomes_use_persisted_snapshot_leader() -> Non
     assert rows[0].signal_type == "strong_benchmark"
     assert rows[0].sector == "通信设备"
     assert rows[0].horizons[1].return_pct == 0.1
+
+
+def test_strong_benchmark_summary_uses_only_completed_horizons() -> None:
+    def outcome(value: float | None) -> ConfirmedMainlineOutcome:
+        return ConfirmedMainlineOutcome(
+            signal_type="strong_benchmark",
+            signal_date="2026-07-01",
+            sector="通信设备",
+            leader_symbol="600001",
+            horizons={
+                1: MainlineHorizonOutcome(
+                    horizon=1,
+                    status="completed" if value is not None else "waiting",
+                    return_pct=value,
+                )
+            },
+            candidate_bindings=[],
+        )
+
+    summary = mainline.summarize_mainline_outcomes(
+        [outcome(0.1), outcome(-0.05), outcome(None)]
+    )
+
+    assert summary[1] == {
+        "horizon": 1,
+        "sample_count": 2,
+        "avg_return_pct": 0.025,
+        "win_rate": 0.5,
+        "failure_rate": 0.5,
+    }
