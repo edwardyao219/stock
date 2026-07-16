@@ -12,10 +12,10 @@ from services.shared.database import Base
 from services.shared.models import DailyBar, IntradayMarketTurnSnapshot
 
 
-def _bar(trade_date: date, close: str) -> DailyBar:
+def _bar(trade_date: date, close: str, symbol: str = "600001") -> DailyBar:
     value = Decimal(close)
     return DailyBar(
-        symbol="600001",
+        symbol=symbol,
         trade_date=trade_date,
         open=value,
         high=value,
@@ -57,12 +57,19 @@ def test_confirmed_mainline_outcomes_use_1030_signal_close_and_trade_day_horizon
                                 "current_leader_symbol": "600001",
                             }
                         ],
-                    }
+                    },
+                    "confirmed_candidate_bindings": [
+                        {"symbol": "600002", "sector": "半导体", "selection_tier": "formal"}
+                    ],
                 },
             )
         )
         db.add_all(
             [_bar(signal_date + timedelta(days=offset), str(10 + offset)) for offset in range(4)]
+            + [
+                _bar(signal_date + timedelta(days=offset), str(20 + offset * 2), "600002")
+                for offset in range(4)
+            ]
         )
         db.commit()
 
@@ -75,6 +82,8 @@ def test_confirmed_mainline_outcomes_use_1030_signal_close_and_trade_day_horizon
     assert rows[0].horizons[1].return_pct == 0.1
     assert rows[0].horizons[3].return_pct == 0.3
     assert rows[0].horizons[5].status == "waiting"
+    assert rows[0].candidate_bindings[0].symbol == "600002"
+    assert rows[0].candidate_bindings[0].horizons[1].return_pct == 0.1
 
 
 def test_mainline_candidate_bindings_keep_only_formal_candidates_in_confirmed_sectors() -> None:

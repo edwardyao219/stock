@@ -23,6 +23,14 @@ class ConfirmedMainlineOutcome:
     sector: str
     leader_symbol: str
     horizons: dict[int, MainlineHorizonOutcome]
+    candidate_bindings: list[ConfirmedCandidateOutcome]
+
+
+@dataclass(frozen=True)
+class ConfirmedCandidateOutcome:
+    symbol: str
+    sector: str
+    horizons: dict[int, MainlineHorizonOutcome]
 
 
 def build_confirmed_mainline_candidate_bindings(
@@ -93,12 +101,35 @@ def list_confirmed_mainline_outcomes(
                     .order_by(DailyBar.trade_date)
                 ).scalars()
             )
+            candidate_bindings = []
+            for candidate in (row.state_json or {}).get("confirmed_candidate_bindings") or []:
+                if not isinstance(candidate, dict) or str(candidate.get("sector") or "") != sector:
+                    continue
+                symbol = str(candidate.get("symbol") or "").strip()
+                if not symbol:
+                    continue
+                candidate_bars = list(
+                    db.execute(
+                        select(DailyBar)
+                        .where(DailyBar.symbol == symbol)
+                        .where(DailyBar.trade_date >= row.trade_date)
+                        .order_by(DailyBar.trade_date)
+                    ).scalars()
+                )
+                candidate_bindings.append(
+                    ConfirmedCandidateOutcome(
+                        symbol=symbol,
+                        sector=sector,
+                        horizons=_horizons(candidate_bars),
+                    )
+                )
             outcomes.append(
                 ConfirmedMainlineOutcome(
                     signal_date=row.trade_date.isoformat(),
                     sector=sector,
                     leader_symbol=leader_symbol,
                     horizons=_horizons(bars),
+                    candidate_bindings=candidate_bindings,
                 )
             )
             if len(outcomes) >= limit:
