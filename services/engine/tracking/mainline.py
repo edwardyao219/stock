@@ -61,12 +61,13 @@ def _horizons(
     bars_by_date = {bar.trade_date: bar for bar in bars}
     signal_bar = bars_by_date.get(signal_date)
     if signal_bar is None or not signal_bar.close:
+        awaiting_close = not market_dates or signal_date > market_dates[-1]
         return {
             horizon: MainlineHorizonOutcome(
                 horizon=horizon,
-                status="unavailable",
+                status="waiting" if awaiting_close else "unavailable",
                 return_pct=None,
-                reason="missing_signal_close",
+                reason="awaiting_signal_close" if awaiting_close else "missing_signal_close",
             )
             for horizon in MAINLINE_HORIZONS
         }

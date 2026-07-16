@@ -223,6 +223,23 @@ def test_mainline_outcome_marks_missing_signal_close_unavailable() -> None:
     assert outcome.horizons[1].return_pct is None
 
 
+def test_mainline_outcome_waits_for_current_signal_day_close() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 2)
+
+    with Session(engine) as db:
+        db.add(_strong_snapshot(signal_date))
+        db.add(_bar(date(2026, 7, 1), "10", "000001"))
+        db.commit()
+
+        outcome = list_confirmed_mainline_outcomes(db)[0]
+
+    assert outcome.horizons[1].status == "waiting"
+    assert outcome.horizons[1].reason == "awaiting_signal_close"
+    assert outcome.horizons[1].return_pct is None
+
+
 def test_strong_benchmark_summary_uses_only_completed_horizons() -> None:
     def outcome(value: float | None) -> ConfirmedMainlineOutcome:
         return ConfirmedMainlineOutcome(
