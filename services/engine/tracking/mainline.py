@@ -25,6 +25,19 @@ class ConfirmedMainlineOutcome:
     horizons: dict[int, MainlineHorizonOutcome]
 
 
+def build_confirmed_mainline_candidate_bindings(
+    *,
+    candidates: list[dict[str, object]],
+    confirmed_sectors: set[str],
+) -> list[dict[str, object]]:
+    return [
+        candidate
+        for candidate in candidates
+        if candidate.get("selection_tier") == "formal"
+        and str(candidate.get("sector") or "").strip() in confirmed_sectors
+    ]
+
+
 def _horizons(bars: list[DailyBar]) -> dict[int, MainlineHorizonOutcome]:
     if not bars or not bars[0].close:
         return {

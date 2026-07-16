@@ -4,7 +4,10 @@ from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from services.engine.tracking.mainline import list_confirmed_mainline_outcomes
+from services.engine.tracking.mainline import (
+    build_confirmed_mainline_candidate_bindings,
+    list_confirmed_mainline_outcomes,
+)
 from services.shared.database import Base
 from services.shared.models import DailyBar, IntradayMarketTurnSnapshot
 
@@ -72,3 +75,16 @@ def test_confirmed_mainline_outcomes_use_1030_signal_close_and_trade_day_horizon
     assert rows[0].horizons[1].return_pct == 0.1
     assert rows[0].horizons[3].return_pct == 0.3
     assert rows[0].horizons[5].status == "waiting"
+
+
+def test_mainline_candidate_bindings_keep_only_formal_candidates_in_confirmed_sectors() -> None:
+    bindings = build_confirmed_mainline_candidate_bindings(
+        candidates=[
+            {"symbol": "600001", "sector": "半导体", "selection_tier": "formal"},
+            {"symbol": "600002", "sector": "半导体", "selection_tier": "watch"},
+            {"symbol": "600003", "sector": "通信设备", "selection_tier": "formal"},
+        ],
+        confirmed_sectors={"半导体"},
+    )
+
+    assert bindings == [{"symbol": "600001", "sector": "半导体", "selection_tier": "formal"}]
