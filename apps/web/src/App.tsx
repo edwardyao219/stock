@@ -194,6 +194,21 @@ function intradayQuoteIntegrityText(turn: IntradayMarketTurn) {
   return ` / 行情 ${integrity.valid_quote_count}/${integrity.expected_symbol_count} ${ratioPct(integrity.coverage_ratio)}${retryText}`;
 }
 
+function intradayMainlineStatus(turn: IntradayMarketTurn | null) {
+  const mainline = turn?.cross_day_mainline;
+  if (!mainline) {
+    return { label: "待核验", detail: "暂无跨日主线快照", tone: "down" };
+  }
+  const sectors = mainline.confirmed_sectors.join("、");
+  if (mainline.status === "观察确认" && sectors) {
+    if (mainline.checkpoint === "10:30复核") {
+      return { label: "启动确认", detail: `${sectors} / 可进入观察候选绑定`, tone: "up" };
+    }
+    return { label: "启动观察", detail: `${sectors} / 等待10:30复核`, tone: "up" };
+  }
+  return { label: "未启动", detail: `${mainline.checkpoint} / ${mainline.summary}`, tone: "down" };
+}
+
 function price(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return value.toFixed(2);
@@ -2145,15 +2160,22 @@ export function App() {
               <small>{marketStressDetail(marketOverview)}</small>
             </div>
             <div>
-              <span>早盘修复</span>
+              <span>市场环境</span>
               <strong className={intradayMarketTurn?.startup_watch_allowed ? "up" : "down"}>
                 {intradayMarketTurn?.label ?? "待采集"}
               </strong>
               <small>
                 {intradayMarketTurn
-                  ? `${intradayMarketTurn.confirmed_signals.length}/4 确认，${intradayMarketTurn.snapshot_time ? timeText(new Date(intradayMarketTurn.snapshot_time)) : "等待快照"}，${intradayMarketTurn.cross_day_mainline ? `跨日主线：${intradayMarketTurn.cross_day_mainline.status}（${intradayMarketTurn.cross_day_mainline.checkpoint}${intradayMarketTurn.cross_day_mainline.confirmed_sectors.length ? `，${intradayMarketTurn.cross_day_mainline.confirmed_sectors.join("、")}` : ""}）` : intradayMarketTurn.leading_sustained_sectors.length ? `主线观察：${intradayMarketTurn.leading_sustained_sectors.slice(0, 3).map((item) => `${item.sector} ${pct(item.avg_change_pct)}`).join("、")}` : "尚无主线确认"}，仅观察启动${intradayQuoteIntegrityText(intradayMarketTurn)}`
+                  ? `${intradayMarketTurn.confirmed_signals.length}/4 修复，${intradayMarketTurn.snapshot_time ? timeText(new Date(intradayMarketTurn.snapshot_time)) : "等待快照"} / 仅观察启动${intradayQuoteIntegrityText(intradayMarketTurn)}`
                   : "等待全市场快照"}
               </small>
+            </div>
+            <div>
+              <span>主线启动</span>
+              <strong className={intradayMainlineStatus(intradayMarketTurn).tone}>
+                {intradayMainlineStatus(intradayMarketTurn).label}
+              </strong>
+              <small>{intradayMainlineStatus(intradayMarketTurn).detail}</small>
             </div>
             <div>
               <span>今日可买</span>
