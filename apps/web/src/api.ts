@@ -135,6 +135,19 @@ export interface CrossDayMainlineSector {
   current_leader_change_pct: number | null;
 }
 
+export interface MainlineOutcomeHorizon {
+  horizon: number;
+  status: string;
+  return_pct: number | null;
+}
+
+export interface ConfirmedMainlineOutcome {
+  signal_date: string;
+  sector: string;
+  leader_symbol: string;
+  horizons: MainlineOutcomeHorizon[];
+}
+
 export interface IntradayExpandingSector {
   sector: string;
   symbol_count: number;
@@ -1320,6 +1333,10 @@ export function fetchMarketOverview(live = false) {
 
 export function fetchIntradayMarketTurn() {
   return request<IntradayMarketTurn>("/market/intraday-turn");
+}
+
+export function fetchConfirmedMainlineOutcomes() {
+  return request<ConfirmedMainlineOutcome[]>("/market/mainline-outcomes");
 }
 
 export function fetchSectorOverview() {

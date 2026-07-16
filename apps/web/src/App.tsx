@@ -15,12 +15,14 @@ import {
   Candle,
   CandidateReplayEffectQuery,
   CandidateReplayEffectReport,
+  ConfirmedMainlineOutcome,
   DataHealth,
   addManualStock,
   createTrackingSnapshots,
   fetchAfterCloseStatus,
   fetchCandidateReplayEffect,
   fetchCandles,
+  fetchConfirmedMainlineOutcomes,
   fetchDataHealth,
   fetchIntradayMarketTurn,
   fetchIntradayCandidateSnapshots,
@@ -1205,6 +1207,9 @@ export function App() {
   const [tradeDialogOpen, setTradeDialogOpen] = useState(false);
   const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(null);
   const [intradayMarketTurn, setIntradayMarketTurn] = useState<IntradayMarketTurn | null>(null);
+  const [confirmedMainlineOutcomes, setConfirmedMainlineOutcomes] = useState<
+    ConfirmedMainlineOutcome[]
+  >([]);
   const [intradayCandidates, setIntradayCandidates] = useState<IntradayCandidateList | null>(null);
   const [intradaySnapshots, setIntradaySnapshots] =
     useState<IntradayCandidateSnapshotList | null>(null);
@@ -1541,6 +1546,14 @@ export function App() {
     }
   }
 
+  async function loadConfirmedMainlineOutcomes() {
+    try {
+      setConfirmedMainlineOutcomes(await fetchConfirmedMainlineOutcomes());
+    } catch {
+      setConfirmedMainlineOutcomes([]);
+    }
+  }
+
   async function loadIntradayCandidates(refreshQuotes = false) {
     try {
       setIntradayCandidates(
@@ -1653,6 +1666,7 @@ export function App() {
     if (page === "sectors") {
       loadSectorOverview();
       loadSectorCatalysts();
+      loadConfirmedMainlineOutcomes();
       loadDataHealth(marketOverview?.trade_date);
     }
   }
@@ -1664,6 +1678,7 @@ export function App() {
   useEffect(() => {
     loadMarketOverview();
     loadIntradayMarketTurn();
+    loadConfirmedMainlineOutcomes();
     loadIntradayCandidates();
     loadSectorOverview();
     loadSectorCatalysts();
@@ -1692,6 +1707,7 @@ export function App() {
       if (plan.marketOverview) loadIntradayMarketTurn();
       if (plan.intradayCandidates) loadIntradayCandidates();
       if (plan.sectorOverview) loadSectorOverview();
+      if (plan.sectorOverview) loadConfirmedMainlineOutcomes();
       if (plan.sectorCatalysts) loadSectorCatalysts();
       if (plan.dataHealth) loadDataHealth(marketOverview?.trade_date);
       if (plan.candles && selectedSymbol) loadCandles(selectedSymbol);
@@ -3429,6 +3445,36 @@ export function App() {
               {sectorOverview?.sector_gate_summary ? ` / 降温 ${sectorOverview.sector_gate_summary.cooldown_count}` : ""}
             </span>
           </div>
+          <section className="sector-catalyst-panel">
+            <div className="snapshot-review-head">
+              <strong>确认主线回看</strong>
+              <small>只统计 10:30 最终确认；收益按信号日收盘计算。</small>
+            </div>
+            {confirmedMainlineOutcomes.length ? (
+              <div className="sector-catalyst-list">
+                {confirmedMainlineOutcomes.slice(0, 6).map((item) => (
+                  <div className="sector-catalyst-item" key={`${item.signal_date}-${item.sector}`}>
+                    <span>
+                      <strong>{item.sector}</strong>
+                      <em>{item.leader_symbol}</em>
+                    </span>
+                    <small>确认 {item.signal_date}</small>
+                    <small>
+                      {item.horizons
+                        .map((horizon) =>
+                          horizon.status === "completed"
+                            ? `${horizon.horizon}日 ${pct(horizon.return_pct)}`
+                            : `${horizon.horizon}日 等待`,
+                        )
+                        .join(" / ")}
+                    </small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty compact">暂无已成熟的主线效果样本</div>
+            )}
+          </section>
           {monthlySummary ? (
             <section className="monthly-summary-panel">
               <div className="monthly-summary-head">
