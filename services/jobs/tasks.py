@@ -11,6 +11,7 @@ from services.collector.external_market import sync_korea_semiconductor_signal
 from services.collector.realtime import sync_realtime_quotes
 from services.engine.features.health import (
     DAILY_CANDIDATE_MIN_COVERAGE_RATIO,
+    inspect_daily_data_health,
     inspect_tushare_evidence_health,
 )
 from services.engine.features.intraday_market_turn_snapshot import (
@@ -198,11 +199,35 @@ def sync_daily_market_data_task() -> dict[str, object]:
     )
     with SessionLocal() as db:
         outcome_health = _mainline_outcome_health(db)
-    return {
+        daily_health = inspect_daily_data_health(db, trade_date=today)
+    result = {
         "trade_date": trade_date,
         **step.to_dict(),
+        "daily_data_health": {
+            "eligible_daily_bar_count": daily_health.eligible_daily_bar_count,
+            "expected_security_count": daily_health.expected_security_count,
+            "coverage_ratio": daily_health.daily_coverage_ratio,
+        },
         "mainline_outcome_health": outcome_health,
     }
+    if (
+        step.status != "ok"
+        or daily_health.daily_coverage_ratio < DAILY_CANDIDATE_MIN_COVERAGE_RATIO
+    ):
+        _release_daily_task_lock(lock_key)
+    if daily_health.daily_coverage_ratio < DAILY_CANDIDATE_MIN_COVERAGE_RATIO:
+        result.update(
+            status="warning",
+            detail=(
+                "收盘日线尚未就绪："
+                f"{daily_health.eligible_daily_bar_count}/"
+                f"{daily_health.expected_security_count}，"
+                f"覆盖 {daily_health.daily_coverage_ratio:.1%}；"
+                "已释放任务锁，16:00/18:00 后续调度将重试。"
+            ),
+            summary="等待收盘日线",
+        )
+    return result
 
 
 @celery_app.task(name="services.jobs.tasks.capture_full_market_snapshot_task")

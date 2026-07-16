@@ -127,6 +127,7 @@ def test_sync_daily_market_data_step_defaults_to_lightweight_mode(monkeypatch) -
 
 def test_sync_daily_market_data_task_runs_forced_full_market_sync(monkeypatch) -> None:
     from datetime import datetime
+    from types import SimpleNamespace
 
     captured = {}
     outcome_health = {
@@ -168,6 +169,16 @@ def test_sync_daily_market_data_task_runs_forced_full_market_sync(monkeypatch) -
         lambda db: outcome_health,
         raising=False,
     )
+    monkeypatch.setattr(
+        tasks,
+        "inspect_daily_data_health",
+        lambda db, trade_date: SimpleNamespace(
+            daily_coverage_ratio=0.99,
+            eligible_daily_bar_count=5264,
+            expected_security_count=5317,
+        ),
+        raising=False,
+    )
 
     result = tasks.sync_daily_market_data_task()
 
@@ -179,6 +190,49 @@ def test_sync_daily_market_data_task_runs_forced_full_market_sync(monkeypatch) -
     assert result["status"] == "ok"
     assert result["detail"] == "同步行情完成"
     assert result["mainline_outcome_health"] == outcome_health
+
+
+def test_sync_daily_market_data_task_retries_when_daily_bars_are_not_ready(monkeypatch) -> None:
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    released = []
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 16, 15, 30))
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_daily_task_lock",
+        lambda task_name, trade_date: (True, "daily-sync-lock"),
+    )
+    monkeypatch.setattr(tasks, "_release_daily_task_lock", released.append)
+    monkeypatch.setattr(
+        tasks,
+        "_sync_daily_market_data_step",
+        lambda *args, **kwargs: pipeline.PipelineStepResult(
+            name="sync_daily_market_data",
+            status="ok",
+            detail="同步行情完成",
+            summary="同步行情完成",
+        ),
+    )
+    monkeypatch.setattr(tasks, "_mainline_outcome_health", lambda db: {"horizons": []})
+    monkeypatch.setattr(
+        tasks,
+        "inspect_daily_data_health",
+        lambda db, trade_date: SimpleNamespace(
+            daily_coverage_ratio=0.0,
+            eligible_daily_bar_count=0,
+            expected_security_count=5317,
+        ),
+        raising=False,
+    )
+
+    result = tasks.sync_daily_market_data_task()
+
+    assert result["status"] == "warning"
+    assert "16:00" in result["detail"]
+    assert result["daily_data_health"]["coverage_ratio"] == 0.0
+    assert released == ["daily-sync-lock"]
 
 
 def test_sync_daily_market_data_task_skips_non_trading_day(monkeypatch) -> None:
@@ -765,6 +819,7 @@ def test_celery_daily_jobs_use_documented_wall_clock_times() -> None:
     expected = {
         "pre-market-check": ({8}, {30}),
         "sync-daily-market-data": ({15}, {30}),
+        "retry-sync-daily-market-data": ({16}, {0}),
         "compute-daily-features": ({16}, {30}),
         "run-rule-regression": ({21}, {0}),
         "generate-daily-review": ({22}, {30}),
