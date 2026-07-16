@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,6 +17,7 @@ class MainlineHorizonOutcome:
     horizon: int
     status: str
     return_pct: float | None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -49,23 +51,51 @@ def build_confirmed_mainline_candidate_bindings(
     ]
 
 
-def _horizons(bars: list[DailyBar]) -> dict[int, MainlineHorizonOutcome]:
-    if not bars or not bars[0].close:
+def _horizons(
+    *,
+    bars: list[DailyBar],
+    market_dates: list[date],
+    signal_date: date,
+) -> dict[int, MainlineHorizonOutcome]:
+    bars_by_date = {bar.trade_date: bar for bar in bars}
+    signal_bar = bars_by_date.get(signal_date)
+    if signal_bar is None or not signal_bar.close:
         return {
-            horizon: MainlineHorizonOutcome(horizon=horizon, status="waiting", return_pct=None)
+            horizon: MainlineHorizonOutcome(
+                horizon=horizon,
+                status="unavailable",
+                return_pct=None,
+                reason="missing_signal_close",
+            )
             for horizon in MAINLINE_HORIZONS
         }
-    base_close = float(bars[0].close)
-    return {
-        horizon: MainlineHorizonOutcome(
+    base_close = float(signal_bar.close)
+    future_dates = [item for item in market_dates if item > signal_date]
+    outcomes: dict[int, MainlineHorizonOutcome] = {}
+    for horizon in MAINLINE_HORIZONS:
+        if len(future_dates) < horizon:
+            outcomes[horizon] = MainlineHorizonOutcome(
+                horizon=horizon,
+                status="waiting",
+                return_pct=None,
+                reason="awaiting_trade_day",
+            )
+            continue
+        target_bar = bars_by_date.get(future_dates[horizon - 1])
+        if target_bar is None or not target_bar.close:
+            outcomes[horizon] = MainlineHorizonOutcome(
+                horizon=horizon,
+                status="unavailable",
+                return_pct=None,
+                reason="missing_target_close",
+            )
+            continue
+        outcomes[horizon] = MainlineHorizonOutcome(
             horizon=horizon,
-            status="completed" if len(bars) > horizon and bars[horizon].close else "waiting",
-            return_pct=(round(float(bars[horizon].close) / base_close - 1, 6)
-            if len(bars) > horizon and bars[horizon].close
-            else None),
+            status="completed",
+            return_pct=round(float(target_bar.close) / base_close - 1, 6),
         )
-        for horizon in MAINLINE_HORIZONS
-    }
+    return outcomes
 
 
 def summarize_mainline_outcomes(
@@ -145,6 +175,11 @@ def list_confirmed_mainline_outcomes(
     *,
     limit: int = 60,
 ) -> list[ConfirmedMainlineOutcome]:
+    market_dates = list(
+        db.execute(
+            select(DailyBar.trade_date).distinct().order_by(DailyBar.trade_date)
+        ).scalars()
+    )
     rows = db.execute(
         select(IntradayMarketTurnSnapshot).order_by(
             IntradayMarketTurnSnapshot.trade_date.desc(),
@@ -210,7 +245,11 @@ def list_confirmed_mainline_outcomes(
                     ConfirmedCandidateOutcome(
                         symbol=symbol,
                         sector=sector,
-                        horizons=_horizons(candidate_bars),
+                        horizons=_horizons(
+                            bars=candidate_bars,
+                            market_dates=market_dates,
+                            signal_date=row.trade_date,
+                        ),
                     )
                 )
             outcomes.append(
@@ -219,7 +258,11 @@ def list_confirmed_mainline_outcomes(
                     signal_date=row.trade_date.isoformat(),
                     sector=sector,
                     leader_symbol=leader_symbol,
-                    horizons=_horizons(bars),
+                    horizons=_horizons(
+                        bars=bars,
+                        market_dates=market_dates,
+                        signal_date=row.trade_date,
+                    ),
                     candidate_bindings=candidate_bindings,
                     market_state=str((row.state_json or {}).get("key") or "unknown"),
                 )

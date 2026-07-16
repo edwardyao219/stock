@@ -34,6 +34,33 @@ def _bar(trade_date: date, close: str, symbol: str = "600001") -> DailyBar:
     )
 
 
+def _strong_snapshot(
+    signal_date: date,
+    *,
+    leader_symbol: str = "600001",
+) -> IntradayMarketTurnSnapshot:
+    return IntradayMarketTurnSnapshot(
+        trade_date=signal_date,
+        snapshot_time=datetime.combine(signal_date, datetime.min.time()).replace(
+            hour=11, minute=30
+        ),
+        coverage_ratio=0.99,
+        breadth_ratio=0.6,
+        total_amount=100.0,
+        index_change_pct=0.002,
+        sector_expansion_count=3,
+        state_json={
+            "leading_sustained_sectors": [{
+                "sector": "通信设备",
+                "up_ratio": 0.8,
+                "avg_change_pct": 0.02,
+                "leader_symbol": leader_symbol,
+                "leader_change_pct": 0.05,
+            }]
+        },
+    )
+
+
 def test_confirmed_mainline_outcomes_use_1030_signal_close_and_trade_day_horizons() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -137,6 +164,63 @@ def test_strong_sector_benchmark_outcomes_use_persisted_snapshot_leader() -> Non
     assert rows[0].signal_type == "strong_benchmark"
     assert rows[0].sector == "通信设备"
     assert rows[0].horizons[1].return_pct == 0.1
+
+
+def test_mainline_outcome_does_not_shift_missing_target_to_a_later_bar() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 1)
+    market_dates = [
+        signal_date,
+        date(2026, 7, 2),
+        date(2026, 7, 3),
+        date(2026, 7, 6),
+        date(2026, 7, 7),
+    ]
+
+    with Session(engine) as db:
+        db.add(_strong_snapshot(signal_date))
+        db.add_all([_bar(trade_date, "10", "000001") for trade_date in market_dates])
+        db.add_all(
+            [
+                _bar(signal_date, "10"),
+                _bar(date(2026, 7, 2), "11"),
+                _bar(date(2026, 7, 3), "12"),
+                _bar(date(2026, 7, 7), "14"),
+            ]
+        )
+        db.commit()
+
+        outcome = list_confirmed_mainline_outcomes(db)[0]
+
+    assert outcome.horizons[3].status == "unavailable"
+    assert outcome.horizons[3].reason == "missing_target_close"
+    assert outcome.horizons[3].return_pct is None
+    assert outcome.horizons[5].status == "waiting"
+    assert outcome.horizons[5].reason == "awaiting_trade_day"
+
+
+def test_mainline_outcome_marks_missing_signal_close_unavailable() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 1)
+
+    with Session(engine) as db:
+        db.add(_strong_snapshot(signal_date))
+        db.add_all(
+            [
+                _bar(signal_date, "10", "000001"),
+                _bar(date(2026, 7, 2), "10", "000001"),
+                _bar(date(2026, 7, 2), "11"),
+            ]
+        )
+        db.commit()
+
+        outcome = list_confirmed_mainline_outcomes(db)[0]
+
+    assert outcome.horizons[1].status == "unavailable"
+    assert outcome.horizons[1].reason == "missing_signal_close"
+    assert outcome.horizons[1].return_pct is None
 
 
 def test_strong_benchmark_summary_uses_only_completed_horizons() -> None:
