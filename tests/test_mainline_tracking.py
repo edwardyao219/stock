@@ -163,6 +163,8 @@ def test_strong_benchmark_summary_uses_only_completed_horizons() -> None:
     assert summary[1] == {
         "horizon": 1,
         "sample_count": 2,
+        "minimum_sample_count": 20,
+        "eligible_for_policy": False,
         "avg_return_pct": 0.025,
         "win_rate": 0.5,
         "failure_rate": 0.5,
@@ -198,8 +200,32 @@ def test_strong_benchmark_breakdown_groups_three_day_results() -> None:
     assert result["sectors"][0] == {
         "key": "通信设备",
         "sample_count": 2,
+        "minimum_sample_count": 20,
+        "eligible_for_policy": False,
         "avg_return_pct": 0.04,
         "win_rate": 0.5,
         "failure_rate": 0.5,
     }
     assert result["market_states"][0]["key"] == "repair_confirmed"
+
+
+def test_strong_benchmark_summary_unlocks_policy_at_twenty_samples() -> None:
+    outcomes = [
+        ConfirmedMainlineOutcome(
+            signal_type="strong_benchmark",
+            signal_date=f"2026-06-{day:02d}",
+            sector="通信设备",
+            leader_symbol="600001",
+            horizons={
+                3: MainlineHorizonOutcome(horizon=3, status="completed", return_pct=0.01)
+            },
+            candidate_bindings=[],
+        )
+        for day in range(1, 21)
+    ]
+
+    summary = mainline.summarize_mainline_outcomes(outcomes)
+    breakdowns = mainline.summarize_mainline_outcome_breakdowns(outcomes)
+
+    assert summary[3]["eligible_for_policy"] is True
+    assert breakdowns["sectors"][0]["eligible_for_policy"] is True

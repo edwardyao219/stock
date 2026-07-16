@@ -170,10 +170,15 @@ export interface MainlineOutcomeSummary {
   horizons: Array<{
     horizon: number;
     sample_count: number;
+    minimum_sample_count: number;
+    eligible_for_policy: boolean;
     avg_return_pct: number | null;
     win_rate: number | null;
     failure_rate: number | null;
   }>;
+  minimum_sample_count: number;
+  policy_status: string;
+  policy_label: string;
   breakdown_horizon: number;
   sectors: MainlineOutcomeBreakdownRow[];
   market_states: MainlineOutcomeBreakdownRow[];
@@ -182,6 +187,8 @@ export interface MainlineOutcomeSummary {
 export interface MainlineOutcomeBreakdownRow {
   key: string;
   sample_count: number;
+  minimum_sample_count: number;
+  eligible_for_policy: boolean;
   avg_return_pct: number;
   win_rate: number;
   failure_rate: number;

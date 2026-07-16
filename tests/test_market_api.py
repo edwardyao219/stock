@@ -194,6 +194,9 @@ def test_get_confirmed_mainline_outcomes_returns_matured_leader_returns() -> Non
     assert result[0].horizons[0].return_pct == 0.1
     assert summary.signal_type == "strong_benchmark"
     assert summary.horizons[0].sample_count == 0
+    assert summary.minimum_sample_count == 20
+    assert summary.policy_status == "insufficient"
+    assert summary.policy_label == "样本不足，禁止调整策略"
     assert summary.breakdown_horizon == 3
     assert summary.sectors == []
     assert summary.market_states == []

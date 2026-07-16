@@ -34,6 +34,7 @@ from services.engine.news.repository import (
 from services.engine.review.sector_replay import replay_sector_month
 from services.engine.sector.names import canonical_sector_name as _canonical_sector_name
 from services.engine.tracking.mainline import (
+    MIN_OUTCOME_SAMPLES_FOR_POLICY,
     list_confirmed_mainline_outcomes,
     summarize_mainline_outcome_breakdowns,
     summarize_mainline_outcomes,
@@ -175,6 +176,8 @@ class ConfirmedCandidateOutcomeResponse(BaseModel):
 class MainlineOutcomeSummaryHorizonResponse(BaseModel):
     horizon: int
     sample_count: int
+    minimum_sample_count: int
+    eligible_for_policy: bool
     avg_return_pct: float | None
     win_rate: float | None
     failure_rate: float | None
@@ -183,9 +186,12 @@ class MainlineOutcomeSummaryHorizonResponse(BaseModel):
 class MainlineOutcomeSummaryResponse(BaseModel):
     signal_type: str
     horizons: list[MainlineOutcomeSummaryHorizonResponse] = Field(default_factory=list)
+    minimum_sample_count: int
+    policy_status: str
+    policy_label: str
     breakdown_horizon: int
-    sectors: list[dict[str, int | float | str]] = Field(default_factory=list)
-    market_states: list[dict[str, int | float | str]] = Field(default_factory=list)
+    sectors: list[dict[str, bool | int | float | str]] = Field(default_factory=list)
+    market_states: list[dict[str, bool | int | float | str]] = Field(default_factory=list)
 
 
 class IntradayMarketTurnResponse(BaseModel):
@@ -1609,9 +1615,15 @@ def get_mainline_outcome_summary(db: DbSession) -> MainlineOutcomeSummaryRespons
     outcomes = list_confirmed_mainline_outcomes(db, limit=120)
     rows = summarize_mainline_outcomes(outcomes)
     breakdowns = summarize_mainline_outcome_breakdowns(outcomes)
+    eligible_for_policy = bool(rows[int(breakdowns["horizon"])]["eligible_for_policy"])
     return MainlineOutcomeSummaryResponse(
         signal_type="strong_benchmark",
         horizons=[MainlineOutcomeSummaryHorizonResponse(**item) for item in rows.values()],
+        minimum_sample_count=MIN_OUTCOME_SAMPLES_FOR_POLICY,
+        policy_status="usable" if eligible_for_policy else "insufficient",
+        policy_label=(
+            "样本可用，仅供策略评估" if eligible_for_policy else "样本不足，禁止调整策略"
+        ),
         breakdown_horizon=int(breakdowns["horizon"]),
         sectors=list(breakdowns["sectors"]),
         market_states=list(breakdowns["market_states"]),

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from services.shared.models import DailyBar, IntradayMarketTurnSnapshot
 
 MAINLINE_HORIZONS = (1, 3, 5)
+MIN_OUTCOME_SAMPLES_FOR_POLICY = 20
 
 
 @dataclass(frozen=True)
@@ -71,8 +72,8 @@ def summarize_mainline_outcomes(
     outcomes: list[ConfirmedMainlineOutcome],
     *,
     signal_type: str = "strong_benchmark",
-) -> dict[int, dict[str, int | float | None]]:
-    summary: dict[int, dict[str, int | float | None]] = {}
+) -> dict[int, dict[str, bool | int | float | None]]:
+    summary: dict[int, dict[str, bool | int | float | None]] = {}
     for horizon in MAINLINE_HORIZONS:
         values = [
             item.horizons[horizon].return_pct
@@ -86,6 +87,8 @@ def summarize_mainline_outcomes(
         summary[horizon] = {
             "horizon": horizon,
             "sample_count": count,
+            "minimum_sample_count": MIN_OUTCOME_SAMPLES_FOR_POLICY,
+            "eligible_for_policy": count >= MIN_OUTCOME_SAMPLES_FOR_POLICY,
             "avg_return_pct": round(sum(values) / count, 6) if count else None,
             "win_rate": round(sum(value > 0 for value in values) / count, 6) if count else None,
             "failure_rate": round(sum(value <= 0 for value in values) / count, 6)
@@ -100,7 +103,7 @@ def summarize_mainline_outcome_breakdowns(
     *,
     horizon: int = 3,
 ) -> dict[str, object]:
-    def grouped(key_name: str) -> list[dict[str, int | float | str]]:
+    def grouped(key_name: str) -> list[dict[str, bool | int | float | str]]:
         groups: dict[str, list[float]] = {}
         for item in outcomes:
             value = item.horizons.get(horizon)
@@ -119,6 +122,8 @@ def summarize_mainline_outcome_breakdowns(
                 {
                     "key": key,
                     "sample_count": len(values),
+                    "minimum_sample_count": MIN_OUTCOME_SAMPLES_FOR_POLICY,
+                    "eligible_for_policy": len(values) >= MIN_OUTCOME_SAMPLES_FOR_POLICY,
                     "avg_return_pct": round(sum(values) / len(values), 6),
                     "win_rate": round(sum(value > 0 for value in values) / len(values), 6),
                     "failure_rate": round(sum(value <= 0 for value in values) / len(values), 6),

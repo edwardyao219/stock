@@ -3526,6 +3526,11 @@ export function App() {
             </div>
             {mainlineOutcomeSummary ? (
               <div className="review-strip-meta">
+                <span className={mainlineOutcomeSummary.policy_status === "usable" ? "up" : "down"}>
+                  {mainlineOutcomeSummary.policy_status === "usable"
+                    ? "样本可用，仅供策略评估"
+                    : "样本不足，禁止调整策略"} / 门槛 {mainlineOutcomeSummary.minimum_sample_count} 个成熟样本
+                </span>
                 {mainlineOutcomeSummary.horizons.map((item) => (
                   <span key={item.horizon}>
                     {item.horizon}日 样本{item.sample_count} / 平均收益 {pct(item.avg_return_pct)} / 胜率 {pct(item.win_rate)} / 失效率 {pct(item.failure_rate)}
