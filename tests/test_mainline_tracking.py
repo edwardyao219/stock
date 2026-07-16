@@ -166,6 +166,36 @@ def test_strong_sector_benchmark_outcomes_use_persisted_snapshot_leader() -> Non
     assert rows[0].horizons[1].return_pct == 0.1
 
 
+def test_mainline_outcomes_keep_overlapping_signal_types_independent() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 1)
+    snapshot = _strong_snapshot(signal_date)
+    snapshot.state_json["cross_day_mainline"] = {
+        "status": "观察确认",
+        "checkpoint": "10:30复核",
+        "sectors": [
+            {
+                "sector": "通信设备",
+                "status": "观察确认",
+                "current_leader_symbol": "600001",
+            }
+        ],
+    }
+
+    with Session(engine) as db:
+        db.add(snapshot)
+        db.add_all([_bar(signal_date, "10"), _bar(date(2026, 7, 2), "11")])
+        db.commit()
+
+        rows = list_confirmed_mainline_outcomes(db)
+
+    assert [item.signal_type for item in rows] == [
+        "confirmed_mainline",
+        "strong_benchmark",
+    ]
+
+
 def test_mainline_outcome_does_not_shift_missing_target_to_a_later_bar() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

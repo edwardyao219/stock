@@ -205,7 +205,7 @@ def list_confirmed_mainline_outcomes(
         )
     ).scalars()
     outcomes: list[ConfirmedMainlineOutcome] = []
-    seen: set[tuple[object, str]] = set()
+    seen: set[tuple[object, str, str]] = set()
     for row in rows:
         cross_day = (row.state_json or {}).get("cross_day_mainline")
         signals: list[tuple[str, dict[str, object]]] = []
@@ -232,7 +232,7 @@ def list_confirmed_mainline_outcomes(
             leader_symbol = str(
                 item.get("current_leader_symbol") or item.get("leader_symbol") or ""
             ).strip()
-            key = (row.trade_date, sector)
+            key = (row.trade_date, signal_type, sector)
             if not sector or not leader_symbol or key in seen:
                 continue
             seen.add(key)
