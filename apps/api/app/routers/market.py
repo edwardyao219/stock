@@ -190,6 +190,7 @@ class IntradayMarketTurnResponse(BaseModel):
         default_factory=list
     )
     cross_day_mainline: CrossDayMainlineResponse | None = None
+    quote_integrity: dict[str, object] | None = None
 
 
 class IntradayExpandingSectorResponse(BaseModel):
@@ -1509,6 +1510,7 @@ def get_intraday_market_turn(db: DbSession) -> IntradayMarketTurnResponse:
             sustained_expanding_sectors=[],
             leading_sustained_sectors=[],
             cross_day_mainline=None,
+            quote_integrity=None,
         )
     state = row.state_json or {}
     return IntradayMarketTurnResponse(
@@ -1532,6 +1534,11 @@ def get_intraday_market_turn(db: DbSession) -> IntradayMarketTurnResponse:
         cross_day_mainline=(
             state.get("cross_day_mainline")
             if isinstance(state.get("cross_day_mainline"), dict)
+            else None
+        ),
+        quote_integrity=(
+            state.get("quote_integrity")
+            if isinstance(state.get("quote_integrity"), dict)
             else None
         ),
     )

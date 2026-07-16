@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from datetime import date, datetime
 from uuid import uuid4
 
@@ -311,6 +312,14 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
             cross_day_baseline_snapshot=cross_day_baseline_snapshot,
             snapshot_time=current_time,
         )
+        source_counts = Counter(str(getattr(quote, "source", "unknown")) for quote in quotes)
+        snapshot["quote_integrity"] = {
+            "expected_symbol_count": len(securities),
+            "valid_quote_count": snapshot["valid_quote_count"],
+            "coverage_ratio": snapshot["coverage_ratio"],
+            "source_counts": dict(sorted(source_counts.items())),
+            "retry_applied": any(source.endswith(".retry") for source in source_counts),
+        }
         cross_day_mainline = snapshot.get("cross_day_mainline")
         if (
             isinstance(cross_day_mainline, dict)

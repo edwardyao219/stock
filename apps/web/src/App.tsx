@@ -187,6 +187,13 @@ function ratioPct(value: number | null | undefined) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function intradayQuoteIntegrityText(turn: IntradayMarketTurn) {
+  const integrity = turn.quote_integrity;
+  if (!integrity) return "";
+  const retryText = integrity.retry_applied ? " / 行情已补拉" : "";
+  return ` / 行情 ${integrity.valid_quote_count}/${integrity.expected_symbol_count} ${ratioPct(integrity.coverage_ratio)}${retryText}`;
+}
+
 function price(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return value.toFixed(2);
@@ -2144,7 +2151,7 @@ export function App() {
               </strong>
               <small>
                 {intradayMarketTurn
-                  ? `${intradayMarketTurn.confirmed_signals.length}/4 确认，${intradayMarketTurn.snapshot_time ? timeText(new Date(intradayMarketTurn.snapshot_time)) : "等待快照"}，${intradayMarketTurn.cross_day_mainline ? `跨日主线：${intradayMarketTurn.cross_day_mainline.status}（${intradayMarketTurn.cross_day_mainline.checkpoint}${intradayMarketTurn.cross_day_mainline.confirmed_sectors.length ? `，${intradayMarketTurn.cross_day_mainline.confirmed_sectors.join("、")}` : ""}）` : intradayMarketTurn.leading_sustained_sectors.length ? `主线观察：${intradayMarketTurn.leading_sustained_sectors.slice(0, 3).map((item) => `${item.sector} ${pct(item.avg_change_pct)}`).join("、")}` : "尚无主线确认"}，仅观察启动`
+                  ? `${intradayMarketTurn.confirmed_signals.length}/4 确认，${intradayMarketTurn.snapshot_time ? timeText(new Date(intradayMarketTurn.snapshot_time)) : "等待快照"}，${intradayMarketTurn.cross_day_mainline ? `跨日主线：${intradayMarketTurn.cross_day_mainline.status}（${intradayMarketTurn.cross_day_mainline.checkpoint}${intradayMarketTurn.cross_day_mainline.confirmed_sectors.length ? `，${intradayMarketTurn.cross_day_mainline.confirmed_sectors.join("、")}` : ""}）` : intradayMarketTurn.leading_sustained_sectors.length ? `主线观察：${intradayMarketTurn.leading_sustained_sectors.slice(0, 3).map((item) => `${item.sector} ${pct(item.avg_change_pct)}`).join("、")}` : "尚无主线确认"}，仅观察启动${intradayQuoteIntegrityText(intradayMarketTurn)}`
                   : "等待全市场快照"}
               </small>
             </div>

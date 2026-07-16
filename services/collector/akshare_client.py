@@ -322,7 +322,7 @@ def fetch_realtime_quotes(
                 volume=_decimal(_first(raw, "成交量")),
                 amount=_decimal(_first(raw, "成交额")),
                 turnover_rate=_decimal(_first(raw, "换手率")),
-                source="akshare.stock_zh_a_spot",
+                source="akshare.stock_zh_a_spot.retry",
             )
         )
     fallback_match_count = len({row.symbol for row in fallback_rows} & target_symbols)

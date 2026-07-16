@@ -204,7 +204,7 @@ def test_fetch_realtime_quotes_retries_full_market_source_when_primary_is_incomp
     )
 
     assert {row.symbol for row in rows} == {"000001", "000002"}
-    assert {row.source for row in rows} == {"akshare.stock_zh_a_spot"}
+    assert {row.source for row in rows} == {"akshare.stock_zh_a_spot.retry"}
 
 
 def test_north_exchange_92_prefix_uses_beijing_realtime_symbol() -> None:

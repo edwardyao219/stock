@@ -112,6 +112,15 @@ export interface IntradayMarketTurn {
   sustained_expanding_sectors: IntradaySustainedExpandingSector[];
   leading_sustained_sectors: IntradayLeadingSector[];
   cross_day_mainline: CrossDayMainline | null;
+  quote_integrity: IntradayQuoteIntegrity | null;
+}
+
+export interface IntradayQuoteIntegrity {
+  expected_symbol_count: number;
+  valid_quote_count: number;
+  coverage_ratio: number;
+  source_counts: Record<string, number>;
+  retry_applied: boolean;
 }
 
 export interface CrossDayMainline {

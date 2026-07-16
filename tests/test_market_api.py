@@ -54,6 +54,13 @@ def test_get_intraday_market_turn_returns_latest_current_snapshot() -> None:
                     "summary": "允许跟踪启动观察。",
                     "startup_watch_allowed": True,
                     "core_action_allowed": False,
+                    "quote_integrity": {
+                        "expected_symbol_count": 100,
+                        "valid_quote_count": 99,
+                        "coverage_ratio": 0.99,
+                        "source_counts": {"akshare.stock_zh_a_spot.retry": 99},
+                        "retry_applied": True,
+                    },
                     "expanding_sectors": [
                         {
                             "sector": "半导体",
@@ -124,6 +131,8 @@ def test_get_intraday_market_turn_returns_latest_current_snapshot() -> None:
     assert result.leading_sustained_sectors[0].leader_symbol == "600001"
     assert result.cross_day_mainline.status == "观察确认"
     assert result.cross_day_mainline.confirmed_sectors == ["半导体"]
+    assert result.quote_integrity["retry_applied"] is True
+    assert result.quote_integrity["valid_quote_count"] == 99
     assert result.core_action_allowed is False
 
 

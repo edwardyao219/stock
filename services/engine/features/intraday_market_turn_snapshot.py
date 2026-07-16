@@ -312,6 +312,7 @@ def build_intraday_market_turn_snapshot(
     snapshot.update(
         {
             "data_ready": data_ready,
+            "valid_quote_count": len(valid_quotes),
             "coverage_ratio": round(coverage_ratio, 6),
             "breadth_ratio": round(breadth_ratio, 6),
             "total_amount": round(total_amount, 2),
