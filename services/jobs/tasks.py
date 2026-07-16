@@ -19,7 +19,11 @@ from services.engine.features.intraday_market_turn_snapshot import (
 from services.engine.intraday.candidates import early_sector_scan_symbols
 from services.engine.review.mechanical import generate_daily_mechanical_review
 from services.engine.review.monthly_summary import generate_monthly_trade_summary
-from services.engine.tracking.mainline import build_confirmed_mainline_candidate_bindings
+from services.engine.tracking.mainline import (
+    build_confirmed_mainline_candidate_bindings,
+    list_confirmed_mainline_outcomes,
+    summarize_mainline_outcomes,
+)
 from services.jobs.celery_app import celery_app
 from services.jobs.pipeline import (
     _is_open_trade_date,
@@ -128,6 +132,11 @@ def _dispatch_after_close_failure_alert(trade_date: str, stage: str, error: str)
         dispatch_text(f"【{title}】{trade_date}：{error}")
 
 
+def _mainline_outcome_health(db) -> dict[str, object]:
+    rows = summarize_mainline_outcomes(list_confirmed_mainline_outcomes(db, limit=120))
+    return {"horizons": list(rows.values())}
+
+
 @celery_app.task(name="services.jobs.tasks.pre_market_check")
 def pre_market_check() -> dict[str, str]:
     today = now_local().date().isoformat()
@@ -156,7 +165,7 @@ def capture_korea_semiconductor_signal_task() -> dict[str, object]:
 
 
 @celery_app.task(name="services.jobs.tasks.sync_daily_market_data_task")
-def sync_daily_market_data_task() -> dict[str, str]:
+def sync_daily_market_data_task() -> dict[str, object]:
     today = now_local().date()
     trade_date = today.isoformat()
     with SessionLocal() as db:
@@ -181,7 +190,13 @@ def sync_daily_market_data_task() -> dict[str, str]:
         full_refresh=True,
         force=True,
     )
-    return {"trade_date": trade_date, **step.to_dict()}
+    with SessionLocal() as db:
+        outcome_health = _mainline_outcome_health(db)
+    return {
+        "trade_date": trade_date,
+        **step.to_dict(),
+        "mainline_outcome_health": outcome_health,
+    }
 
 
 @celery_app.task(name="services.jobs.tasks.capture_full_market_snapshot_task")

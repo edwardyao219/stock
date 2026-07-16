@@ -129,6 +129,17 @@ def test_sync_daily_market_data_task_runs_forced_full_market_sync(monkeypatch) -
     from datetime import datetime
 
     captured = {}
+    outcome_health = {
+        "horizons": [
+            {
+                "horizon": 1,
+                "total_signal_count": 12,
+                "completed_count": 6,
+                "waiting_count": 6,
+                "unavailable_count": 0,
+            }
+        ]
+    }
 
     def fake_sync_step(trade_date, *, full_refresh=False, force=False):
         captured.update(
@@ -151,6 +162,12 @@ def test_sync_daily_market_data_task_runs_forced_full_market_sync(monkeypatch) -
         "_acquire_daily_task_lock",
         lambda task_name, trade_date: (True, "stock:daily-task:daily-market-sync:2026-07-13"),
     )
+    monkeypatch.setattr(
+        tasks,
+        "_mainline_outcome_health",
+        lambda db: outcome_health,
+        raising=False,
+    )
 
     result = tasks.sync_daily_market_data_task()
 
@@ -161,6 +178,7 @@ def test_sync_daily_market_data_task_runs_forced_full_market_sync(monkeypatch) -
     }
     assert result["status"] == "ok"
     assert result["detail"] == "同步行情完成"
+    assert result["mainline_outcome_health"] == outcome_health
 
 
 def test_sync_daily_market_data_task_skips_non_trading_day(monkeypatch) -> None:
