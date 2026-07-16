@@ -174,6 +174,17 @@ export interface MainlineOutcomeSummary {
     win_rate: number | null;
     failure_rate: number | null;
   }>;
+  breakdown_horizon: number;
+  sectors: MainlineOutcomeBreakdownRow[];
+  market_states: MainlineOutcomeBreakdownRow[];
+}
+
+export interface MainlineOutcomeBreakdownRow {
+  key: string;
+  sample_count: number;
+  avg_return_pct: number;
+  win_rate: number;
+  failure_rate: number;
 }
 
 export interface IntradayExpandingSector {

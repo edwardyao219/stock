@@ -224,6 +224,15 @@ function intradaySectorBenchmarkText(turn: IntradayMarketTurn | null) {
   return `板块对照 ${rows} / 仅观察`;
 }
 
+function outcomeMarketStateLabel(value: string) {
+  return {
+    repair_confirmed: "修复确认",
+    watch_repair: "观察修复",
+    strong_trend: "强趋势",
+    weak_trend: "弱趋势",
+  }[value] ?? "其他状态";
+}
+
 function price(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return value.toFixed(2);
@@ -3522,6 +3531,16 @@ export function App() {
                     {item.horizon}日 样本{item.sample_count} / 平均收益 {pct(item.avg_return_pct)} / 胜率 {pct(item.win_rate)} / 失效率 {pct(item.failure_rate)}
                   </span>
                 ))}
+                <span>
+                  分板块 {mainlineOutcomeSummary.sectors.length
+                    ? mainlineOutcomeSummary.sectors.slice(0, 3).map((item) => `${item.key} 样本${item.sample_count} / 均值${pct(item.avg_return_pct)} / 胜率${pct(item.win_rate)}`).join("；")
+                    : "3日样本等待"}
+                </span>
+                <span>
+                  分市场状态 {mainlineOutcomeSummary.market_states.length
+                    ? mainlineOutcomeSummary.market_states.slice(0, 3).map((item) => `${outcomeMarketStateLabel(item.key)} 样本${item.sample_count} / 均值${pct(item.avg_return_pct)} / 胜率${pct(item.win_rate)}`).join("；")
+                    : "3日样本等待"}
+                </span>
               </div>
             ) : null}
             {confirmedMainlineOutcomes.length ? (

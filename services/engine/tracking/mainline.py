@@ -25,6 +25,7 @@ class ConfirmedMainlineOutcome:
     leader_symbol: str
     horizons: dict[int, MainlineHorizonOutcome]
     candidate_bindings: list[ConfirmedCandidateOutcome]
+    market_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,46 @@ def summarize_mainline_outcomes(
             else None,
         }
     return summary
+
+
+def summarize_mainline_outcome_breakdowns(
+    outcomes: list[ConfirmedMainlineOutcome],
+    *,
+    horizon: int = 3,
+) -> dict[str, object]:
+    def grouped(key_name: str) -> list[dict[str, int | float | str]]:
+        groups: dict[str, list[float]] = {}
+        for item in outcomes:
+            value = item.horizons.get(horizon)
+            key = item.sector if key_name == "sector" else item.market_state
+            if (
+                item.signal_type != "strong_benchmark"
+                or not key
+                or value is None
+                or value.status != "completed"
+                or value.return_pct is None
+            ):
+                continue
+            groups.setdefault(key, []).append(value.return_pct)
+        return sorted(
+            [
+                {
+                    "key": key,
+                    "sample_count": len(values),
+                    "avg_return_pct": round(sum(values) / len(values), 6),
+                    "win_rate": round(sum(value > 0 for value in values) / len(values), 6),
+                    "failure_rate": round(sum(value <= 0 for value in values) / len(values), 6),
+                }
+                for key, values in groups.items()
+            ],
+            key=lambda item: (-int(item["sample_count"]), str(item["key"])),
+        )
+
+    return {
+        "horizon": horizon,
+        "sectors": grouped("sector"),
+        "market_states": grouped("market_state"),
+    }
 
 
 def list_confirmed_mainline_outcomes(
@@ -175,6 +216,7 @@ def list_confirmed_mainline_outcomes(
                     leader_symbol=leader_symbol,
                     horizons=_horizons(bars),
                     candidate_bindings=candidate_bindings,
+                    market_state=str((row.state_json or {}).get("key") or "unknown"),
                 )
             )
             if len(outcomes) >= limit:

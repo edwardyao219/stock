@@ -35,6 +35,7 @@ from services.engine.review.sector_replay import replay_sector_month
 from services.engine.sector.names import canonical_sector_name as _canonical_sector_name
 from services.engine.tracking.mainline import (
     list_confirmed_mainline_outcomes,
+    summarize_mainline_outcome_breakdowns,
     summarize_mainline_outcomes,
 )
 from services.shared.database import get_db
@@ -182,6 +183,9 @@ class MainlineOutcomeSummaryHorizonResponse(BaseModel):
 class MainlineOutcomeSummaryResponse(BaseModel):
     signal_type: str
     horizons: list[MainlineOutcomeSummaryHorizonResponse] = Field(default_factory=list)
+    breakdown_horizon: int
+    sectors: list[dict[str, int | float | str]] = Field(default_factory=list)
+    market_states: list[dict[str, int | float | str]] = Field(default_factory=list)
 
 
 class IntradayMarketTurnResponse(BaseModel):
@@ -1602,10 +1606,15 @@ def get_confirmed_mainline_outcomes(
 
 @router.get("/mainline-outcome-summary", response_model=MainlineOutcomeSummaryResponse)
 def get_mainline_outcome_summary(db: DbSession) -> MainlineOutcomeSummaryResponse:
-    rows = summarize_mainline_outcomes(list_confirmed_mainline_outcomes(db, limit=120))
+    outcomes = list_confirmed_mainline_outcomes(db, limit=120)
+    rows = summarize_mainline_outcomes(outcomes)
+    breakdowns = summarize_mainline_outcome_breakdowns(outcomes)
     return MainlineOutcomeSummaryResponse(
         signal_type="strong_benchmark",
         horizons=[MainlineOutcomeSummaryHorizonResponse(**item) for item in rows.values()],
+        breakdown_horizon=int(breakdowns["horizon"]),
+        sectors=list(breakdowns["sectors"]),
+        market_states=list(breakdowns["market_states"]),
     )
 
 

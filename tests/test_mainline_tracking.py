@@ -167,3 +167,39 @@ def test_strong_benchmark_summary_uses_only_completed_horizons() -> None:
         "win_rate": 0.5,
         "failure_rate": 0.5,
     }
+
+
+def test_strong_benchmark_breakdown_groups_three_day_results() -> None:
+    def outcome(sector: str, market_state: str, value: float) -> ConfirmedMainlineOutcome:
+        return ConfirmedMainlineOutcome(
+            signal_type="strong_benchmark",
+            signal_date="2026-07-01",
+            sector=sector,
+            leader_symbol="600001",
+            horizons={
+                3: MainlineHorizonOutcome(
+                    horizon=3,
+                    status="completed",
+                    return_pct=value,
+                )
+            },
+            candidate_bindings=[],
+            market_state=market_state,
+        )
+
+    result = mainline.summarize_mainline_outcome_breakdowns(
+        [
+            outcome("通信设备", "repair_confirmed", 0.1),
+            outcome("通信设备", "repair_confirmed", -0.02),
+            outcome("影视音像", "watch_repair", 0.03),
+        ]
+    )
+
+    assert result["sectors"][0] == {
+        "key": "通信设备",
+        "sample_count": 2,
+        "avg_return_pct": 0.04,
+        "win_rate": 0.5,
+        "failure_rate": 0.5,
+    }
+    assert result["market_states"][0]["key"] == "repair_confirmed"
