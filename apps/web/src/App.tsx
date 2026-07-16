@@ -214,7 +214,10 @@ function intradaySectorBenchmarkText(turn: IntradayMarketTurn | null) {
   if (!sectors.length) return "板块对照等待";
   const rows = sectors
     .slice(0, 3)
-    .map((item) => `${item.sector} ${item.leader_symbol}`)
+    .map((item) => {
+      const strong = item.up_ratio >= 0.7 && item.avg_change_pct >= 0.015 && item.leader_change_pct >= 0.03;
+      return `${item.sector} ${strong ? "强启动对照" : "持续观察"}`;
+    })
     .join("、");
   return `板块对照 ${rows} / 仅观察`;
 }
