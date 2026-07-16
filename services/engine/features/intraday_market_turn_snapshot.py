@@ -36,13 +36,17 @@ def _snapshot_time(value: datetime | str) -> datetime:
 
 
 def _cross_day_check_label(snapshot_time: datetime) -> str:
-    if snapshot_time.time() == CROSS_DAY_MAINLINE_FINAL_CHECK_TIME:
+    if _matches_check_minute(snapshot_time, CROSS_DAY_MAINLINE_FINAL_CHECK_TIME):
         return "10:30复核"
-    if snapshot_time.time() == CROSS_DAY_MAINLINE_FIRST_CHECK_TIME:
+    if _matches_check_minute(snapshot_time, CROSS_DAY_MAINLINE_FIRST_CHECK_TIME):
         return "09:45首次核验"
     if snapshot_time.time() > CROSS_DAY_MAINLINE_FIRST_CHECK_TIME:
         return "等待10:30复核"
     return "等待09:45首次核验"
+
+
+def _matches_check_minute(snapshot_time: datetime, check_time: time) -> bool:
+    return snapshot_time.hour == check_time.hour and snapshot_time.minute == check_time.minute
 
 
 def build_cross_day_mainline_validation(
@@ -65,8 +69,8 @@ def build_cross_day_mainline_validation(
         for item in expanding_sectors
         if str(item.get("sector") or "").strip()
     }
-    first_check = checked_at.time() == CROSS_DAY_MAINLINE_FIRST_CHECK_TIME
-    final_check = checked_at.time() == CROSS_DAY_MAINLINE_FINAL_CHECK_TIME
+    first_check = _matches_check_minute(checked_at, CROSS_DAY_MAINLINE_FIRST_CHECK_TIME)
+    final_check = _matches_check_minute(checked_at, CROSS_DAY_MAINLINE_FINAL_CHECK_TIME)
     check_due = first_check or final_check
     sectors: list[dict[str, object]] = []
     confirmed_sectors: list[str] = []

@@ -204,6 +204,31 @@ def test_cross_day_mainline_marks_baseline_invalid_at_1030_when_it_does_not_exte
     assert validation["sectors"][0]["status"] == "失效"
 
 
+def test_cross_day_mainline_treats_103003_as_the_final_check_minute() -> None:
+    baseline = SimpleNamespace(
+        trade_date="2026-07-15",
+        state_json={
+            "leading_sustained_sectors": [
+                {
+                    "sector": "半导体",
+                    "up_ratio": 0.8,
+                    "avg_change_pct": 0.02,
+                    "leader_change_pct": 0.05,
+                }
+            ]
+        },
+    )
+
+    validation = build_cross_day_mainline_validation(
+        snapshot_time="2026-07-16T10:30:03",
+        expanding_sectors=[],
+        baseline_snapshot=baseline,
+    )
+
+    assert validation["checkpoint"] == "10:30复核"
+    assert validation["status"] == "失效"
+
+
 def test_cross_day_mainline_does_not_confirm_between_the_two_checkpoints() -> None:
     baseline = SimpleNamespace(
         trade_date="2026-07-15",
