@@ -3502,15 +3502,15 @@ export function App() {
           </div>
           <section className="sector-catalyst-panel">
             <div className="snapshot-review-head">
-              <strong>确认主线回看</strong>
-              <small>只统计 10:30 最终确认；收益按信号日收盘计算。</small>
+              <strong>启动信号回看</strong>
+              <small>统计10:30确认主线与强启动对照；收益按信号日收盘计算。</small>
             </div>
             {confirmedMainlineOutcomes.length ? (
               <div className="sector-catalyst-list">
                 {confirmedMainlineOutcomes.slice(0, 6).map((item) => (
                   <div className="sector-catalyst-item" key={`${item.signal_date}-${item.sector}`}>
                     <span>
-                      <strong>{item.sector}</strong>
+                      <strong>{item.sector} / {item.signal_type === "confirmed_mainline" ? "主线确认" : "强启动对照"}</strong>
                       <em>{item.leader_symbol}</em>
                     </span>
                     <small>确认 {item.signal_date}</small>

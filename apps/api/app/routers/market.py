@@ -154,6 +154,7 @@ class MainlineOutcomeHorizonResponse(BaseModel):
 
 
 class ConfirmedMainlineOutcomeResponse(BaseModel):
+    signal_type: str
     signal_date: str
     sector: str
     leader_symbol: str
@@ -1551,6 +1552,7 @@ def get_confirmed_mainline_outcomes(
 ) -> list[ConfirmedMainlineOutcomeResponse]:
     return [
         ConfirmedMainlineOutcomeResponse(
+            signal_type=item.signal_type,
             signal_date=item.signal_date,
             sector=item.sector,
             leader_symbol=item.leader_symbol,

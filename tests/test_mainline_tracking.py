@@ -97,3 +97,40 @@ def test_mainline_candidate_bindings_keep_only_formal_candidates_in_confirmed_se
     )
 
     assert bindings == [{"symbol": "600001", "sector": "半导体", "selection_tier": "formal"}]
+
+
+def test_strong_sector_benchmark_outcomes_use_persisted_snapshot_leader() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 1)
+
+    with Session(engine) as db:
+        db.add(
+            IntradayMarketTurnSnapshot(
+                trade_date=signal_date,
+                snapshot_time=datetime(2026, 7, 1, 11, 30),
+                coverage_ratio=0.99,
+                breadth_ratio=0.6,
+                total_amount=100.0,
+                index_change_pct=0.002,
+                sector_expansion_count=3,
+                state_json={
+                    "leading_sustained_sectors": [{
+                        "sector": "通信设备",
+                        "up_ratio": 0.8,
+                        "avg_change_pct": 0.02,
+                        "leader_symbol": "600001",
+                        "leader_change_pct": 0.05,
+                    }]
+                },
+            )
+        )
+        db.add_all([_bar(signal_date, "10"), _bar(signal_date + timedelta(days=1), "11")])
+        db.commit()
+
+        rows = list_confirmed_mainline_outcomes(db)
+
+    assert len(rows) == 1
+    assert rows[0].signal_type == "strong_benchmark"
+    assert rows[0].sector == "通信设备"
+    assert rows[0].horizons[1].return_pct == 0.1

@@ -151,6 +151,7 @@ export interface MainlineOutcomeHorizon {
 }
 
 export interface ConfirmedMainlineOutcome {
+  signal_type: string;
   signal_date: string;
   sector: string;
   leader_symbol: string;

@@ -19,6 +19,7 @@ class MainlineHorizonOutcome:
 
 @dataclass(frozen=True)
 class ConfirmedMainlineOutcome:
+    signal_type: str
     signal_date: str
     sector: str
     leader_symbol: str
@@ -80,15 +81,30 @@ def list_confirmed_mainline_outcomes(
     seen: set[tuple[object, str]] = set()
     for row in rows:
         cross_day = (row.state_json or {}).get("cross_day_mainline")
-        if not isinstance(cross_day, dict) or cross_day.get("checkpoint") != "10:30复核":
-            continue
-        if cross_day.get("status") != "观察确认":
-            continue
-        for item in cross_day.get("sectors") or []:
-            if not isinstance(item, dict) or item.get("status") != "观察确认":
-                continue
+        signals: list[tuple[str, dict[str, object]]] = []
+        if (
+            isinstance(cross_day, dict)
+            and cross_day.get("checkpoint") == "10:30复核"
+            and cross_day.get("status") == "观察确认"
+        ):
+            signals.extend(
+                ("confirmed_mainline", item)
+                for item in cross_day.get("sectors") or []
+                if isinstance(item, dict) and item.get("status") == "观察确认"
+            )
+        signals.extend(
+            ("strong_benchmark", item)
+            for item in (row.state_json or {}).get("leading_sustained_sectors") or []
+            if isinstance(item, dict)
+            and float(item.get("up_ratio") or 0) >= 0.7
+            and float(item.get("avg_change_pct") or 0) >= 0.015
+            and float(item.get("leader_change_pct") or 0) >= 0.03
+        )
+        for signal_type, item in signals:
             sector = str(item.get("sector") or "").strip()
-            leader_symbol = str(item.get("current_leader_symbol") or "").strip()
+            leader_symbol = str(
+                item.get("current_leader_symbol") or item.get("leader_symbol") or ""
+            ).strip()
             key = (row.trade_date, sector)
             if not sector or not leader_symbol or key in seen:
                 continue
@@ -125,6 +141,7 @@ def list_confirmed_mainline_outcomes(
                 )
             outcomes.append(
                 ConfirmedMainlineOutcome(
+                    signal_type=signal_type,
                     signal_date=row.trade_date.isoformat(),
                     sector=sector,
                     leader_symbol=leader_symbol,
