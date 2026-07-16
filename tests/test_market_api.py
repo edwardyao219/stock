@@ -89,6 +89,26 @@ def test_get_intraday_market_turn_returns_latest_current_snapshot() -> None:
                             "consecutive_snapshots": 2,
                         }
                     ],
+                    "cross_day_mainline": {
+                        "status": "观察确认",
+                        "summary": "昨日主线已获A股盘中扩散确认，仅用于观察候选绑定。",
+                        "baseline_trade_date": "2026-07-13",
+                        "checkpoint": "09:45首次核验",
+                        "confirmed_sectors": ["半导体"],
+                        "sectors": [
+                            {
+                                "sector": "半导体",
+                                "status": "观察确认",
+                                "reason": "真实全市场快照显示板块扩散、涨幅和龙头承接仍在。",
+                                "baseline_up_ratio": 0.75,
+                                "baseline_avg_change_pct": 0.02,
+                                "baseline_leader_change_pct": 0.05,
+                                "current_up_ratio": 0.78,
+                                "current_avg_change_pct": 0.018,
+                                "current_leader_change_pct": 0.04,
+                            }
+                        ],
+                    },
                 },
             )
         )
@@ -101,6 +121,8 @@ def test_get_intraday_market_turn_returns_latest_current_snapshot() -> None:
     assert result.expanding_sectors[0].sector == "半导体"
     assert result.sustained_expanding_sectors[0].consecutive_snapshots == 2
     assert result.leading_sustained_sectors[0].leader_symbol == "600001"
+    assert result.cross_day_mainline.status == "观察确认"
+    assert result.cross_day_mainline.confirmed_sectors == ["半导体"]
     assert result.core_action_allowed is False
 
 

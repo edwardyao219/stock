@@ -111,6 +111,28 @@ export interface IntradayMarketTurn {
   expanding_sectors: IntradayExpandingSector[];
   sustained_expanding_sectors: IntradaySustainedExpandingSector[];
   leading_sustained_sectors: IntradayLeadingSector[];
+  cross_day_mainline: CrossDayMainline | null;
+}
+
+export interface CrossDayMainline {
+  status: string;
+  summary: string;
+  baseline_trade_date: string | null;
+  checkpoint: string;
+  confirmed_sectors: string[];
+  sectors: CrossDayMainlineSector[];
+}
+
+export interface CrossDayMainlineSector {
+  sector: string;
+  status: string;
+  reason: string;
+  baseline_up_ratio: number | null;
+  baseline_avg_change_pct: number | null;
+  baseline_leader_change_pct: number | null;
+  current_up_ratio: number | null;
+  current_avg_change_pct: number | null;
+  current_leader_change_pct: number | null;
 }
 
 export interface IntradayExpandingSector {

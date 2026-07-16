@@ -995,9 +995,7 @@ def test_celery_has_early_midday_and_late_session_snapshot_jobs() -> None:
 def test_celery_captures_early_market_repair_snapshots() -> None:
     expected_times = {
         "capture-intraday-market-turn-0935": (9, 35),
-        "capture-intraday-market-turn-0950": (9, 50),
-        "capture-intraday-market-turn-1005": (10, 5),
-        "capture-intraday-market-turn-1020": (10, 20),
+        "capture-intraday-market-turn-0945": (9, 45),
         "capture-intraday-market-turn-1030": (10, 30),
     }
 

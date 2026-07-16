@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, time
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
 
@@ -17,6 +17,7 @@ from services.engine.research_pool.repository import (
 from services.engine.rules.seed_rules import MVP_RULES
 from services.shared.models import (
     DailyBar,
+    IntradayMarketTurnSnapshot,
     PaperPosition,
     RealtimeQuote,
     ResearchPoolItem,
@@ -251,6 +252,36 @@ def _is_intraday_trading_time(value: time) -> bool:
     return time(9, 30) <= value <= time(11, 30) or time(13, 0) <= value <= time(15, 0)
 
 
+def load_sustained_startup_sectors(
+    db: Session,
+    *,
+    trade_date: date,
+    as_of: datetime,
+) -> set[str]:
+    row = db.execute(
+        select(IntradayMarketTurnSnapshot)
+        .where(IntradayMarketTurnSnapshot.trade_date == trade_date)
+        .where(IntradayMarketTurnSnapshot.snapshot_time <= as_of)
+        .order_by(IntradayMarketTurnSnapshot.snapshot_time.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if row is None:
+        return set()
+    state = row.state_json or {}
+    if not state.get("data_ready"):
+        return set()
+    cross_day_mainline = state.get("cross_day_mainline")
+    if not isinstance(cross_day_mainline, dict):
+        return set()
+    if cross_day_mainline.get("status") != "观察确认":
+        return set()
+    return {
+        str(sector).strip()
+        for sector in cross_day_mainline.get("confirmed_sectors") or []
+        if str(sector).strip()
+    }
+
+
 def _load_intraday_plan_guards(
     db: Session,
     *,
@@ -263,6 +294,11 @@ def _load_intraday_plan_guards(
         return {}
     if not _is_open_trade_date(db, current.date()):
         return {}
+    sustained_startup_sectors = load_sustained_startup_sectors(
+        db,
+        trade_date=current.date(),
+        as_of=current,
+    )
 
     result = discover_intraday_candidates(
         db,
@@ -272,6 +308,7 @@ def _load_intraday_plan_guards(
         include_growth_board=include_growth_board,
         as_of=current,
         market_stress=market_stress,
+        sustained_startup_sectors=sustained_startup_sectors,
     )
     guards: dict[str, IntradayPlanGuard] = {}
     for item in result.get("candidates", []):

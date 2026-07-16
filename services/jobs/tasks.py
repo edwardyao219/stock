@@ -288,6 +288,15 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
                 .order_by(IntradayMarketTurnSnapshot.snapshot_time)
             ).scalars()
         )
+        cross_day_baseline_snapshot = db.execute(
+            select(IntradayMarketTurnSnapshot)
+            .where(IntradayMarketTurnSnapshot.trade_date < trade_date)
+            .order_by(
+                IntradayMarketTurnSnapshot.trade_date.desc(),
+                IntradayMarketTurnSnapshot.snapshot_time.desc(),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
         snapshot = build_intraday_market_turn_snapshot(
             quotes=quotes,
             active_security_count=len(securities),
@@ -295,6 +304,8 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
             sector_by_symbol={item.symbol: item.industry for item in securities},
             index_change_pct=index_change_pct,
             prior_snapshots=prior_snapshots,
+            cross_day_baseline_snapshot=cross_day_baseline_snapshot,
+            snapshot_time=current_time,
         )
         db.add(
             IntradayMarketTurnSnapshot(

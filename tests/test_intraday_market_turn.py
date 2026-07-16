@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from services.engine.features.intraday_market_turn import classify_intraday_market_turn
 from services.engine.features.intraday_market_turn_snapshot import (
+    build_cross_day_mainline_validation,
     build_intraday_market_turn_snapshot,
 )
 
@@ -142,3 +143,94 @@ def test_intraday_snapshot_marks_sector_as_sustained_after_two_stable_snapshots(
     assert snapshot["sustained_expanding_sectors"][0]["consecutive_snapshots"] == 2
     assert snapshot["leading_sustained_sector_count"] == 1
     assert snapshot["leading_sustained_sectors"][0]["leader_symbol"] == "600001"
+
+
+def test_cross_day_mainline_requires_morning_expansion_before_observation_confirmation() -> None:
+    baseline = SimpleNamespace(
+        trade_date="2026-07-15",
+        state_json={
+            "leading_sustained_sectors": [
+                {
+                    "sector": "半导体",
+                    "up_ratio": 0.8,
+                    "avg_change_pct": 0.02,
+                    "leader_change_pct": 0.05,
+                }
+            ]
+        },
+    )
+
+    validation = build_cross_day_mainline_validation(
+        snapshot_time="2026-07-16T09:45:00",
+        expanding_sectors=[
+            {
+                "sector": "半导体",
+                "up_ratio": 0.72,
+                "avg_change_pct": 0.012,
+                "leader_change_pct": 0.032,
+            }
+        ],
+        baseline_snapshot=baseline,
+    )
+
+    assert validation["status"] == "观察确认"
+    assert validation["confirmed_sectors"] == ["半导体"]
+    assert validation["sectors"][0]["status"] == "观察确认"
+
+
+def test_cross_day_mainline_marks_baseline_invalid_at_1030_when_it_does_not_extend() -> None:
+    baseline = SimpleNamespace(
+        trade_date="2026-07-15",
+        state_json={
+            "leading_sustained_sectors": [
+                {
+                    "sector": "半导体",
+                    "up_ratio": 0.8,
+                    "avg_change_pct": 0.02,
+                    "leader_change_pct": 0.05,
+                }
+            ]
+        },
+    )
+
+    validation = build_cross_day_mainline_validation(
+        snapshot_time="2026-07-16T10:30:00",
+        expanding_sectors=[],
+        baseline_snapshot=baseline,
+    )
+
+    assert validation["status"] == "失效"
+    assert validation["confirmed_sectors"] == []
+    assert validation["sectors"][0]["status"] == "失效"
+
+
+def test_cross_day_mainline_does_not_confirm_between_the_two_checkpoints() -> None:
+    baseline = SimpleNamespace(
+        trade_date="2026-07-15",
+        state_json={
+            "leading_sustained_sectors": [
+                {
+                    "sector": "半导体",
+                    "up_ratio": 0.8,
+                    "avg_change_pct": 0.02,
+                    "leader_change_pct": 0.05,
+                }
+            ]
+        },
+    )
+
+    validation = build_cross_day_mainline_validation(
+        snapshot_time="2026-07-16T10:05:00",
+        expanding_sectors=[
+            {
+                "sector": "半导体",
+                "up_ratio": 0.8,
+                "avg_change_pct": 0.02,
+                "leader_change_pct": 0.05,
+            }
+        ],
+        baseline_snapshot=baseline,
+    )
+
+    assert validation["status"] == "未确认"
+    assert validation["confirmed_sectors"] == []

@@ -125,6 +125,27 @@ class MarketOverviewResponse(BaseModel):
     indexes: list[MarketIndexResponse] = Field(default_factory=list)
 
 
+class CrossDayMainlineSectorResponse(BaseModel):
+    sector: str
+    status: str
+    reason: str
+    baseline_up_ratio: float | None = None
+    baseline_avg_change_pct: float | None = None
+    baseline_leader_change_pct: float | None = None
+    current_up_ratio: float | None = None
+    current_avg_change_pct: float | None = None
+    current_leader_change_pct: float | None = None
+
+
+class CrossDayMainlineResponse(BaseModel):
+    status: str
+    summary: str
+    baseline_trade_date: str | None = None
+    checkpoint: str
+    confirmed_sectors: list[str] = Field(default_factory=list)
+    sectors: list[CrossDayMainlineSectorResponse] = Field(default_factory=list)
+
+
 class IntradayMarketTurnResponse(BaseModel):
     trade_date: date | None
     snapshot_time: datetime | None
@@ -147,6 +168,7 @@ class IntradayMarketTurnResponse(BaseModel):
     leading_sustained_sectors: list["IntradayLeadingSectorResponse"] = Field(
         default_factory=list
     )
+    cross_day_mainline: CrossDayMainlineResponse | None = None
 
 
 class IntradayExpandingSectorResponse(BaseModel):
@@ -1465,6 +1487,7 @@ def get_intraday_market_turn(db: DbSession) -> IntradayMarketTurnResponse:
             expanding_sectors=[],
             sustained_expanding_sectors=[],
             leading_sustained_sectors=[],
+            cross_day_mainline=None,
         )
     state = row.state_json or {}
     return IntradayMarketTurnResponse(
@@ -1485,6 +1508,11 @@ def get_intraday_market_turn(db: DbSession) -> IntradayMarketTurnResponse:
         expanding_sectors=list(state.get("expanding_sectors") or []),
         sustained_expanding_sectors=list(state.get("sustained_expanding_sectors") or []),
         leading_sustained_sectors=list(state.get("leading_sustained_sectors") or []),
+        cross_day_mainline=(
+            state.get("cross_day_mainline")
+            if isinstance(state.get("cross_day_mainline"), dict)
+            else None
+        ),
     )
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime, time
 from typing import Any
 
 from services.engine.features.intraday_market_turn import classify_intraday_market_turn
@@ -12,6 +13,13 @@ INTRADAY_SECTOR_MAX_AVG_CHANGE_DECAY = 0.005
 INTRADAY_LEADING_SECTOR_LIMIT = 6
 INTRADAY_LEADING_SECTOR_MIN_AVG_CHANGE = 0.015
 INTRADAY_LEADING_SECTOR_MIN_LEADER_CHANGE = 0.03
+CROSS_DAY_MAINLINE_FIRST_CHECK_TIME = time(9, 45)
+CROSS_DAY_MAINLINE_FINAL_CHECK_TIME = time(10, 30)
+CROSS_DAY_MAINLINE_MAX_UP_RATIO_DECAY = 0.15
+CROSS_DAY_MAINLINE_MAX_AVG_CHANGE_DECAY = 0.02
+CROSS_DAY_MAINLINE_MAX_LEADER_CHANGE_DECAY = 0.04
+CROSS_DAY_MAINLINE_MIN_AVG_CHANGE = 0.005
+CROSS_DAY_MAINLINE_MIN_LEADER_CHANGE = 0.01
 
 
 def _float(value: Any) -> float | None:
@@ -19,6 +27,126 @@ def _float(value: Any) -> float | None:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _snapshot_time(value: datetime | str) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value)
+
+
+def _cross_day_check_label(snapshot_time: datetime) -> str:
+    if snapshot_time.time() == CROSS_DAY_MAINLINE_FINAL_CHECK_TIME:
+        return "10:30复核"
+    if snapshot_time.time() == CROSS_DAY_MAINLINE_FIRST_CHECK_TIME:
+        return "09:45首次核验"
+    if snapshot_time.time() > CROSS_DAY_MAINLINE_FIRST_CHECK_TIME:
+        return "等待10:30复核"
+    return "等待09:45首次核验"
+
+
+def build_cross_day_mainline_validation(
+    *,
+    snapshot_time: datetime | str,
+    expanding_sectors: list[dict[str, object]],
+    baseline_snapshot: Any | None,
+) -> dict[str, object]:
+    """Validate yesterday's sustained mainlines against a live A-share sector snapshot."""
+    checked_at = _snapshot_time(snapshot_time)
+    baseline_state = getattr(baseline_snapshot, "state_json", None) or {}
+    baseline_rows = [
+        item
+        for item in baseline_state.get("leading_sustained_sectors") or []
+        if isinstance(item, dict) and str(item.get("sector") or "").strip()
+    ]
+    baseline_trade_date = getattr(baseline_snapshot, "trade_date", None)
+    current_by_sector = {
+        str(item.get("sector") or "").strip(): item
+        for item in expanding_sectors
+        if str(item.get("sector") or "").strip()
+    }
+    first_check = checked_at.time() == CROSS_DAY_MAINLINE_FIRST_CHECK_TIME
+    final_check = checked_at.time() == CROSS_DAY_MAINLINE_FINAL_CHECK_TIME
+    check_due = first_check or final_check
+    sectors: list[dict[str, object]] = []
+    confirmed_sectors: list[str] = []
+    for baseline in baseline_rows:
+        sector = str(baseline["sector"]).strip()
+        current = current_by_sector.get(sector)
+        baseline_up_ratio = _float(baseline.get("up_ratio"))
+        baseline_avg_change_pct = _float(baseline.get("avg_change_pct"))
+        baseline_leader_change_pct = _float(baseline.get("leader_change_pct"))
+        current_up_ratio = _float(current.get("up_ratio")) if current else None
+        current_avg_change_pct = _float(current.get("avg_change_pct")) if current else None
+        current_leader_change_pct = _float(current.get("leader_change_pct")) if current else None
+        maintained = bool(
+            current
+            and current_up_ratio is not None
+            and current_avg_change_pct is not None
+            and current_leader_change_pct is not None
+            and current_up_ratio
+            >= max(0.55, (baseline_up_ratio or 0.55) - CROSS_DAY_MAINLINE_MAX_UP_RATIO_DECAY)
+            and current_avg_change_pct
+            >= max(
+                CROSS_DAY_MAINLINE_MIN_AVG_CHANGE,
+                (baseline_avg_change_pct or CROSS_DAY_MAINLINE_MIN_AVG_CHANGE)
+                - CROSS_DAY_MAINLINE_MAX_AVG_CHANGE_DECAY,
+            )
+            and current_leader_change_pct
+            >= max(
+                CROSS_DAY_MAINLINE_MIN_LEADER_CHANGE,
+                (baseline_leader_change_pct or CROSS_DAY_MAINLINE_MIN_LEADER_CHANGE)
+                - CROSS_DAY_MAINLINE_MAX_LEADER_CHANGE_DECAY,
+            )
+        )
+        if not check_due:
+            status = "未确认"
+            reason = "仅在09:45和10:30正式核验，其他时点不确认主线。"
+        elif maintained:
+            status = "观察确认"
+            reason = "真实全市场快照显示板块扩散、涨幅和龙头承接仍在。"
+            confirmed_sectors.append(sector)
+        elif final_check:
+            status = "失效"
+            reason = "10:30复核未见昨日主线延续，停止主线绑定。"
+        else:
+            status = "未确认"
+            reason = "首次核验未满足扩散和承接条件，等待10:30复核。"
+        sectors.append(
+            {
+                "sector": sector,
+                "status": status,
+                "reason": reason,
+                "baseline_up_ratio": baseline_up_ratio,
+                "baseline_avg_change_pct": baseline_avg_change_pct,
+                "baseline_leader_change_pct": baseline_leader_change_pct,
+                "current_up_ratio": current_up_ratio,
+                "current_avg_change_pct": current_avg_change_pct,
+                "current_leader_change_pct": current_leader_change_pct,
+            }
+        )
+    if not check_due:
+        status = "未确认"
+        summary = "等待下一正式核验时点，候选维持观察。"
+    elif confirmed_sectors:
+        status = "观察确认"
+        summary = "昨日主线已获A股盘中扩散确认，仅用于观察候选绑定。"
+    elif final_check and baseline_rows:
+        status = "失效"
+        summary = "昨日主线在10:30复核未延续，不再作为今日候选主线。"
+    else:
+        status = "未确认"
+        summary = "昨日主线尚未获当日A股扩散确认，候选维持观察。"
+    return {
+        "status": status,
+        "summary": summary,
+        "baseline_trade_date": baseline_trade_date.isoformat()
+        if hasattr(baseline_trade_date, "isoformat")
+        else str(baseline_trade_date or "") or None,
+        "checkpoint": _cross_day_check_label(checked_at),
+        "confirmed_sectors": confirmed_sectors,
+        "sectors": sectors,
+    }
 
 
 def _sustained_expanding_sectors(
@@ -69,6 +197,8 @@ def build_intraday_market_turn_snapshot(
     sector_by_symbol: dict[str, str | None],
     index_change_pct: float | None,
     prior_snapshots: list[Any],
+    cross_day_baseline_snapshot: Any | None = None,
+    snapshot_time: datetime | None = None,
 ) -> dict[str, object]:
     valid_quotes = []
     for quote in quotes:
@@ -193,4 +323,12 @@ def build_intraday_market_turn_snapshot(
             "leading_sustained_sectors": leading_sustained_sectors,
         }
     )
+    if cross_day_baseline_snapshot is not None:
+        baseline_state = getattr(cross_day_baseline_snapshot, "state_json", None) or {}
+        if baseline_state.get("leading_sustained_sectors"):
+            snapshot["cross_day_mainline"] = build_cross_day_mainline_validation(
+                snapshot_time=snapshot_time or datetime.now(),
+                expanding_sectors=expanding_sectors,
+                baseline_snapshot=cross_day_baseline_snapshot,
+            )
     return snapshot

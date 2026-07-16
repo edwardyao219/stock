@@ -38,17 +38,9 @@ celery_app.conf.beat_schedule = {
         "task": "services.jobs.tasks.capture_intraday_market_turn_snapshot_task",
         "schedule": crontab(minute=35, hour=9),
     },
-    "capture-intraday-market-turn-0950": {
+    "capture-intraday-market-turn-0945": {
         "task": "services.jobs.tasks.capture_intraday_market_turn_snapshot_task",
-        "schedule": crontab(minute=50, hour=9),
-    },
-    "capture-intraday-market-turn-1005": {
-        "task": "services.jobs.tasks.capture_intraday_market_turn_snapshot_task",
-        "schedule": crontab(minute=5, hour=10),
-    },
-    "capture-intraday-market-turn-1020": {
-        "task": "services.jobs.tasks.capture_intraday_market_turn_snapshot_task",
-        "schedule": crontab(minute=20, hour=10),
+        "schedule": crontab(minute=45, hour=9),
     },
     "capture-intraday-market-turn-1030": {
         "task": "services.jobs.tasks.capture_intraday_market_turn_snapshot_task",

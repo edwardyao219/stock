@@ -34,11 +34,11 @@ from services.engine.tracking.startup import (
 from services.engine.workspace.repository import (
     load_stock_workspace_item,
     load_stock_workspace_items,
+    load_sustained_startup_sectors,
     load_workspace_symbols,
 )
 from services.shared.database import get_db
 from services.shared.models import (
-    IntradayMarketTurnSnapshot,
     RealtimeQuote,
     ResearchPoolItem,
     Security,
@@ -220,24 +220,8 @@ def _sustained_startup_sectors(
     *,
     trade_date: date,
     as_of: datetime,
-) -> set[str] | None:
-    row = db.execute(
-        select(IntradayMarketTurnSnapshot)
-        .where(IntradayMarketTurnSnapshot.trade_date == trade_date)
-        .where(IntradayMarketTurnSnapshot.snapshot_time <= as_of)
-        .order_by(IntradayMarketTurnSnapshot.snapshot_time.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if row is None:
-        return None
-    state = row.state_json or {}
-    if not state.get("data_ready"):
-        return None
-    return {
-        str(item.get("sector") or "").strip()
-        for item in state.get("leading_sustained_sectors") or []
-        if isinstance(item, dict) and str(item.get("sector") or "").strip()
-    }
+) -> set[str]:
+    return load_sustained_startup_sectors(db, trade_date=trade_date, as_of=as_of)
 
 
 def _active_intraday_candidate_symbols(
@@ -1002,6 +986,11 @@ def _intraday_snapshots_for_points(
             include_growth_board=include_growth_board,
             as_of=as_of,
             sector_feedback=sector_feedback,
+            sustained_startup_sectors=_sustained_startup_sectors(
+                db,
+                trade_date=trade_date,
+                as_of=as_of,
+            ),
         )
         snapshots.append(
             {

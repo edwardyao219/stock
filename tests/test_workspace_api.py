@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from apps.api.app.routers.workspace import (
     ManualStockRequest,
+    _intraday_snapshots_for_points,
     _sustained_startup_sectors,
     add_manual_stock,
     get_startup_tracking,
@@ -17,6 +18,7 @@ from apps.api.app.routers.workspace import (
 )
 from services.collector.contracts import CollectionResult
 from services.engine.research_pool import manual_research
+from services.engine.workspace import repository as workspace_repository
 from services.shared.database import Base
 from services.shared.models import (
     DailyBar,
@@ -566,6 +568,10 @@ def test_sustained_startup_sectors_uses_latest_ready_snapshot() -> None:
                 state_json={
                     "data_ready": True,
                     "leading_sustained_sectors": [{"sector": "半导体"}],
+                    "cross_day_mainline": {
+                        "status": "观察确认",
+                        "confirmed_sectors": ["半导体"],
+                    },
                 },
             )
         )
@@ -578,6 +584,125 @@ def test_sustained_startup_sectors_uses_latest_ready_snapshot() -> None:
         )
 
     assert result == {"半导体"}
+
+
+def test_sustained_startup_sectors_fails_closed_when_cross_day_mainline_is_unconfirmed() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(
+            IntradayMarketTurnSnapshot(
+                trade_date=date(2026, 1, 22),
+                snapshot_time=datetime(2026, 1, 22, 9, 45),
+                coverage_ratio=0.99,
+                breadth_ratio=0.58,
+                total_amount=123.0,
+                index_change_pct=0.003,
+                sector_expansion_count=3,
+                state_json={
+                    "data_ready": True,
+                    "leading_sustained_sectors": [{"sector": "半导体"}],
+                    "cross_day_mainline": {
+                        "status": "未确认",
+                        "confirmed_sectors": [],
+                    },
+                },
+            )
+        )
+        db.commit()
+
+        result = _sustained_startup_sectors(
+            db,
+            trade_date=date(2026, 1, 22),
+            as_of=datetime(2026, 1, 22, 10, 0),
+        )
+
+    assert result == set()
+
+
+def test_sustained_startup_sectors_fails_closed_without_a_ready_snapshot() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        result = _sustained_startup_sectors(
+            db,
+            trade_date=date(2026, 1, 22),
+            as_of=datetime(2026, 1, 22, 10, 0),
+        )
+
+    assert result == set()
+
+
+def test_intraday_candidate_snapshots_apply_the_same_fail_closed_mainline_gate(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def fake_discover(_db, **kwargs):
+        tier = "watch" if kwargs.get("sustained_startup_sectors") == set() else "formal"
+        return {"candidate_count": 1, "candidates": [{"symbol": "600001", "selection_tier": tier}]}
+
+    with session() as db:
+        monkeypatch.setattr(
+            "apps.api.app.routers.workspace.discover_intraday_candidates",
+            fake_discover,
+        )
+        snapshots = _intraday_snapshots_for_points(
+            db,
+            trade_date=date(2026, 1, 22),
+            points=[("early_divergence", "早盘分歧", datetime(2026, 1, 22, 9, 45))],
+            pool_name="experiment",
+            limit=8,
+            include_growth_board=False,
+        )
+
+    assert snapshots[0]["candidates"][0]["selection_tier"] == "watch"
+
+
+def test_workspace_plan_guard_fails_closed_without_a_ready_mainline_snapshot(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def fake_discover(_db, **kwargs):
+        tier = "watch" if kwargs.get("sustained_startup_sectors") == set() else "formal"
+        return {
+            "candidates": [
+                {
+                    "symbol": "600001",
+                    "selection_tier": tier,
+                    "selection_tier_label": "观察确认",
+                    "selection_reason": "跨日主线未确认",
+                    "intraday_label": "强势延续",
+                    "sector_signal_label": "强势板块确认",
+                }
+            ]
+        }
+
+    with session() as db:
+        monkeypatch.setattr(
+            "services.engine.workspace.repository.now_local",
+            lambda: datetime(2026, 1, 22, 10, 0),
+        )
+        monkeypatch.setattr(
+            "services.engine.workspace.repository._is_open_trade_date",
+            lambda _db, _trade_date: True,
+        )
+        monkeypatch.setattr(
+            "services.engine.workspace.repository.discover_intraday_candidates",
+            fake_discover,
+        )
+        guards = workspace_repository._load_intraday_plan_guards(
+            db,
+            pool_name="experiment",
+            include_growth_board=False,
+        )
+
+    assert "600001" in guards
 
 
 def test_list_intraday_candidates_honors_as_of_without_future_quotes(monkeypatch) -> None:

@@ -2128,7 +2128,7 @@ export function App() {
               </strong>
               <small>
                 {intradayMarketTurn
-                  ? `${intradayMarketTurn.confirmed_signals.length}/4 确认，${intradayMarketTurn.snapshot_time ? timeText(new Date(intradayMarketTurn.snapshot_time)) : "等待快照"}，${intradayMarketTurn.leading_sustained_sectors.length ? `主线观察：${intradayMarketTurn.leading_sustained_sectors.slice(0, 3).map((item) => `${item.sector} ${pct(item.avg_change_pct)}`).join("、")}` : "尚无主线确认"}，仅观察启动`
+                  ? `${intradayMarketTurn.confirmed_signals.length}/4 确认，${intradayMarketTurn.snapshot_time ? timeText(new Date(intradayMarketTurn.snapshot_time)) : "等待快照"}，${intradayMarketTurn.cross_day_mainline ? `跨日主线：${intradayMarketTurn.cross_day_mainline.status}（${intradayMarketTurn.cross_day_mainline.checkpoint}${intradayMarketTurn.cross_day_mainline.confirmed_sectors.length ? `，${intradayMarketTurn.cross_day_mainline.confirmed_sectors.join("、")}` : ""}）` : intradayMarketTurn.leading_sustained_sectors.length ? `主线观察：${intradayMarketTurn.leading_sustained_sectors.slice(0, 3).map((item) => `${item.sector} ${pct(item.avg_change_pct)}`).join("、")}` : "尚无主线确认"}，仅观察启动`
                   : "等待全市场快照"}
               </small>
             </div>
