@@ -27,6 +27,7 @@ from services.engine.tracking.mainline import (
 )
 from services.jobs.celery_app import celery_app
 from services.jobs.pipeline import (
+    _compute_features_for_date,
     _is_open_trade_date,
     _sync_daily_market_data_step,
     _sync_sector_moneyflow_step,
@@ -415,15 +416,18 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
 
 
 @celery_app.task(name="services.jobs.tasks.compute_daily_features_task")
-def compute_daily_features_task() -> dict[str, str]:
-    from services.engine.features.sync import compute_and_store_stock_features
-
+def compute_daily_features_task() -> dict[str, object]:
     today = now_local().date().isoformat()
-    result = compute_and_store_stock_features(limit=500)
+    result = _compute_features_for_date(today, limit=500)
     return {
         "trade_date": today,
         "status": "ok",
-        "message": f"{result['rows']} feature rows written for {result['symbols']} symbols.",
+        "message": (
+            f"{result['stock_feature_rows']} 条股票特征，"
+            f"{result['sector_feature_rows']} 条板块特征，"
+            f"{result['snapshot_rows']} 条低维缓存。"
+        ),
+        **result,
     }
 
 

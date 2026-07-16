@@ -253,6 +253,56 @@ def test_sync_daily_market_data_task_skips_non_trading_day(monkeypatch) -> None:
     assert "非交易日" in result["message"]
 
 
+def test_compute_daily_features_task_only_computes_today_and_includes_sectors(
+    monkeypatch,
+) -> None:
+    from datetime import date, datetime
+
+    from services.engine.backtest import walk_forward
+    from services.engine.features import sync as feature_sync
+
+    calls = []
+    target_date = date(2026, 7, 16)
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 16, 16, 30))
+    monkeypatch.setattr(
+        feature_sync,
+        "compute_and_store_stock_features",
+        lambda **kwargs: calls.append(("stock", kwargs)) or {"symbols": 500, "rows": 500},
+    )
+    monkeypatch.setattr(
+        feature_sync,
+        "compute_and_store_sector_features",
+        lambda **kwargs: calls.append(("sector", kwargs)) or {"sectors": 32, "rows": 32},
+    )
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        walk_forward,
+        "sync_low_dimensional_feature_snapshots",
+        lambda db, *, start, end: calls.append(("cache", start, end)) or 500,
+    )
+
+    result = tasks.compute_daily_features_task()
+
+    assert calls == [
+        (
+            "stock",
+            {"start_date": target_date, "end_date": target_date, "limit": 500},
+        ),
+        ("sector", {"start_date": target_date, "end_date": target_date}),
+        ("cache", target_date, target_date),
+    ]
+    assert result == {
+        "trade_date": "2026-07-16",
+        "status": "ok",
+        "message": "500 条股票特征，32 条板块特征，500 条低维缓存。",
+        "stock_symbols": 500,
+        "stock_feature_rows": 500,
+        "sectors": 32,
+        "sector_feature_rows": 32,
+        "snapshot_rows": 500,
+    }
+
+
 def test_compute_features_step_refreshes_low_dimensional_snapshot_cache(monkeypatch) -> None:
     from datetime import date
 

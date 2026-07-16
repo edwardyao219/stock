@@ -179,7 +179,7 @@ def _sync_daily_market_data_step(
     )
 
 
-def _compute_features_step(trade_date: str, limit: int) -> str:
+def _compute_features_for_date(trade_date: str, limit: int) -> dict[str, int]:
     from services.engine.backtest.walk_forward import sync_low_dimensional_feature_snapshots
     from services.engine.features.sync import (
         compute_and_store_sector_features,
@@ -203,12 +203,23 @@ def _compute_features_step(trade_date: str, limit: int) -> str:
             end=pipeline_date,
         )
         db.commit()
+    return {
+        "stock_symbols": feature_result["symbols"],
+        "stock_feature_rows": feature_result["rows"],
+        "sectors": sector_feature_result["sectors"],
+        "sector_feature_rows": sector_feature_result["rows"],
+        "snapshot_rows": cache_rows,
+    }
+
+
+def _compute_features_step(trade_date: str, limit: int) -> str:
+    result = _compute_features_for_date(trade_date, limit)
     return (
-        f"计算完成：{feature_result['symbols']} 只股票、"
-        f"{feature_result['rows']} 条股票特征；"
-        f"{sector_feature_result['sectors']} 个板块、"
-        f"{sector_feature_result['rows']} 条板块特征；"
-        f"{cache_rows} 条低维缓存。"
+        f"计算完成：{result['stock_symbols']} 只股票、"
+        f"{result['stock_feature_rows']} 条股票特征；"
+        f"{result['sectors']} 个板块、"
+        f"{result['sector_feature_rows']} 条板块特征；"
+        f"{result['snapshot_rows']} 条低维缓存。"
     )
 
 
