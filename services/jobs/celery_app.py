@@ -54,6 +54,10 @@ celery_app.conf.beat_schedule = {
         "task": "services.jobs.tasks.compute_daily_features_task",
         "schedule": crontab(minute=30, hour=16),
     },
+    "retry-late-tushare-moneyflow": {
+        "task": "services.jobs.tasks.sync_late_tushare_moneyflow_task",
+        "schedule": crontab(minute=30, hour="19,20"),
+    },
     "run-rule-regression": {
         "task": "services.jobs.tasks.run_rule_regression_task",
         "schedule": crontab(minute=0, hour=21),

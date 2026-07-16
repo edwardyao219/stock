@@ -423,6 +423,18 @@ def sync_tushare_market_data_resumable(
                 else:
                     rows = sync_func(db, trade_date=trade_date_text)
                 db.commit()
+                if dataset == "moneyflow" and rows == 0:
+                    results.append(
+                        CollectionResult(
+                            source="tushare_proxy",
+                            dataset=dataset,
+                            trade_date=trade_date_text,
+                            rows=0,
+                            status="pending",
+                            message="dataset not published yet",
+                        )
+                    )
+                    continue
                 results.append(
                     CollectionResult(
                         source="tushare_proxy",

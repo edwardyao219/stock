@@ -515,6 +515,30 @@ def test_sync_tushare_market_data_resumable_keeps_going_after_dataset_failure(
     assert result[1].rows == 93
 
 
+def test_sync_tushare_market_data_resumable_marks_empty_moneyflow_pending(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    monkeypatch.setattr(collector_sync, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(
+        collector_sync,
+        "sync_tushare_moneyflow",
+        lambda db, *, trade_date: 0,
+    )
+
+    result = collector_sync.sync_tushare_market_data_resumable(
+        "20260716",
+        datasets=("moneyflow",),
+    )
+
+    assert len(result) == 1
+    assert result[0].status == "pending"
+    assert result[0].rows == 0
+    assert result[0].message == "dataset not published yet"
+
+
 def test_backfill_tushare_market_data_uses_open_calendar_dates(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

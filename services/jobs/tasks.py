@@ -431,6 +431,43 @@ def compute_daily_features_task() -> dict[str, object]:
     }
 
 
+@celery_app.task(name="services.jobs.tasks.sync_late_tushare_moneyflow_task")
+def sync_late_tushare_moneyflow_task() -> dict[str, object]:
+    from services.collector.sync import sync_tushare_market_data_resumable
+
+    today = now_local().date()
+    trade_date = today.isoformat()
+    with SessionLocal() as db:
+        if not _is_open_trade_date(db, trade_date):
+            return {
+                "trade_date": trade_date,
+                "status": "skipped",
+                "message": "非交易日，已跳过基础资金流补采。",
+            }
+
+    result = sync_tushare_market_data_resumable(
+        today.strftime("%Y%m%d"),
+        datasets=("moneyflow",),
+        force=False,
+    )[0]
+    if result.status == "pending":
+        status = "warning"
+        message = "基础资金流尚未发布，本次未写入。"
+    elif result.status == "failed":
+        status = "failed"
+        message = f"基础资金流补采失败：{result.message}"
+    else:
+        status = "ok"
+        message = f"基础资金流已就绪：{result.rows} 条。"
+    return {
+        "trade_date": trade_date,
+        "status": status,
+        "message": message,
+        "sync_status": result.status,
+        "moneyflow_rows": result.rows,
+    }
+
+
 @celery_app.task(name="services.jobs.tasks.generate_trade_plans_task")
 def generate_trade_plans_task() -> dict[str, str]:
     from services.engine.plans.sync import generate_and_store_trade_plans

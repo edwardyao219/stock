@@ -303,6 +303,51 @@ def test_compute_daily_features_task_only_computes_today_and_includes_sectors(
     }
 
 
+def test_sync_late_tushare_moneyflow_task_reports_pending_release(monkeypatch) -> None:
+    from datetime import datetime
+
+    from services.collector import sync as collector_sync
+
+    captured = {}
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 16, 19, 30))
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+
+    def fake_sync(trade_date, *, datasets, force=False):
+        captured.update(
+            trade_date=trade_date,
+            datasets=tuple(datasets),
+            force=force,
+        )
+        return [
+            CollectionResult(
+                source="tushare_proxy",
+                dataset="moneyflow",
+                trade_date=trade_date,
+                rows=0,
+                status="pending",
+                message="dataset not published yet",
+            )
+        ]
+
+    monkeypatch.setattr(collector_sync, "sync_tushare_market_data_resumable", fake_sync)
+
+    result = tasks.sync_late_tushare_moneyflow_task()
+
+    assert captured == {
+        "trade_date": "20260716",
+        "datasets": ("moneyflow",),
+        "force": False,
+    }
+    assert result == {
+        "trade_date": "2026-07-16",
+        "status": "warning",
+        "message": "基础资金流尚未发布，本次未写入。",
+        "sync_status": "pending",
+        "moneyflow_rows": 0,
+    }
+
+
 def test_compute_features_step_refreshes_low_dimensional_snapshot_cache(monkeypatch) -> None:
     from datetime import date
 
@@ -370,6 +415,14 @@ def test_celery_after_close_screening_runs_at_six_pm() -> None:
 
     assert schedule.hour == {18}
     assert schedule.minute == {0}
+
+
+def test_celery_retries_late_tushare_moneyflow_twice() -> None:
+    entry = celery_app.conf.beat_schedule["retry-late-tushare-moneyflow"]
+
+    assert entry["task"] == "services.jobs.tasks.sync_late_tushare_moneyflow_task"
+    assert entry["schedule"].hour == {19, 20}
+    assert entry["schedule"].minute == {30}
 
 
 def test_celery_captures_full_market_snapshot_after_close() -> None:
