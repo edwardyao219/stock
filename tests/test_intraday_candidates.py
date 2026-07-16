@@ -161,6 +161,12 @@ def test_discover_intraday_candidates_prioritizes_live_supportive_candidate() ->
     assert result["candidates"][0]["intraday_score"] > result["candidates"][1]["intraday_score"]
     assert result["candidates"][1]["intraday_state"] == "distribution"
     assert "intraday_distribution" in result["candidates"][1]["risk_flags"]
+    assert result["sector_distribution"] == {
+        "eligible_count": 2,
+        "displayed_count": 2,
+        "sector_count": 1,
+        "top_sectors": [{"sector": "通信设备", "count": 2, "ratio": 1.0}],
+    }
 
 
 def test_discover_intraday_candidates_uses_latest_candidate_feature_date_only() -> None:

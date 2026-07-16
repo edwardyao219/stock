@@ -1063,6 +1063,17 @@ function candidateBatchText(batch: IntradayCandidateList["candidate_batch"] | un
   return parts.join(" / ");
 }
 
+function intradaySectorDistributionText(
+  distribution: IntradayCandidateList["sector_distribution"] | null | undefined,
+) {
+  if (!distribution) return "候选板块等待";
+  const sectors = distribution.top_sectors
+    .slice(0, 3)
+    .map((item) => `${item.sector}${item.count}`)
+    .join("、");
+  return `候选板块 ${sectors || "-"} / ${distribution.sector_count}个板块 / 可用${distribution.eligible_count}只`;
+}
+
 function intradayMarketStressText(stress: IntradayCandidateList["market_stress"] | undefined) {
   if (!stress) return "市场压力未接入";
   const scope = stress.snapshot_scope_label ?? stress.trade_date ?? "盘面";
@@ -2265,6 +2276,7 @@ export function App() {
                   {intradayCandidates?.trade_date ?? "-"} /{" "}
                   {candidateBatchText(intradayCandidates?.candidate_batch)}
                 </small>
+                <small>{intradaySectorDistributionText(intradayCandidates?.sector_distribution)}</small>
                 <small>{intradayMarketStressText(intradayCandidates?.market_stress)}</small>
                 <small>{intradayQuoteCoverageText(intradayCandidates?.quote_coverage)}</small>
               </div>

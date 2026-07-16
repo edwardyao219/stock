@@ -199,6 +199,21 @@ class CandidateBatchResponse(BaseModel):
     stale_auto_candidate_count: int
 
 
+class IntradayCandidateSectorDistributionItemResponse(BaseModel):
+    sector: str
+    count: int
+    ratio: float
+
+
+class IntradayCandidateSectorDistributionResponse(BaseModel):
+    eligible_count: int
+    displayed_count: int
+    sector_count: int
+    top_sectors: list[IntradayCandidateSectorDistributionItemResponse] = Field(
+        default_factory=list
+    )
+
+
 class IntradayCandidateListResponse(BaseModel):
     trade_date: str
     as_of: str | None = None
@@ -207,6 +222,7 @@ class IntradayCandidateListResponse(BaseModel):
     candidate_batch: CandidateBatchResponse
     market_stress: IntradayMarketStressResponse | None = None
     quote_coverage: IntradayQuoteCoverageResponse | None = None
+    sector_distribution: IntradayCandidateSectorDistributionResponse
     candidates: list[IntradayCandidateResponse]
 
 

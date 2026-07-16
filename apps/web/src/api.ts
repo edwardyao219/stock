@@ -559,6 +559,19 @@ export interface IntradayQuoteCoverage {
   sectors: IntradayQuoteCoverageSector[];
 }
 
+export interface IntradayCandidateSectorDistributionItem {
+  sector: string;
+  count: number;
+  ratio: number;
+}
+
+export interface IntradayCandidateSectorDistribution {
+  eligible_count: number;
+  displayed_count: number;
+  sector_count: number;
+  top_sectors: IntradayCandidateSectorDistributionItem[];
+}
+
 export interface IntradayCandidateList {
   trade_date: string;
   as_of: string | null;
@@ -567,6 +580,7 @@ export interface IntradayCandidateList {
   candidate_batch: CandidateBatch;
   market_stress: IntradayMarketStress | null;
   quote_coverage: IntradayQuoteCoverage | null;
+  sector_distribution: IntradayCandidateSectorDistribution;
   candidates: IntradayCandidate[];
 }
 

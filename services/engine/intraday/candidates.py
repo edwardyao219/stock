@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
@@ -981,6 +982,27 @@ def _soft_display_sector_cap(limit: int) -> int:
     return max(2, min(4, (max(1, limit) + 4) // 5))
 
 
+def _candidate_sector_distribution(
+    candidates: list[IntradayCandidate],
+    displayed: list[IntradayCandidate],
+) -> dict[str, object]:
+    counts = Counter(item.sector or "未分类" for item in displayed)
+    displayed_count = len(displayed)
+    return {
+        "eligible_count": len(candidates),
+        "displayed_count": displayed_count,
+        "sector_count": len(counts),
+        "top_sectors": [
+            {
+                "sector": sector,
+                "count": count,
+                "ratio": round(count / displayed_count, 6) if displayed_count else 0.0,
+            }
+            for sector, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+        ],
+    }
+
+
 def _select_display_candidates(
     candidates: list[IntradayCandidate],
     *,
@@ -1229,5 +1251,6 @@ def discover_intraday_candidates(
         "candidate_count": len(selected),
         "candidate_batch": candidate_batch,
         "market_stress": market_stress_payload,
+        "sector_distribution": _candidate_sector_distribution(limited_candidates, selected),
         "candidates": [item.to_dict() for item in selected],
     }
