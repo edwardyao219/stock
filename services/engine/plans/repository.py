@@ -200,6 +200,22 @@ def load_feature_contexts(
     return contexts
 
 
+def list_planned_trade_plan_keys(
+    db: Session,
+    *,
+    plan_date: str,
+    trade_date: str,
+) -> set[tuple[str, str]]:
+    return set(
+        db.execute(
+            select(TradePlan.symbol, TradePlan.rule_id)
+            .where(TradePlan.plan_date == _date(plan_date))
+            .where(TradePlan.trade_date == _date(trade_date))
+            .where(TradePlan.status == "planned")
+        ).all()
+    )
+
+
 def upsert_trade_plans(
     db: Session,
     plans: list[TradePlanCandidate],

@@ -348,6 +348,66 @@ def test_sync_late_tushare_moneyflow_task_reports_pending_release(monkeypatch) -
     }
 
 
+def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
+    monkeypatch,
+) -> None:
+    from datetime import datetime
+
+    from services.collector import sync as collector_sync
+    from services.engine.plans import sync as plan_sync
+    from services.notifications import dispatcher
+
+    captured = {}
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 16, 19, 30))
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-17")
+    monkeypatch.setattr(
+        collector_sync,
+        "sync_tushare_market_data_resumable",
+        lambda *args, **kwargs: [
+            CollectionResult(
+                source="tushare_proxy",
+                dataset="moneyflow",
+                trade_date="20260716",
+                rows=5198,
+                status="ok",
+            )
+        ],
+    )
+
+    def fake_refresh(**kwargs):
+        captured.update(kwargs)
+        return {"existing_plans": 2, "written": 2}
+
+    monkeypatch.setattr(plan_sync, "refresh_existing_trade_plans", fake_refresh)
+    monkeypatch.setattr(
+        dispatcher,
+        "dispatch_candidate_screening",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("late refresh must not send candidate notifications")
+        ),
+    )
+
+    result = tasks.sync_late_tushare_moneyflow_task()
+
+    assert captured == {
+        "plan_date": "2026-07-16",
+        "trade_date": "2026-07-17",
+        "feature_date": "2026-07-16",
+    }
+    assert result == {
+        "trade_date": "2026-07-16",
+        "next_trade_date": "2026-07-17",
+        "status": "ok",
+        "message": "基础资金流已就绪：5198 条；静默刷新 2/2 条交易计划。",
+        "sync_status": "ok",
+        "moneyflow_rows": 5198,
+        "existing_plans": 2,
+        "plan_rows_refreshed": 2,
+    }
+
+
 def test_compute_features_step_refreshes_low_dimensional_snapshot_cache(monkeypatch) -> None:
     from datetime import date
 

@@ -10,6 +10,43 @@ from services.shared.database import Base
 from services.shared.models import TradePlan
 
 
+def test_list_planned_trade_plan_keys_scopes_dates_and_status() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def plan(plan_date: date, trade_date: date, symbol: str, status: str) -> TradePlan:
+        return TradePlan(
+            plan_date=plan_date,
+            trade_date=trade_date,
+            symbol=symbol,
+            rule_id="R004",
+            strategy_type="long_term",
+            sector_code=None,
+            entry_condition_json={},
+            position_size=Decimal("0.10"),
+            status=status,
+        )
+
+    with session() as db:
+        db.add_all(
+            [
+                plan(date(2026, 7, 16), date(2026, 7, 17), "603083", "planned"),
+                plan(date(2026, 7, 16), date(2026, 7, 17), "002156", "retired"),
+                plan(date(2026, 7, 15), date(2026, 7, 16), "600171", "planned"),
+            ]
+        )
+        db.commit()
+
+        keys = repository.list_planned_trade_plan_keys(
+            db,
+            plan_date="2026-07-16",
+            trade_date="2026-07-17",
+        )
+
+    assert keys == {("603083", "R004")}
+
+
 def test_upsert_trade_plans_preserves_executed_status(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

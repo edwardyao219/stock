@@ -6,6 +6,7 @@ from services.engine.plans.generator import generate_trade_plans
 from services.engine.plans.learning_adjustments import load_plan_learning_adjustments
 from services.engine.plans.repository import (
     latest_feature_date,
+    list_planned_trade_plan_keys,
     load_feature_contexts,
     retire_unselected_trade_plans,
     upsert_trade_plans,
@@ -50,6 +51,7 @@ def generate_and_store_trade_plans(
     limit: int | None = None,
     risk_profile_name: str = "default",
     use_learning_adjustments: bool = True,
+    refresh_plan_keys: set[tuple[str, str]] | None = None,
 ) -> dict[str, int]:
     with SessionLocal() as db:
         seed_default_risk_profile(db)
@@ -133,6 +135,12 @@ def generate_and_store_trade_plans(
             learning_adjustment_loader=learning_loader if use_learning_adjustments else None,
             allowed_strategy_types=MAIN_TRADE_STRATEGY_TYPES,
         )
+        if refresh_plan_keys is not None:
+            plans = [
+                plan
+                for plan in plans
+                if (plan.symbol, plan.rule_id) in refresh_plan_keys
+            ]
         written = upsert_trade_plans(
             db,
             plans,
@@ -146,6 +154,14 @@ def generate_and_store_trade_plans(
                 active_keys=_best_plan_keys_by_symbol(plans),
                 include_all_plan_dates=True,
             )
+        elif refresh_plan_keys is not None:
+            retire_unselected_trade_plans(
+                db,
+                plan_date=plan_date,
+                trade_date=trade_date,
+                active_keys={(plan.symbol, plan.rule_id) for plan in plans},
+                include_all_plan_dates=False,
+            )
         db.commit()
     return {
         "contexts": len(contexts),
@@ -154,3 +170,35 @@ def generate_and_store_trade_plans(
         "feature_date": effective_feature_date,
         "symbols": len(target_symbols) if target_symbols is not None else 0,
     }
+
+
+def refresh_existing_trade_plans(
+    *,
+    plan_date: str,
+    trade_date: str,
+    feature_date: str,
+) -> dict[str, int | str]:
+    with SessionLocal() as db:
+        plan_keys = list_planned_trade_plan_keys(
+            db,
+            plan_date=plan_date,
+            trade_date=trade_date,
+        )
+    if not plan_keys:
+        return {
+            "contexts": 0,
+            "plans": 0,
+            "written": 0,
+            "feature_date": feature_date,
+            "symbols": 0,
+            "existing_plans": 0,
+        }
+    result = generate_and_store_trade_plans(
+        plan_date=plan_date,
+        trade_date=trade_date,
+        feature_date=feature_date,
+        symbols=sorted({symbol for symbol, _rule_id in plan_keys}),
+        refresh_plan_keys=plan_keys,
+        use_learning_adjustments=True,
+    )
+    return {**result, "existing_plans": len(plan_keys)}

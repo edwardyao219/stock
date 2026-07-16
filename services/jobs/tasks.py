@@ -457,8 +457,31 @@ def sync_late_tushare_moneyflow_task() -> dict[str, object]:
         status = "failed"
         message = f"基础资金流补采失败：{result.message}"
     else:
+        from services.engine.plans.sync import refresh_existing_trade_plans
+
+        next_trade_date = resolve_next_trade_date(trade_date)
+        plan_result = refresh_existing_trade_plans(
+            plan_date=trade_date,
+            trade_date=next_trade_date,
+            feature_date=trade_date,
+        )
+        existing_plans = int(plan_result["existing_plans"])
+        refreshed_rows = int(plan_result["written"])
         status = "ok"
-        message = f"基础资金流已就绪：{result.rows} 条。"
+        message = (
+            f"基础资金流已就绪：{result.rows} 条；"
+            f"静默刷新 {refreshed_rows}/{existing_plans} 条交易计划。"
+        )
+        return {
+            "trade_date": trade_date,
+            "next_trade_date": next_trade_date,
+            "status": status,
+            "message": message,
+            "sync_status": result.status,
+            "moneyflow_rows": result.rows,
+            "existing_plans": existing_plans,
+            "plan_rows_refreshed": refreshed_rows,
+        }
     return {
         "trade_date": trade_date,
         "status": status,
