@@ -181,6 +181,7 @@ class MainlineOutcomeSummaryHorizonResponse(BaseModel):
     total_signal_count: int
     completed_count: int
     waiting_count: int
+    waiting_reasons: dict[str, int] = Field(default_factory=dict)
     unavailable_count: int
     unavailable_reasons: dict[str, int] = Field(default_factory=dict)
     minimum_sample_count: int

@@ -25,6 +25,7 @@ for (const field of [
   "window_limit",
   "completed_count",
   "waiting_count",
+  "waiting_reasons",
   "unavailable_count",
   "unavailable_reasons",
 ]) {
@@ -32,6 +33,11 @@ for (const field of [
 }
 if (!app.includes("item.unavailable_reasons?.missing_signal_close")) {
   throw new Error("样本漏斗必须兼容旧版汇总响应");
+}
+for (const reason of ["awaiting_signal_close", "awaiting_trade_day"]) {
+  if (!app.includes(`item.waiting_reasons?.${reason}`)) {
+    throw new Error(`样本漏斗缺少等待原因：${reason}`);
+  }
 }
 if (!app.includes('className="outcome-funnel"')) {
   throw new Error("样本漏斗必须使用独立整行样式");

@@ -118,6 +118,7 @@ def summarize_mainline_outcomes(
         unavailable = [
             item for item in horizon_rows if item and item.status == "unavailable"
         ]
+        waiting = [item for item in horizon_rows if item and item.status == "waiting"]
         count = len(values)
         summary[horizon] = {
             "horizon": horizon,
@@ -126,6 +127,9 @@ def summarize_mainline_outcomes(
             "completed_count": len(completed),
             "waiting_count": sum(
                 item is None or item.status == "waiting" for item in horizon_rows
+            ),
+            "waiting_reasons": dict(
+                Counter(item.reason for item in waiting if item.reason)
             ),
             "unavailable_count": len(unavailable),
             "unavailable_reasons": dict(

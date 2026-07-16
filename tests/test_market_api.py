@@ -199,6 +199,7 @@ def test_get_confirmed_mainline_outcomes_returns_matured_leader_returns() -> Non
     assert summary.horizons[0].total_signal_count == 0
     assert summary.horizons[0].completed_count == 0
     assert summary.horizons[0].waiting_count == 0
+    assert summary.horizons[0].waiting_reasons == {}
     assert summary.horizons[0].unavailable_count == 0
     assert summary.horizons[0].unavailable_reasons == {}
     assert summary.minimum_sample_count == 20

@@ -3534,13 +3534,19 @@ export function App() {
                 <span className="outcome-funnel">
                   样本漏斗 / 近{mainlineOutcomeSummary.window_limit ?? 120}条窗口 / 总信号 {mainlineOutcomeSummary.horizons[0]?.total_signal_count ?? mainlineOutcomeSummary.horizons[0]?.sample_count ?? 0} / {mainlineOutcomeSummary.horizons
                     .map((item) => {
+                      const awaitingCloseCount = item.waiting_reasons?.awaiting_signal_close ?? 0;
+                      const awaitingTradeDayCount = item.waiting_reasons?.awaiting_trade_day ?? 0;
+                      const waitingReasons = [
+                        awaitingCloseCount ? `待收盘${awaitingCloseCount}` : "",
+                        awaitingTradeDayCount ? `待后续交易日${awaitingTradeDayCount}` : "",
+                      ].filter(Boolean).join("、");
                       const missingSignalCount = item.unavailable_reasons?.missing_signal_close ?? 0;
                       const missingTargetCount = item.unavailable_reasons?.missing_target_close ?? 0;
                       const reasons = [
                         missingSignalCount ? `信号日缺失${missingSignalCount}` : "",
                         missingTargetCount ? `目标日缺失/停牌${missingTargetCount}` : "",
                       ].filter(Boolean).join("、");
-                      return `${item.horizon}日 成熟${item.completed_count ?? item.sample_count} 等待${item.waiting_count ?? 0} 异常${item.unavailable_count ?? 0}${reasons ? `（${reasons}）` : ""}`;
+                      return `${item.horizon}日 成熟${item.completed_count ?? item.sample_count} 等待${item.waiting_count ?? 0}${waitingReasons ? `（${waitingReasons}）` : ""} 异常${item.unavailable_count ?? 0}${reasons ? `（${reasons}）` : ""}`;
                     })
                     .join(" / ")}
                 </span>

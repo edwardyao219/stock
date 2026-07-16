@@ -175,6 +175,7 @@ export interface MainlineOutcomeSummary {
     total_signal_count: number;
     completed_count: number;
     waiting_count: number;
+    waiting_reasons?: Record<string, number>;
     unavailable_count: number;
     unavailable_reasons: Record<string, number>;
     minimum_sample_count: number;

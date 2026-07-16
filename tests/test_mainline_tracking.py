@@ -267,6 +267,7 @@ def test_strong_benchmark_summary_uses_only_completed_horizons() -> None:
         "total_signal_count": 3,
         "completed_count": 2,
         "waiting_count": 1,
+        "waiting_reasons": {},
         "unavailable_count": 0,
         "unavailable_reasons": {},
         "minimum_sample_count": 20,
@@ -371,6 +372,7 @@ def test_strong_benchmark_summary_counts_funnel_states_and_reasons() -> None:
     assert summary[3]["total_signal_count"] == 3
     assert summary[3]["completed_count"] == 1
     assert summary[3]["waiting_count"] == 1
+    assert summary[3]["waiting_reasons"] == {"awaiting_trade_day": 1}
     assert summary[3]["unavailable_count"] == 1
     assert summary[3]["unavailable_reasons"] == {"missing_target_close": 1}
     assert summary[3]["sample_count"] == 1
