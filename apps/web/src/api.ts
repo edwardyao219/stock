@@ -146,6 +146,13 @@ export interface ConfirmedMainlineOutcome {
   sector: string;
   leader_symbol: string;
   horizons: MainlineOutcomeHorizon[];
+  candidate_bindings: ConfirmedCandidateOutcome[];
+}
+
+export interface ConfirmedCandidateOutcome {
+  symbol: string;
+  sector: string;
+  horizons: MainlineOutcomeHorizon[];
 }
 
 export interface IntradayExpandingSector {

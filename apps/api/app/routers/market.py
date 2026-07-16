@@ -158,6 +158,13 @@ class ConfirmedMainlineOutcomeResponse(BaseModel):
     sector: str
     leader_symbol: str
     horizons: list[MainlineOutcomeHorizonResponse] = Field(default_factory=list)
+    candidate_bindings: list["ConfirmedCandidateOutcomeResponse"] = Field(default_factory=list)
+
+
+class ConfirmedCandidateOutcomeResponse(BaseModel):
+    symbol: str
+    sector: str
+    horizons: list[MainlineOutcomeHorizonResponse] = Field(default_factory=list)
 
 
 class IntradayMarketTurnResponse(BaseModel):
@@ -1547,6 +1554,21 @@ def get_confirmed_mainline_outcomes(
                     return_pct=horizon.return_pct,
                 )
                 for horizon in item.horizons.values()
+            ],
+            candidate_bindings=[
+                ConfirmedCandidateOutcomeResponse(
+                    symbol=candidate.symbol,
+                    sector=candidate.sector,
+                    horizons=[
+                        MainlineOutcomeHorizonResponse(
+                            horizon=horizon.horizon,
+                            status=horizon.status,
+                            return_pct=horizon.return_pct,
+                        )
+                        for horizon in candidate.horizons.values()
+                    ],
+                )
+                for candidate in item.candidate_bindings
             ],
         )
         for item in list_confirmed_mainline_outcomes(db, limit=limit)

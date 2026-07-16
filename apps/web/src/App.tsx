@@ -3468,6 +3468,18 @@ export function App() {
                         )
                         .join(" / ")}
                     </small>
+                    {item.candidate_bindings.length ? (
+                      <small>
+                        候选 {item.candidate_bindings
+                          .map((candidate) => {
+                            const horizon = candidate.horizons.find((value) => value.horizon === 3);
+                            return horizon?.status === "completed"
+                              ? `${candidate.symbol} ${pct(horizon.return_pct)}`
+                              : `${candidate.symbol} 等待`;
+                          })
+                          .join(" / ")}
+                      </small>
+                    ) : null}
                   </div>
                 ))}
               </div>
