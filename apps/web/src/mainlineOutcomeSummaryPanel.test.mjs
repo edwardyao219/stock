@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 const app = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 const api = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
+const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 
 for (const text of [
   "平均收益",
@@ -28,4 +29,13 @@ for (const field of [
   "unavailable_reasons",
 ]) {
   if (!api.includes(field)) throw new Error(`样本漏斗接口缺少：${field}`);
+}
+if (!app.includes("item.unavailable_reasons?.missing_signal_close")) {
+  throw new Error("样本漏斗必须兼容旧版汇总响应");
+}
+if (!app.includes('className="outcome-funnel"')) {
+  throw new Error("样本漏斗必须使用独立整行样式");
+}
+if (!styles.includes(".review-strip-meta .outcome-funnel")) {
+  throw new Error("样本漏斗必须提供移动端可读行高");
 }

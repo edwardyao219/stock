@@ -3531,18 +3531,16 @@ export function App() {
                     ? "样本可用，仅供策略评估"
                     : "样本不足，禁止调整策略"} / 门槛 {mainlineOutcomeSummary.minimum_sample_count} 个成熟样本
                 </span>
-                <span>
-                  样本漏斗 / 近{mainlineOutcomeSummary.window_limit}条窗口 / 总信号 {mainlineOutcomeSummary.horizons[0]?.total_signal_count ?? 0} / {mainlineOutcomeSummary.horizons
+                <span className="outcome-funnel">
+                  样本漏斗 / 近{mainlineOutcomeSummary.window_limit ?? 120}条窗口 / 总信号 {mainlineOutcomeSummary.horizons[0]?.total_signal_count ?? mainlineOutcomeSummary.horizons[0]?.sample_count ?? 0} / {mainlineOutcomeSummary.horizons
                     .map((item) => {
+                      const missingSignalCount = item.unavailable_reasons?.missing_signal_close ?? 0;
+                      const missingTargetCount = item.unavailable_reasons?.missing_target_close ?? 0;
                       const reasons = [
-                        item.unavailable_reasons.missing_signal_close
-                          ? `信号日缺失${item.unavailable_reasons.missing_signal_close}`
-                          : "",
-                        item.unavailable_reasons.missing_target_close
-                          ? `目标日缺失/停牌${item.unavailable_reasons.missing_target_close}`
-                          : "",
+                        missingSignalCount ? `信号日缺失${missingSignalCount}` : "",
+                        missingTargetCount ? `目标日缺失/停牌${missingTargetCount}` : "",
                       ].filter(Boolean).join("、");
-                      return `${item.horizon}日 成熟${item.completed_count} 等待${item.waiting_count} 异常${item.unavailable_count}${reasons ? `（${reasons}）` : ""}`;
+                      return `${item.horizon}日 成熟${item.completed_count ?? item.sample_count} 等待${item.waiting_count ?? 0} 异常${item.unavailable_count ?? 0}${reasons ? `（${reasons}）` : ""}`;
                     })
                     .join(" / ")}
                 </span>

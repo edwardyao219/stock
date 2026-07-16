@@ -1155,6 +1155,13 @@ button {
   padding: 6px 10px;
 }
 
+.review-strip-meta .outcome-funnel {
+  flex: 1 1 100%;
+  border-radius: 6px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
 .review-strip-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
