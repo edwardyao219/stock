@@ -33,6 +33,7 @@ from services.engine.news.repository import (
 )
 from services.engine.review.sector_replay import replay_sector_month
 from services.engine.sector.names import canonical_sector_name as _canonical_sector_name
+from services.engine.tracking.mainline import list_confirmed_mainline_outcomes
 from services.shared.database import get_db
 from services.shared.models import (
     DailyBar,
@@ -144,6 +145,19 @@ class CrossDayMainlineResponse(BaseModel):
     checkpoint: str
     confirmed_sectors: list[str] = Field(default_factory=list)
     sectors: list[CrossDayMainlineSectorResponse] = Field(default_factory=list)
+
+
+class MainlineOutcomeHorizonResponse(BaseModel):
+    horizon: int
+    status: str
+    return_pct: float | None
+
+
+class ConfirmedMainlineOutcomeResponse(BaseModel):
+    signal_date: str
+    sector: str
+    leader_symbol: str
+    horizons: list[MainlineOutcomeHorizonResponse] = Field(default_factory=list)
 
 
 class IntradayMarketTurnResponse(BaseModel):
@@ -1514,6 +1528,29 @@ def get_intraday_market_turn(db: DbSession) -> IntradayMarketTurnResponse:
             else None
         ),
     )
+
+
+@router.get("/mainline-outcomes", response_model=list[ConfirmedMainlineOutcomeResponse])
+def get_confirmed_mainline_outcomes(
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=120)] = 60,
+) -> list[ConfirmedMainlineOutcomeResponse]:
+    return [
+        ConfirmedMainlineOutcomeResponse(
+            signal_date=item.signal_date,
+            sector=item.sector,
+            leader_symbol=item.leader_symbol,
+            horizons=[
+                MainlineOutcomeHorizonResponse(
+                    horizon=horizon.horizon,
+                    status=horizon.status,
+                    return_pct=horizon.return_pct,
+                )
+                for horizon in item.horizons.values()
+            ],
+        )
+        for item in list_confirmed_mainline_outcomes(db, limit=limit)
+    ]
 
 
 @router.get("/overview", response_model=MarketOverviewResponse)

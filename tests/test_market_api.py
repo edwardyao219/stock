@@ -1,5 +1,5 @@
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import pandas as pd
@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from apps.api.app.routers import market
 from apps.api.app.routers.market import (
+    get_confirmed_mainline_outcomes,
     get_data_health,
     get_intraday_market_turn,
     get_market_overview,
@@ -124,6 +125,63 @@ def test_get_intraday_market_turn_returns_latest_current_snapshot() -> None:
     assert result.cross_day_mainline.status == "观察确认"
     assert result.cross_day_mainline.confirmed_sectors == ["半导体"]
     assert result.core_action_allowed is False
+
+
+def test_get_confirmed_mainline_outcomes_returns_matured_leader_returns() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    signal_date = date(2026, 7, 1)
+
+    with session() as db:
+        db.add(
+            IntradayMarketTurnSnapshot(
+                trade_date=signal_date,
+                snapshot_time=datetime(2026, 7, 1, 10, 30),
+                coverage_ratio=0.99,
+                breadth_ratio=0.6,
+                total_amount=100.0,
+                index_change_pct=0.002,
+                sector_expansion_count=3,
+                state_json={
+                    "cross_day_mainline": {
+                        "status": "观察确认",
+                        "checkpoint": "10:30复核",
+                        "sectors": [
+                            {
+                                "sector": "半导体",
+                                "status": "观察确认",
+                                "current_leader_symbol": "600001",
+                            }
+                        ],
+                    }
+                },
+            )
+        )
+        for offset, close in enumerate(("10", "11")):
+            db.add(
+                DailyBar(
+                    symbol="600001",
+                    trade_date=signal_date + timedelta(days=offset),
+                    open=Decimal(close),
+                    high=Decimal(close),
+                    low=Decimal(close),
+                    close=Decimal(close),
+                    pre_close=Decimal(close),
+                    volume=Decimal("100000"),
+                    amount=Decimal("1000000"),
+                    turnover_rate=None,
+                    limit_up=Decimal(close) * Decimal("1.1"),
+                    limit_down=Decimal(close) * Decimal("0.9"),
+                    is_suspended=False,
+                )
+            )
+        db.commit()
+
+        result = get_confirmed_mainline_outcomes(db=db)
+
+    assert result[0].sector == "半导体"
+    assert result[0].horizons[0].return_pct == 0.1
 
 
 def test_get_symbol_candles_returns_limited_ascending_bars_with_moving_average() -> None:

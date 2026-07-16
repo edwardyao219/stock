@@ -123,6 +123,9 @@ def build_cross_day_mainline_validation(
                 "current_up_ratio": current_up_ratio,
                 "current_avg_change_pct": current_avg_change_pct,
                 "current_leader_change_pct": current_leader_change_pct,
+                "current_leader_symbol": (
+                    str(current.get("leader_symbol") or "") if current else None
+                ),
             }
         )
     if not check_due:
