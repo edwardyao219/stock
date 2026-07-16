@@ -209,6 +209,16 @@ function intradayMainlineStatus(turn: IntradayMarketTurn | null) {
   return { label: "未启动", detail: `${mainline.checkpoint} / ${mainline.summary}`, tone: "down" };
 }
 
+function intradaySectorBenchmarkText(turn: IntradayMarketTurn | null) {
+  const sectors = turn?.leading_sustained_sectors ?? [];
+  if (!sectors.length) return "板块对照等待";
+  const rows = sectors
+    .slice(0, 3)
+    .map((item) => `${item.sector} ${item.leader_symbol}`)
+    .join("、");
+  return `板块对照 ${rows} / 仅观察`;
+}
+
 function price(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return value.toFixed(2);
@@ -2277,6 +2287,7 @@ export function App() {
                   {candidateBatchText(intradayCandidates?.candidate_batch)}
                 </small>
                 <small>{intradaySectorDistributionText(intradayCandidates?.sector_distribution)}</small>
+                <small>{intradaySectorBenchmarkText(intradayMarketTurn)}</small>
                 <small>{intradayMarketStressText(intradayCandidates?.market_stress)}</small>
                 <small>{intradayQuoteCoverageText(intradayCandidates?.quote_coverage)}</small>
               </div>
