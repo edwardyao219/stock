@@ -255,12 +255,13 @@ def fetch_realtime_quotes(
 ) -> list[RealtimeQuoteRow]:
     ak = _akshare()
     current_time = quote_time or datetime.utcnow()
+    target_symbols = symbols or set()
     source = "akshare.stock_zh_a_spot_em"
     try:
         with _without_proxy_env():
             df = ak.stock_zh_a_spot_em()
     except Exception:
-        if symbols:
+        if symbols and len(symbols) <= 200:
             return fetch_sina_realtime_quotes(symbols=symbols, quote_time=current_time)
         with _without_proxy_env():
             df = ak.stock_zh_a_spot()
@@ -287,6 +288,46 @@ def fetch_realtime_quotes(
                 source=source,
             )
         )
+
+    matched_symbols = {row.symbol for row in rows}
+    coverage_ratio = (
+        len(matched_symbols & target_symbols) / len(target_symbols) if target_symbols else 1.0
+    )
+    if coverage_ratio >= 0.98:
+        return rows
+
+    # The legacy full-market endpoint can return a partial page set without raising.
+    try:
+        with _without_proxy_env():
+            fallback_df = ak.stock_zh_a_spot()
+    except Exception:
+        return rows
+
+    fallback_rows: list[RealtimeQuoteRow] = []
+    for raw in fallback_df.to_dict("records"):
+        symbol = _normalize_a_share_symbol(_first(raw, "代码", "股票代码"))
+        if not symbol or (symbols and symbol not in symbols):
+            continue
+        fallback_rows.append(
+            RealtimeQuoteRow(
+                symbol=symbol,
+                trade_date=current_time.date().isoformat(),
+                quote_time=current_time,
+                price=_decimal(_first(raw, "最新价", "最新")),
+                open=_decimal(_first(raw, "今开", "开盘")),
+                high=_decimal(_first(raw, "最高")),
+                low=_decimal(_first(raw, "最低")),
+                pre_close=_decimal(_first(raw, "昨收")),
+                pct_change=_decimal(_first(raw, "涨跌幅")),
+                volume=_decimal(_first(raw, "成交量")),
+                amount=_decimal(_first(raw, "成交额")),
+                turnover_rate=_decimal(_first(raw, "换手率")),
+                source="akshare.stock_zh_a_spot",
+            )
+        )
+    fallback_match_count = len({row.symbol for row in fallback_rows} & target_symbols)
+    if fallback_match_count > len(matched_symbols & target_symbols):
+        return fallback_rows
     return rows
 
 

@@ -211,7 +211,7 @@ def capture_full_market_snapshot_task() -> dict[str, object]:
         }
 
     try:
-        quotes = sync_realtime_quotes(quote_time=current_time)
+        quotes = sync_realtime_quotes(symbols=active_symbols, quote_time=current_time)
     except Exception as exc:
         _release_daily_task_lock(lock_key)
         return {
@@ -262,7 +262,10 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
         )
 
     try:
-        quotes = sync_realtime_quotes(quote_time=current_time)
+        quotes = sync_realtime_quotes(
+            symbols={item.symbol for item in securities},
+            quote_time=current_time,
+        )
         from apps.api.app.routers.market import _safe_live_market_indexes
 
         index_change_pct = next(
