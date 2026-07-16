@@ -189,11 +189,17 @@ def test_mainline_outcomes_keep_overlapping_signal_types_independent() -> None:
         db.commit()
 
         rows = list_confirmed_mainline_outcomes(db)
+        strong_rows = list_confirmed_mainline_outcomes(
+            db,
+            limit=1,
+            signal_type="strong_benchmark",
+        )
 
     assert [item.signal_type for item in rows] == [
         "confirmed_mainline",
         "strong_benchmark",
     ]
+    assert [item.signal_type for item in strong_rows] == ["strong_benchmark"]
 
 
 def test_mainline_outcome_does_not_shift_missing_target_to_a_later_bar() -> None:

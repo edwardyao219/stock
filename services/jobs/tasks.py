@@ -133,7 +133,13 @@ def _dispatch_after_close_failure_alert(trade_date: str, stage: str, error: str)
 
 
 def _mainline_outcome_health(db) -> dict[str, object]:
-    rows = summarize_mainline_outcomes(list_confirmed_mainline_outcomes(db, limit=120))
+    rows = summarize_mainline_outcomes(
+        list_confirmed_mainline_outcomes(
+            db,
+            limit=120,
+            signal_type="strong_benchmark",
+        )
+    )
     return {"horizons": list(rows.values())}
 
 

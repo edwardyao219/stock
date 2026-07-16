@@ -1623,7 +1623,11 @@ def get_confirmed_mainline_outcomes(
 
 @router.get("/mainline-outcome-summary", response_model=MainlineOutcomeSummaryResponse)
 def get_mainline_outcome_summary(db: DbSession) -> MainlineOutcomeSummaryResponse:
-    outcomes = list_confirmed_mainline_outcomes(db, limit=MAINLINE_OUTCOME_WINDOW_LIMIT)
+    outcomes = list_confirmed_mainline_outcomes(
+        db,
+        limit=MAINLINE_OUTCOME_WINDOW_LIMIT,
+        signal_type="strong_benchmark",
+    )
     rows = summarize_mainline_outcomes(outcomes)
     breakdowns = summarize_mainline_outcome_breakdowns(outcomes)
     eligible_for_policy = bool(rows[int(breakdowns["horizon"])]["eligible_for_policy"])

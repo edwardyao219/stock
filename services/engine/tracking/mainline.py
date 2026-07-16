@@ -192,6 +192,7 @@ def list_confirmed_mainline_outcomes(
     db: Session,
     *,
     limit: int = 60,
+    signal_type: str | None = None,
 ) -> list[ConfirmedMainlineOutcome]:
     market_dates = list(
         db.execute(
@@ -227,12 +228,14 @@ def list_confirmed_mainline_outcomes(
             and float(item.get("avg_change_pct") or 0) >= 0.015
             and float(item.get("leader_change_pct") or 0) >= 0.03
         )
-        for signal_type, item in signals:
+        if signal_type:
+            signals = [item for item in signals if item[0] == signal_type]
+        for item_signal_type, item in signals:
             sector = str(item.get("sector") or "").strip()
             leader_symbol = str(
                 item.get("current_leader_symbol") or item.get("leader_symbol") or ""
             ).strip()
-            key = (row.trade_date, signal_type, sector)
+            key = (row.trade_date, item_signal_type, sector)
             if not sector or not leader_symbol or key in seen:
                 continue
             seen.add(key)
@@ -272,7 +275,7 @@ def list_confirmed_mainline_outcomes(
                 )
             outcomes.append(
                 ConfirmedMainlineOutcome(
-                    signal_type=signal_type,
+                    signal_type=item_signal_type,
                     signal_date=row.trade_date.isoformat(),
                     sector=sector,
                     leader_symbol=leader_symbol,
