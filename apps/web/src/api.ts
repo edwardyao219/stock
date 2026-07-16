@@ -148,6 +148,7 @@ export interface MainlineOutcomeHorizon {
   horizon: number;
   status: string;
   return_pct: number | null;
+  reason: string | null;
 }
 
 export interface ConfirmedMainlineOutcome {
@@ -167,9 +168,15 @@ export interface ConfirmedCandidateOutcome {
 
 export interface MainlineOutcomeSummary {
   signal_type: string;
+  window_limit: number;
   horizons: Array<{
     horizon: number;
     sample_count: number;
+    total_signal_count: number;
+    completed_count: number;
+    waiting_count: number;
+    unavailable_count: number;
+    unavailable_reasons: Record<string, number>;
     minimum_sample_count: number;
     eligible_for_policy: boolean;
     avg_return_pct: number | null;

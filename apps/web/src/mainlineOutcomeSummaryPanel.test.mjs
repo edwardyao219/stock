@@ -17,3 +17,15 @@ for (const text of [
 if (!api.includes("fetchMainlineOutcomeSummary")) {
   throw new Error("前端必须读取启动信号汇总接口");
 }
+for (const text of ["样本漏斗", "总信号", "成熟", "等待", "异常"]) {
+  if (!app.includes(text)) throw new Error(`样本漏斗缺少：${text}`);
+}
+for (const field of [
+  "window_limit",
+  "completed_count",
+  "waiting_count",
+  "unavailable_count",
+  "unavailable_reasons",
+]) {
+  if (!api.includes(field)) throw new Error(`样本漏斗接口缺少：${field}`);
+}
