@@ -192,8 +192,15 @@ def test_get_confirmed_mainline_outcomes_returns_matured_leader_returns() -> Non
 
     assert result[0].sector == "半导体"
     assert result[0].horizons[0].return_pct == 0.1
+    assert result[0].horizons[0].reason is None
     assert summary.signal_type == "strong_benchmark"
+    assert summary.window_limit == 120
     assert summary.horizons[0].sample_count == 0
+    assert summary.horizons[0].total_signal_count == 0
+    assert summary.horizons[0].completed_count == 0
+    assert summary.horizons[0].waiting_count == 0
+    assert summary.horizons[0].unavailable_count == 0
+    assert summary.horizons[0].unavailable_reasons == {}
     assert summary.minimum_sample_count == 20
     assert summary.policy_status == "insufficient"
     assert summary.policy_label == "样本不足，禁止调整策略"

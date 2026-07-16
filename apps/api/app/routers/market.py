@@ -69,6 +69,7 @@ _SECTOR_OVERVIEW_CACHE: tuple[float, int | None, "SectorOverviewResponse"] | Non
 _SECTOR_OVERVIEW_LOCK = Lock()
 SECTOR_FEATURE_MIN_COVERAGE_RATIO = 0.80
 MARKET_DAILY_MIN_COVERAGE_RATIO = DAILY_CANDIDATE_MIN_COVERAGE_RATIO
+MAINLINE_OUTCOME_WINDOW_LIMIT = 120
 TARGET_INDEXES = (
     ("sh000001", "上证", ("sh000001", "000001")),
     ("sz399001", "深成", ("sz399001", "399001")),
@@ -156,6 +157,7 @@ class MainlineOutcomeHorizonResponse(BaseModel):
     horizon: int
     status: str
     return_pct: float | None
+    reason: str | None = None
 
 
 class ConfirmedMainlineOutcomeResponse(BaseModel):
@@ -176,6 +178,11 @@ class ConfirmedCandidateOutcomeResponse(BaseModel):
 class MainlineOutcomeSummaryHorizonResponse(BaseModel):
     horizon: int
     sample_count: int
+    total_signal_count: int
+    completed_count: int
+    waiting_count: int
+    unavailable_count: int
+    unavailable_reasons: dict[str, int] = Field(default_factory=dict)
     minimum_sample_count: int
     eligible_for_policy: bool
     avg_return_pct: float | None
@@ -185,6 +192,7 @@ class MainlineOutcomeSummaryHorizonResponse(BaseModel):
 
 class MainlineOutcomeSummaryResponse(BaseModel):
     signal_type: str
+    window_limit: int
     horizons: list[MainlineOutcomeSummaryHorizonResponse] = Field(default_factory=list)
     minimum_sample_count: int
     policy_status: str
@@ -1587,6 +1595,7 @@ def get_confirmed_mainline_outcomes(
                     horizon=horizon.horizon,
                     status=horizon.status,
                     return_pct=horizon.return_pct,
+                    reason=horizon.reason,
                 )
                 for horizon in item.horizons.values()
             ],
@@ -1599,6 +1608,7 @@ def get_confirmed_mainline_outcomes(
                             horizon=horizon.horizon,
                             status=horizon.status,
                             return_pct=horizon.return_pct,
+                            reason=horizon.reason,
                         )
                         for horizon in candidate.horizons.values()
                     ],
@@ -1612,12 +1622,13 @@ def get_confirmed_mainline_outcomes(
 
 @router.get("/mainline-outcome-summary", response_model=MainlineOutcomeSummaryResponse)
 def get_mainline_outcome_summary(db: DbSession) -> MainlineOutcomeSummaryResponse:
-    outcomes = list_confirmed_mainline_outcomes(db, limit=120)
+    outcomes = list_confirmed_mainline_outcomes(db, limit=MAINLINE_OUTCOME_WINDOW_LIMIT)
     rows = summarize_mainline_outcomes(outcomes)
     breakdowns = summarize_mainline_outcome_breakdowns(outcomes)
     eligible_for_policy = bool(rows[int(breakdowns["horizon"])]["eligible_for_policy"])
     return MainlineOutcomeSummaryResponse(
         signal_type="strong_benchmark",
+        window_limit=MAINLINE_OUTCOME_WINDOW_LIMIT,
         horizons=[MainlineOutcomeSummaryHorizonResponse(**item) for item in rows.values()],
         minimum_sample_count=MIN_OUTCOME_SAMPLES_FOR_POLICY,
         policy_status="usable" if eligible_for_policy else "insufficient",

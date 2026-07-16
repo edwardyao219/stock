@@ -247,6 +247,11 @@ def test_strong_benchmark_summary_uses_only_completed_horizons() -> None:
     assert summary[1] == {
         "horizon": 1,
         "sample_count": 2,
+        "total_signal_count": 3,
+        "completed_count": 2,
+        "waiting_count": 1,
+        "unavailable_count": 0,
+        "unavailable_reasons": {},
         "minimum_sample_count": 20,
         "eligible_for_policy": False,
         "avg_return_pct": 0.025,
@@ -313,3 +318,42 @@ def test_strong_benchmark_summary_unlocks_policy_at_twenty_samples() -> None:
 
     assert summary[3]["eligible_for_policy"] is True
     assert breakdowns["sectors"][0]["eligible_for_policy"] is True
+
+
+def test_strong_benchmark_summary_counts_funnel_states_and_reasons() -> None:
+    def outcome(
+        status: str,
+        *,
+        value: float | None = None,
+        reason: str | None = None,
+    ) -> ConfirmedMainlineOutcome:
+        return ConfirmedMainlineOutcome(
+            signal_type="strong_benchmark",
+            signal_date="2026-07-01",
+            sector="通信设备",
+            leader_symbol="600001",
+            horizons={
+                3: MainlineHorizonOutcome(
+                    horizon=3,
+                    status=status,
+                    return_pct=value,
+                    reason=reason,
+                )
+            },
+            candidate_bindings=[],
+        )
+
+    summary = mainline.summarize_mainline_outcomes(
+        [
+            outcome("completed", value=0.1),
+            outcome("waiting", reason="awaiting_trade_day"),
+            outcome("unavailable", reason="missing_target_close"),
+        ]
+    )
+
+    assert summary[3]["total_signal_count"] == 3
+    assert summary[3]["completed_count"] == 1
+    assert summary[3]["waiting_count"] == 1
+    assert summary[3]["unavailable_count"] == 1
+    assert summary[3]["unavailable_reasons"] == {"missing_target_close": 1}
+    assert summary[3]["sample_count"] == 1

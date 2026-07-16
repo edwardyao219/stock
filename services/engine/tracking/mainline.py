@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 
@@ -102,21 +103,33 @@ def summarize_mainline_outcomes(
     outcomes: list[ConfirmedMainlineOutcome],
     *,
     signal_type: str = "strong_benchmark",
-) -> dict[int, dict[str, bool | int | float | None]]:
-    summary: dict[int, dict[str, bool | int | float | None]] = {}
+) -> dict[int, dict[str, object]]:
+    summary: dict[int, dict[str, object]] = {}
+    signal_outcomes = [item for item in outcomes if item.signal_type == signal_type]
     for horizon in MAINLINE_HORIZONS:
+        horizon_rows = [item.horizons.get(horizon) for item in signal_outcomes]
+        completed = [item for item in horizon_rows if item and item.status == "completed"]
         values = [
-            item.horizons[horizon].return_pct
-            for item in outcomes
-            if item.signal_type == signal_type
-            and horizon in item.horizons
-            and item.horizons[horizon].status == "completed"
-            and item.horizons[horizon].return_pct is not None
+            item.return_pct
+            for item in completed
+            if item.return_pct is not None
+        ]
+        unavailable = [
+            item for item in horizon_rows if item and item.status == "unavailable"
         ]
         count = len(values)
         summary[horizon] = {
             "horizon": horizon,
             "sample_count": count,
+            "total_signal_count": len(signal_outcomes),
+            "completed_count": len(completed),
+            "waiting_count": sum(
+                item is None or item.status == "waiting" for item in horizon_rows
+            ),
+            "unavailable_count": len(unavailable),
+            "unavailable_reasons": dict(
+                Counter(item.reason for item in unavailable if item.reason)
+            ),
             "minimum_sample_count": MIN_OUTCOME_SAMPLES_FOR_POLICY,
             "eligible_for_policy": count >= MIN_OUTCOME_SAMPLES_FOR_POLICY,
             "avg_return_pct": round(sum(values) / count, 6) if count else None,
