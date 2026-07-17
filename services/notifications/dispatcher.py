@@ -584,6 +584,21 @@ def _market_stress_snapshot(discovery: dict[str, Any]) -> dict[str, Any]:
     return snapshot if isinstance(snapshot, dict) else {}
 
 
+def _market_stress_summary(discovery: dict[str, Any]) -> str | None:
+    snapshot = _market_stress_snapshot(discovery)
+    label = str(snapshot.get("stress_label") or "").strip()
+    if not label:
+        return None
+    action = str(snapshot.get("risk_action_label") or "").strip()
+    reasons = [str(item) for item in snapshot.get("stress_reasons") or [] if item]
+    parts = [f"市场风险：{label}"]
+    if action:
+        parts.append(action)
+    if reasons:
+        parts.append(next((item for item in reasons if "主要指数与市场宽度" in item), reasons[0]))
+    return "。".join(parts) + "。"
+
+
 def _market_turn_snapshot(discovery: dict[str, Any]) -> dict[str, Any]:
     snapshot = discovery.get("market_turn")
     return snapshot if isinstance(snapshot, dict) else {}
@@ -1522,6 +1537,9 @@ def format_candidate_screening_text(
         warning = discovery.get("universe_warning")
         if warning:
             lines.append(f"提示：{warning}")
+        stress_summary = _market_stress_summary(discovery)
+        if stress_summary:
+            lines.append(stress_summary)
         turn_summary = _market_turn_summary(discovery)
         if turn_summary:
             lines.append(turn_summary)
@@ -1606,6 +1624,9 @@ def format_candidate_screening_text(
     warning = discovery.get("universe_warning")
     if warning:
         lines.append(f"提示：{warning}")
+    stress_summary = _market_stress_summary(discovery)
+    if stress_summary:
+        lines.append(stress_summary)
     turn_summary = _market_turn_summary(discovery)
     if turn_summary:
         lines.append(turn_summary)

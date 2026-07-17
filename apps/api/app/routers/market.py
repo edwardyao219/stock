@@ -266,6 +266,7 @@ def _market_stress_policy(
     up_ratio: float | None,
     avg_change_pct: float | None,
     amount_change_pct: float | None,
+    indexes: list[MarketIndexResponse] | None = None,
 ) -> dict[str, object]:
     score = 0.0
     reasons: list[str] = []
@@ -300,7 +301,42 @@ def _market_stress_policy(
             score += 8.0
             reasons.append("缩量弱势，反弹确认度不足")
 
-    if score >= 70.0:
+    falling_indexes = [
+        item
+        for item in indexes or []
+        if item.change_pct is not None and item.change_pct <= -0.03
+    ]
+    systemic_risk = bool(
+        indexes
+        and up_ratio is not None
+        and up_ratio <= 0.30
+        and (
+            len(falling_indexes) >= 2
+            or any(
+                item.change_pct is not None and item.change_pct <= -0.045
+                for item in indexes or []
+            )
+            or (
+                up_ratio <= 0.25
+                and avg_change_pct is not None
+                and avg_change_pct <= -0.015
+            )
+        )
+    )
+    if systemic_risk:
+        score = max(score, 85.0)
+        index_text = "、".join(
+            f"{item.name}{item.change_pct:+.2%}" for item in falling_indexes
+        )
+        reasons.append(
+            f"主要指数与市场宽度同步重挫：{index_text}"
+            if index_text
+            else "主要指数与市场宽度同步重挫"
+        )
+        status = "risk_off"
+        label = "系统性风险"
+        action = "暂停新开仓，只做持仓风控和观察"
+    elif score >= 70.0:
         status = "risk_off"
         label = "压力大"
         action = "停止扩散，只做观察和风控"
@@ -667,6 +703,7 @@ def _eastmoney_a_share_overview() -> MarketOverviewResponse:
     avg_change_pct = round(sum(changes) / stock_count, 6) if stock_count else None
     trade_date = max((item.trade_date for item in quotes), default=None)
     parsed_trade_date = date.fromisoformat(trade_date) if trade_date else None
+    indexes = _safe_live_market_indexes()
     return MarketOverviewResponse(
         trade_date=parsed_trade_date,
         stock_count=stock_count,
@@ -688,9 +725,10 @@ def _eastmoney_a_share_overview() -> MarketOverviewResponse:
             up_ratio=up_ratio,
             avg_change_pct=avg_change_pct,
             amount_change_pct=None,
+            indexes=indexes,
         ),
         **_market_snapshot_scope(trade_date=parsed_trade_date, is_live=True),
-        indexes=_safe_live_market_indexes(),
+        indexes=indexes,
     )
 
 
@@ -710,6 +748,7 @@ def _sina_a_share_overview() -> MarketOverviewResponse:
     avg_change_pct = round(float(changes.mean()), 6) if stock_count else None
     total_rows = int(len(df))
     trade_date = now_local().date()
+    indexes = _safe_live_market_indexes()
     return MarketOverviewResponse(
         trade_date=trade_date,
         stock_count=stock_count,
@@ -731,9 +770,10 @@ def _sina_a_share_overview() -> MarketOverviewResponse:
             up_ratio=up_ratio,
             avg_change_pct=avg_change_pct,
             amount_change_pct=None,
+            indexes=indexes,
         ),
         **_market_snapshot_scope(trade_date=trade_date, is_live=True),
-        indexes=_safe_live_market_indexes(),
+        indexes=indexes,
     )
 
 
@@ -784,6 +824,7 @@ def _sina_symbol_live_a_share_overview(db: Session) -> MarketOverviewResponse:
     if failed_batches:
         quality_notes.append(f"失败批次 {failed_batches}")
 
+    indexes = _safe_live_market_indexes()
     return MarketOverviewResponse(
         trade_date=parsed_trade_date,
         stock_count=stock_count,
@@ -805,9 +846,10 @@ def _sina_symbol_live_a_share_overview(db: Session) -> MarketOverviewResponse:
             up_ratio=up_ratio,
             avg_change_pct=avg_change_pct,
             amount_change_pct=None,
+            indexes=indexes,
         ),
         **_market_snapshot_scope(trade_date=parsed_trade_date, is_live=True),
-        indexes=_safe_live_market_indexes(),
+        indexes=indexes,
     )
 
 
@@ -882,6 +924,7 @@ def _try_cached_live_a_share_overview(timeout_seconds: float) -> MarketOverviewR
 
 
 def _stored_market_overview(db: Session) -> MarketOverviewResponse:
+    indexes = _safe_live_market_indexes()
     latest_date = _latest_well_covered_daily_bar_date(db)
     if latest_date is None:
         return MarketOverviewResponse(
@@ -902,9 +945,10 @@ def _stored_market_overview(db: Session) -> MarketOverviewResponse:
                 up_ratio=None,
                 avg_change_pct=None,
                 amount_change_pct=None,
+                indexes=indexes,
             ),
             **_market_snapshot_scope(trade_date=None, is_live=False),
-            indexes=_safe_live_market_indexes(),
+            indexes=indexes,
         )
 
     bars = list(
@@ -966,9 +1010,10 @@ def _stored_market_overview(db: Session) -> MarketOverviewResponse:
             up_ratio=up_ratio,
             avg_change_pct=avg_change_pct,
             amount_change_pct=amount_change_pct,
+            indexes=indexes,
         ),
         **_market_snapshot_scope(trade_date=latest_date, is_live=False),
-        indexes=_safe_live_market_indexes(),
+        indexes=indexes,
     )
 
 
@@ -1033,14 +1078,17 @@ def _stored_full_market_realtime_overview(db: Session) -> MarketOverviewResponse
     if scope["is_current_snapshot"]:
         scope["snapshot_scope_label"] = "当日全市场归档"
         scope["stress_scope_label"] = "今日归档压力"
+    up_ratio = up_count / stock_count if stock_count else None
+    avg_change_pct = round(sum(changes) / stock_count, 6) if stock_count else None
+    indexes = _safe_live_market_indexes()
     return MarketOverviewResponse(
         trade_date=trade_date,
         stock_count=stock_count,
         up_count=up_count,
         down_count=down_count,
         flat_count=flat_count,
-        up_ratio=up_count / stock_count if stock_count else None,
-        avg_change_pct=round(sum(changes) / stock_count, 6) if stock_count else None,
+        up_ratio=up_ratio,
+        avg_change_pct=avg_change_pct,
         total_amount=sum(float(item.amount or 0) for item in rows),
         amount_change_pct=None,
         active_security_count=active_security_count,
@@ -1051,12 +1099,13 @@ def _stored_full_market_realtime_overview(db: Session) -> MarketOverviewResponse
             f"平盘 {flat_count}；统计样本 {stock_count}/{active_security_count}。"
         ),
         **_market_stress_policy(
-            up_ratio=up_count / stock_count if stock_count else None,
-            avg_change_pct=round(sum(changes) / stock_count, 6) if stock_count else None,
+            up_ratio=up_ratio,
+            avg_change_pct=avg_change_pct,
             amount_change_pct=None,
+            indexes=indexes,
         ),
         **scope,
-        indexes=_safe_live_market_indexes(),
+        indexes=indexes,
     )
 
 

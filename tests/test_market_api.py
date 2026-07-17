@@ -386,6 +386,70 @@ def test_market_stress_policy_flags_broad_selloff() -> None:
     assert any("放量下跌" in reason for reason in policy["stress_reasons"])
 
 
+def test_market_stress_policy_marks_systemic_risk_from_breadth_and_major_indexes() -> None:
+    policy = market._market_stress_policy(
+        up_ratio=0.21,
+        avg_change_pct=-0.0194,
+        amount_change_pct=None,
+        indexes=[
+            market.MarketIndexResponse(
+                code="sh000001",
+                name="上证",
+                quote_date=date(2026, 7, 17),
+                price=3500,
+                change_pct=-0.0234,
+                amount=None,
+                source="test",
+            ),
+            market.MarketIndexResponse(
+                code="sz399001",
+                name="深成",
+                quote_date=date(2026, 7, 17),
+                price=11000,
+                change_pct=-0.0437,
+                amount=None,
+                source="test",
+            ),
+            market.MarketIndexResponse(
+                code="sz399006",
+                name="创业板",
+                quote_date=date(2026, 7, 17),
+                price=2200,
+                change_pct=-0.0543,
+                amount=None,
+                source="test",
+            ),
+        ],
+    )
+
+    assert policy["stress_status"] == "risk_off"
+    assert policy["stress_label"] == "系统性风险"
+    assert policy["stress_score"] >= 85
+    assert "暂停新开仓" in policy["risk_action_label"]
+    assert any("深成" in reason and "创业板" in reason for reason in policy["stress_reasons"])
+
+
+def test_market_stress_policy_does_not_raise_systemic_risk_without_broad_selloff() -> None:
+    policy = market._market_stress_policy(
+        up_ratio=0.48,
+        avg_change_pct=-0.004,
+        amount_change_pct=None,
+        indexes=[
+            market.MarketIndexResponse(
+                code="sz399006",
+                name="创业板",
+                quote_date=date(2026, 7, 17),
+                price=2200,
+                change_pct=-0.05,
+                amount=None,
+                source="test",
+            )
+        ],
+    )
+
+    assert policy["stress_status"] != "risk_off"
+
+
 def test_market_snapshot_scope_marks_stale_live_snapshot() -> None:
     scope = market._market_snapshot_scope(
         trade_date=date(2026, 7, 6),

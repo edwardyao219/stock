@@ -877,6 +877,27 @@ def test_build_candidate_tiers_blocks_all_core_when_market_stress_is_risk_off() 
     )
 
 
+def test_candidate_push_text_shows_systemic_risk_and_paused_entries() -> None:
+    text = format_candidate_screening_text(
+        {
+            "candidates": [],
+            "market_stress": {
+                "stress_status": "risk_off",
+                "stress_label": "系统性风险",
+                "risk_action_label": "暂停新开仓，只做持仓风控和观察",
+                "stress_reasons": [
+                    "上涨占比仅21%，市场宽度明显不足",
+                    "主要指数与市场宽度同步重挫",
+                ],
+            },
+        }
+    )
+
+    assert "市场风险：系统性风险" in text
+    assert "暂停新开仓" in text
+    assert "主要指数与市场宽度同步重挫" in text
+
+
 def test_build_candidate_tiers_keeps_startup_state_out_of_core_action() -> None:
     candidate = {
         "symbol": "603061",
