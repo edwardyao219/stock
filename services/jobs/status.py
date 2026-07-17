@@ -117,11 +117,7 @@ def build_after_close_status(
     }
 
 
-def write_after_close_status(result: dict[str, Any]) -> None:
-    trade_date = str(result.get("trade_date") or "").strip()
-    if not trade_date:
-        return
-    payload = build_after_close_status(result)
+def _write_after_close_status_payload(trade_date: str, payload: dict[str, Any]) -> None:
     try:
         from services.jobs.celery_app import celery_app
 
@@ -132,6 +128,20 @@ def write_after_close_status(result: dict[str, Any]) -> None:
         )
     except Exception:
         return
+
+
+def write_after_close_status(result: dict[str, Any]) -> None:
+    trade_date = str(result.get("trade_date") or "").strip()
+    if not trade_date:
+        return
+    _write_after_close_status_payload(trade_date, build_after_close_status(result))
+
+
+def merge_after_close_status(trade_date: str, updates: dict[str, Any]) -> None:
+    current = read_after_close_status(trade_date)
+    if current is None:
+        return
+    _write_after_close_status_payload(trade_date, {**current, **updates})
 
 
 def read_after_close_status(trade_date: str) -> dict[str, Any] | None:

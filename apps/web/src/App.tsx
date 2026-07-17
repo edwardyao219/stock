@@ -1672,9 +1672,15 @@ export function App() {
 
   async function loadMechanicalReview() {
     try {
-      setMechanicalReview(await fetchMechanicalReview());
+      const review = await fetchMechanicalReview();
+      setMechanicalReview(review);
+      const reviewTradeDate = reviewMetricRecord(review, "market_summary")?.trade_date;
+      loadAfterCloseStatus(
+        typeof reviewTradeDate === "string" && reviewTradeDate ? reviewTradeDate : review.report_date,
+      );
     } catch {
       setMechanicalReview(null);
+      loadAfterCloseStatus();
     }
   }
 
@@ -1749,7 +1755,6 @@ export function App() {
     loadSectorCatalysts();
     loadDataHealth();
     loadMechanicalReview();
-    loadAfterCloseStatus();
     loadMonthlySummary();
     loadRuleRegressionStatus();
   }, []);
@@ -2255,7 +2260,6 @@ export function App() {
                   type="button"
                   onClick={() => {
                     loadMechanicalReview();
-                    loadAfterCloseStatus(marketOverview?.trade_date);
                   }}
                   aria-label="刷新收盘复盘"
                 >
@@ -2413,7 +2417,6 @@ export function App() {
                       type="button"
                       onClick={() => {
                         loadMechanicalReview();
-                        loadAfterCloseStatus(marketOverview?.trade_date);
                       }}
                       aria-label="刷新收盘复盘"
                     >
@@ -2444,11 +2447,15 @@ export function App() {
                         <span>复盘 {afterCloseStatusLabel(afterCloseStatus.review_status)}</span>
                         <span>钉钉 {afterCloseStatusLabel(afterCloseStatus.dingtalk_status)}</span>
                         <span>{afterCloseDingText(afterCloseStatus)}</span>
+                        <span>基础资金流 {afterCloseStatus.moneyflow_rows > 0 ? `${afterCloseStatus.moneyflow_rows} 条` : "未到"} / {afterCloseStatusLabel(afterCloseStatus.moneyflow_status)}</span>
+                        <span>计划证据 {afterCloseStatus.plan_rows_refreshed}/{afterCloseStatus.existing_plans} / {afterCloseStatusLabel(afterCloseStatus.plan_refresh_status)}</span>
+                        <span>资金更新 {dateTimeText(afterCloseStatus.moneyflow_updated_at)}</span>
                         <span>调度健康 {String(afterCloseStatus.scheduler_health?.state ?? "正常") === "failed" ? "需人工处理" : String(afterCloseStatus.scheduler_health?.state ?? "正常") === "completed" ? "正常" : "恢复中"}</span>
                         <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>
                         <span>Tushare证据</span>
                         {(afterCloseStatus.tushare_evidence_health?.datasets ?? []).map((dataset) => {
                           const label = {
+                            moneyflow: "基础资金流",
                             moneyflow_dc: "东财资金流",
                             cyq_perf: "筹码分布",
                             limit_list_d: "涨跌停事件",

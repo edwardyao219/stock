@@ -37,7 +37,11 @@ from services.jobs.pipeline import (
     run_daily_research_pipeline,
     run_intraday_trade_session,
 )
-from services.jobs.status import read_after_close_status, write_after_close_status
+from services.jobs.status import (
+    merge_after_close_status,
+    read_after_close_status,
+    write_after_close_status,
+)
 from services.notifications.dispatcher import dispatch_monthly_trade_summary, dispatch_text
 from services.shared.database import SessionLocal
 from services.shared.models import IntradayMarketTurnSnapshot, Security
@@ -435,7 +439,8 @@ def compute_daily_features_task() -> dict[str, object]:
 def sync_late_tushare_moneyflow_task() -> dict[str, object]:
     from services.collector.sync import sync_tushare_market_data_resumable
 
-    today = now_local().date()
+    current_time = now_local()
+    today = current_time.date()
     trade_date = today.isoformat()
     with SessionLocal() as db:
         if not _is_open_trade_date(db, trade_date):
@@ -472,6 +477,17 @@ def sync_late_tushare_moneyflow_task() -> dict[str, object]:
             f"基础资金流已就绪：{result.rows} 条；"
             f"静默刷新 {refreshed_rows}/{existing_plans} 条交易计划。"
         )
+        merge_after_close_status(
+            trade_date,
+            {
+                "moneyflow_status": result.status,
+                "moneyflow_rows": result.rows,
+                "moneyflow_updated_at": current_time.isoformat(),
+                "plan_refresh_status": "ok",
+                "existing_plans": existing_plans,
+                "plan_rows_refreshed": refreshed_rows,
+            },
+        )
         return {
             "trade_date": trade_date,
             "next_trade_date": next_trade_date,
@@ -482,6 +498,17 @@ def sync_late_tushare_moneyflow_task() -> dict[str, object]:
             "existing_plans": existing_plans,
             "plan_rows_refreshed": refreshed_rows,
         }
+    merge_after_close_status(
+        trade_date,
+        {
+            "moneyflow_status": result.status,
+            "moneyflow_rows": result.rows,
+            "moneyflow_updated_at": current_time.isoformat(),
+            "plan_refresh_status": "failed" if result.status == "failed" else "waiting",
+            "existing_plans": 0,
+            "plan_rows_refreshed": 0,
+        },
+    )
     return {
         "trade_date": trade_date,
         "status": status,

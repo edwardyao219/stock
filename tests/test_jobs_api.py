@@ -44,6 +44,12 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
             "candidate_count": 12,
             "plan_count": 0,
             "dingtalk_statuses": ["dingtalk:ok", "dingtalk:ok"],
+            "moneyflow_status": "ok",
+            "moneyflow_rows": 5197,
+            "moneyflow_updated_at": "2026-07-09T19:30:00+08:00",
+            "plan_refresh_status": "ok",
+            "existing_plans": 2,
+            "plan_rows_refreshed": 2,
             "market_summary": "市场 weak_trend / 压力大",
             "tushare_evidence_health": {
                 "trade_date": trade_date,
@@ -59,6 +65,12 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
     assert payload.status == "ok"
     assert payload.candidate_count == 12
     assert payload.dingtalk_statuses == ["dingtalk:ok", "dingtalk:ok"]
+    assert payload.moneyflow_status == "ok"
+    assert payload.moneyflow_rows == 5197
+    assert payload.moneyflow_updated_at == "2026-07-09T19:30:00+08:00"
+    assert payload.plan_refresh_status == "ok"
+    assert payload.existing_plans == 2
+    assert payload.plan_rows_refreshed == 2
     assert payload.market_summary == "市场 weak_trend / 压力大"
     assert payload.tushare_evidence_health["daily_symbol_count"] == 100
 

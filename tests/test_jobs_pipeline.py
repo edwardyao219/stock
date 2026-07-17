@@ -312,6 +312,7 @@ def test_sync_late_tushare_moneyflow_task_reports_pending_release(monkeypatch) -
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 16, 19, 30))
     monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "merge_after_close_status", lambda *args, **kwargs: None)
 
     def fake_sync(trade_date, *, datasets, force=False):
         captured.update(
@@ -358,10 +359,17 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
     from services.notifications import dispatcher
 
     captured = {}
+    merged = {}
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 16, 19, 30))
     monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
     monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-17")
+    monkeypatch.setattr(
+        tasks,
+        "merge_after_close_status",
+        lambda trade_date, updates: merged.update(trade_date=trade_date, updates=updates),
+        raising=False,
+    )
     monkeypatch.setattr(
         collector_sync,
         "sync_tushare_market_data_resumable",
@@ -395,6 +403,17 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
         "plan_date": "2026-07-16",
         "trade_date": "2026-07-17",
         "feature_date": "2026-07-16",
+    }
+    assert merged == {
+        "trade_date": "2026-07-16",
+        "updates": {
+            "moneyflow_status": "ok",
+            "moneyflow_rows": 5198,
+            "moneyflow_updated_at": "2026-07-16T19:30:00",
+            "plan_refresh_status": "ok",
+            "existing_plans": 2,
+            "plan_rows_refreshed": 2,
+        },
     }
     assert result == {
         "trade_date": "2026-07-16",

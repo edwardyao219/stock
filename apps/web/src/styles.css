@@ -5120,6 +5120,10 @@ textarea {
     overflow: visible;
   }
 
+  .intraday-watch-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .stock-list-panel,
   .stock-detail-panel,
   .page-panel {

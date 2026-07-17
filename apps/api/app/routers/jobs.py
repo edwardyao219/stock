@@ -142,6 +142,12 @@ class AfterCloseStatusResponse(BaseModel):
     candidate_web_status: str = "not_run"
     review_status: str = "not_run"
     dingtalk_status: str = "not_sent"
+    moneyflow_status: str = "not_run"
+    moneyflow_rows: int = 0
+    moneyflow_updated_at: str | None = None
+    plan_refresh_status: str = "not_run"
+    existing_plans: int = 0
+    plan_rows_refreshed: int = 0
     market_summary: str | None = None
     tushare_evidence_health: dict[str, Any] = Field(default_factory=dict)
     scheduler_health: dict[str, Any] = Field(default_factory=dict)
@@ -247,7 +253,10 @@ def run_historical_replay_job(payload: HistoricalReplayRunRequest) -> Historical
 
 
 @router.get("/after-close/status", response_model=AfterCloseStatusResponse)
-def get_after_close_status(db: DbSession, trade_date: str | None = None) -> AfterCloseStatusResponse:
+def get_after_close_status(
+    db: DbSession,
+    trade_date: str | None = None,
+) -> AfterCloseStatusResponse:
     target_date = trade_date or _today()
     cached = read_after_close_status(target_date)
     if cached:

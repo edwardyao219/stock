@@ -1,3 +1,4 @@
+from services.jobs import status as job_status
 from services.jobs.status import build_after_close_status
 
 
@@ -20,3 +21,42 @@ def test_after_close_status_exposes_candidate_review_and_dingtalk_outcomes() -> 
     assert status["candidate_web_status"] == "ok"
     assert status["review_status"] == "ok"
     assert status["dingtalk_status"] == "ok"
+
+
+def test_merge_after_close_status_preserves_push_outcomes(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(
+        job_status,
+        "read_after_close_status",
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "candidate_count": 21,
+            "dingtalk_status": "ok",
+            "message": "候选推送完成",
+        },
+    )
+    monkeypatch.setattr(
+        job_status,
+        "_write_after_close_status_payload",
+        lambda trade_date, payload: captured.update(payload),
+        raising=False,
+    )
+
+    job_status.merge_after_close_status(
+        "2026-07-16",
+        {
+            "moneyflow_status": "ok",
+            "moneyflow_rows": 5197,
+            "plan_rows_refreshed": 0,
+        },
+    )
+
+    assert captured == {
+        "trade_date": "2026-07-16",
+        "candidate_count": 21,
+        "dingtalk_status": "ok",
+        "message": "候选推送完成",
+        "moneyflow_status": "ok",
+        "moneyflow_rows": 5197,
+        "plan_rows_refreshed": 0,
+    }

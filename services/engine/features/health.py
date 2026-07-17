@@ -15,6 +15,7 @@ from services.shared.models import (
     StockFeatureDaily,
     TushareCyqPerf,
     TushareLimitListD,
+    TushareMoneyflow,
     TushareMoneyflowDc,
 )
 
@@ -186,6 +187,7 @@ def inspect_tushare_evidence_health(
         "trade_date": trade_date.isoformat(),
         "daily_symbol_count": len(eligible_symbols),
         "datasets": [
+            full_market_dataset("moneyflow", TushareMoneyflow),
             full_market_dataset("moneyflow_dc", TushareMoneyflowDc),
             full_market_dataset("cyq_perf", TushareCyqPerf),
             {
@@ -197,6 +199,8 @@ def inspect_tushare_evidence_health(
             },
         ],
     }
+
+
 def _features(db: Session, trade_date: date | None) -> list[StockFeatureDaily]:
     if trade_date is None:
         return []

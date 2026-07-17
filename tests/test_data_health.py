@@ -15,6 +15,7 @@ from services.shared.models import (
     StockFeatureDaily,
     TushareCyqPerf,
     TushareLimitListD,
+    TushareMoneyflow,
     TushareMoneyflowDc,
 )
 
@@ -69,6 +70,12 @@ def test_inspect_tushare_evidence_health_reports_exact_date_coverage() -> None:
         )
         db.add_all(
             [
+                TushareMoneyflow(ts_code=f"{index:06d}.SZ", trade_date=trade_date)
+                for index in range(95)
+            ]
+        )
+        db.add_all(
+            [
                 TushareMoneyflowDc(ts_code=f"{index:06d}.SZ", trade_date=trade_date)
                 for index in range(90)
             ]
@@ -93,6 +100,13 @@ def test_inspect_tushare_evidence_health_reports_exact_date_coverage() -> None:
         "trade_date": "2026-07-10",
         "daily_symbol_count": 100,
         "datasets": [
+            {
+                "name": "moneyflow",
+                "rows": 95,
+                "matched_rows": 95,
+                "coverage_ratio": 0.95,
+                "status": "partial",
+            },
             {
                 "name": "moneyflow_dc",
                 "rows": 90,

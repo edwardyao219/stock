@@ -1291,6 +1291,12 @@ export interface AfterCloseStatus {
   candidate_web_status: string;
   review_status: string;
   dingtalk_status: string;
+  moneyflow_status: string;
+  moneyflow_rows: number;
+  moneyflow_updated_at: string | null;
+  plan_refresh_status: string;
+  existing_plans: number;
+  plan_rows_refreshed: number;
   market_summary: string | null;
   tushare_evidence_health: TushareEvidenceHealth;
   scheduler_health: Record<string, unknown>;
@@ -1298,7 +1304,7 @@ export interface AfterCloseStatus {
 }
 
 export interface TushareEvidenceDatasetHealth {
-  name: "moneyflow_dc" | "cyq_perf" | "limit_list_d" | string;
+  name: "moneyflow" | "moneyflow_dc" | "cyq_perf" | "limit_list_d" | string;
   rows: number;
   matched_rows: number;
   coverage_ratio: number | null;
