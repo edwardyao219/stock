@@ -740,6 +740,7 @@ def _candidate_live_market_stress_for_trade_date(
         return None
     try:
         from apps.api.app.routers.market import (
+            _apply_market_stress_recovery_guard,
             _store_live_market_cache,
             _try_cached_live_a_share_overview,
             _try_sina_symbol_live_a_share_overview,
@@ -754,6 +755,8 @@ def _candidate_live_market_stress_for_trade_date(
         return None
     if overview is None:
         return None
+    if db is not None:
+        overview = _apply_market_stress_recovery_guard(db, overview)
     overview_date = getattr(overview, "trade_date", None)
     if overview_date is not None and overview_date.isoformat() != trade_date:
         return None

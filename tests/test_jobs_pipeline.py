@@ -2619,6 +2619,54 @@ def test_load_candidate_gate_policies_does_not_block_when_replay_data_is_insuffi
     assert policies["style_gate_policy"]["rows"] == []
 
 
+def test_candidate_live_market_stress_applies_recovery_guard(monkeypatch) -> None:
+    from datetime import date, datetime
+
+    from apps.api.app.routers import market
+
+    overview = market.MarketOverviewResponse(
+        trade_date=date(2026, 7, 20),
+        stock_count=5000,
+        up_count=2400,
+        down_count=2500,
+        flat_count=100,
+        up_ratio=0.48,
+        avg_change_pct=0.002,
+        total_amount=1_000_000,
+        amount_change_pct=None,
+        active_security_count=5000,
+        coverage_ratio=1.0,
+        is_full_market=True,
+        message="live",
+    )
+    fake_db = object()
+    guard_calls = []
+
+    monkeypatch.setattr(pipeline, "now_local", lambda: datetime(2026, 7, 20, 10, 0))
+    monkeypatch.setattr(market, "_try_cached_live_a_share_overview", lambda timeout: overview)
+    monkeypatch.setattr(
+        market,
+        "_apply_market_stress_recovery_guard",
+        lambda db, payload: guard_calls.append((db, payload))
+        or payload.model_copy(
+            update={
+                "stress_status": "risk_off",
+                "stress_label": "风险解除待确认",
+                "stress_score": 70.0,
+                "stress_reasons": ["严重普跌后仅连续1次恢复，需连续2次确认"],
+                "risk_action_label": "暂停新开仓，只做持仓风控和观察",
+            }
+        ),
+    )
+
+    stress = pipeline._candidate_live_market_stress_for_trade_date("2026-07-20", fake_db)
+
+    assert guard_calls == [(fake_db, overview)]
+    assert stress is not None
+    assert stress["stress_status"] == "risk_off"
+    assert stress["stress_label"] == "风险解除待确认"
+
+
 def test_candidate_live_market_stress_falls_back_to_sina_symbol_snapshot(
     monkeypatch,
 ) -> None:
@@ -2846,7 +2894,10 @@ def test_discover_next_session_candidates_step_keeps_long_term_notifications(mon
                     "selected_rule_id": "R004",
                     "selected_rule_name": "板块中期趋势跟随",
                     "selected_strategy_type": "long_term",
-                    "reasons": ["先看板块主线", "板块20日主线扩散较好"],
+                    "reasons": [
+                        "中期强者：相对强度或板块扩散足够强",
+                        "板块20日主线扩散较好",
+                    ],
                     "risk_flags": [],
                 },
                 {

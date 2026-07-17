@@ -450,6 +450,93 @@ def test_market_stress_policy_does_not_raise_systemic_risk_without_broad_selloff
     assert policy["stress_status"] != "risk_off"
 
 
+def test_market_stress_recovery_policy_keeps_risk_off_after_one_recovery() -> None:
+    policy = market._market_stress_recovery_policy(
+        {
+            "stress_status": "neutral",
+            "stress_label": "中性",
+            "stress_score": 0.0,
+            "stress_reasons": ["没有明显全市场压力信号"],
+            "risk_action_label": "按原计划精选",
+        },
+        [(0.29, -0.004), (0.48, 0.002)],
+    )
+
+    assert policy["stress_status"] == "risk_off"
+    assert policy["stress_label"] == "风险解除待确认"
+    assert "连续2次" in policy["stress_reasons"][0]
+    assert "暂停新开仓" in policy["risk_action_label"]
+
+
+def test_market_stress_recovery_policy_releases_after_two_recoveries() -> None:
+    original = {
+        "stress_status": "neutral",
+        "stress_label": "中性",
+        "stress_score": 0.0,
+        "stress_reasons": ["没有明显全市场压力信号"],
+        "risk_action_label": "按原计划精选",
+    }
+
+    policy = market._market_stress_recovery_policy(
+        original,
+        [(0.21, -0.0194), (0.48, 0.002), (0.52, 0.004)],
+    )
+
+    assert policy == original
+
+
+def test_recent_full_market_stress_snapshots_group_persisted_quotes(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    quote_date = date(2026, 7, 20)
+    quote_times = [
+        datetime(2026, 7, 20, 9, 35),
+        datetime(2026, 7, 20, 9, 40),
+        datetime(2026, 7, 20, 9, 45),
+    ]
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(symbol="000001", name="样本1", exchange="SZ", is_active=True, is_st=False),
+                Security(symbol="000002", name="样本2", exchange="SZ", is_active=True, is_st=False),
+            ]
+        )
+        prices = [
+            (Decimal("9"), Decimal("9")),
+            (Decimal("11"), Decimal("10")),
+            (Decimal("10.2"), Decimal("10.1")),
+        ]
+        db.add_all(
+            [
+                RealtimeQuote(
+                    symbol=symbol,
+                    trade_date=quote_date,
+                    quote_time=quote_time,
+                    price=price,
+                    open=Decimal("10"),
+                    high=price,
+                    low=Decimal("9"),
+                    pre_close=Decimal("10"),
+                    pct_change=None,
+                    volume=Decimal("100"),
+                    amount=Decimal("1000"),
+                    turnover_rate=None,
+                    source="test",
+                )
+                for quote_time, price_pair in zip(quote_times, prices, strict=True)
+                for symbol, price in zip(("000001", "000002"), price_pair, strict=True)
+            ]
+        )
+        db.commit()
+        monkeypatch.setattr(market, "now_local", lambda: datetime(2026, 7, 20, 9, 46))
+
+        snapshots = market._recent_full_market_stress_snapshots(db)
+
+    assert snapshots == [(0.0, -0.1), (0.5, 0.05), (1.0, 0.015)]
+
+
 def test_market_snapshot_scope_marks_stale_live_snapshot() -> None:
     scope = market._market_snapshot_scope(
         trade_date=date(2026, 7, 6),
@@ -579,6 +666,45 @@ def test_get_market_overview_live_uses_live_snapshot_on_sqlite(monkeypatch) -> N
 
     assert payload.trade_date == date(2026, 6, 25)
     assert payload.message == "live"
+
+
+def test_get_market_overview_keeps_recovering_live_snapshot_risk_off(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    live_payload = market.MarketOverviewResponse(
+        trade_date=date(2026, 7, 20),
+        stock_count=5000,
+        up_count=2400,
+        down_count=2500,
+        flat_count=100,
+        up_ratio=0.48,
+        avg_change_pct=0.002,
+        total_amount=1_000_000,
+        amount_change_pct=None,
+        active_security_count=5000,
+        coverage_ratio=1.0,
+        is_full_market=True,
+        message="live",
+    )
+
+    with session() as db:
+        monkeypatch.setattr(
+            market,
+            "_try_cached_live_a_share_overview",
+            lambda timeout: live_payload,
+        )
+        monkeypatch.setattr(
+            market,
+            "_recent_full_market_stress_snapshots",
+            lambda db: [(0.21, -0.0194), (0.48, 0.002)],
+        )
+
+        payload = get_market_overview(db=db, live=True)
+
+    assert payload.stress_status == "risk_off"
+    assert payload.stress_label == "风险解除待确认"
+    assert "暂停新开仓" in payload.risk_action_label
 
 
 def test_get_market_overview_live_uses_stored_snapshot_when_live_cache_is_slow(monkeypatch) -> None:

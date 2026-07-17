@@ -1,6 +1,6 @@
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from math import ceil
 from threading import Lock
@@ -10,7 +10,7 @@ from typing import Annotated
 import pandas as pd
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from services.collector.akshare_client import (
@@ -69,6 +69,10 @@ _SECTOR_OVERVIEW_CACHE: tuple[float, int | None, "SectorOverviewResponse"] | Non
 _SECTOR_OVERVIEW_LOCK = Lock()
 SECTOR_FEATURE_MIN_COVERAGE_RATIO = 0.80
 MARKET_DAILY_MIN_COVERAGE_RATIO = DAILY_CANDIDATE_MIN_COVERAGE_RATIO
+MARKET_STRESS_RECOVERY_SNAPSHOTS = 2
+MARKET_STRESS_RECOVERY_UP_RATIO = 0.45
+MARKET_STRESS_RECOVERY_AVG_CHANGE_PCT = -0.003
+MARKET_STRESS_RECOVERY_LOOKBACK_DAYS = 7
 MAINLINE_OUTCOME_WINDOW_LIMIT = 120
 TARGET_INDEXES = (
     ("sh000001", "上证", ("sh000001", "000001")),
@@ -364,6 +368,49 @@ def _market_stress_policy(
         "stress_score": round(score, 2),
         "stress_reasons": reasons or ["没有明显全市场压力信号"],
         "risk_action_label": action,
+    }
+
+
+def _market_stress_recovery_policy(
+    policy: dict[str, object],
+    snapshots: list[tuple[float, float]],
+) -> dict[str, object]:
+    if policy.get("stress_status") == "risk_off":
+        return policy
+
+    last_stress_index = next(
+        (
+            index
+            for index in range(len(snapshots) - 1, -1, -1)
+            if snapshots[index][0] <= 0.30 and snapshots[index][1] < 0
+        ),
+        None,
+    )
+    if last_stress_index is None:
+        return policy
+
+    recovery_count = 0
+    for up_ratio, avg_change_pct in reversed(snapshots[last_stress_index + 1 :]):
+        if (
+            up_ratio < MARKET_STRESS_RECOVERY_UP_RATIO
+            or avg_change_pct < MARKET_STRESS_RECOVERY_AVG_CHANGE_PCT
+        ):
+            break
+        recovery_count += 1
+    if recovery_count >= MARKET_STRESS_RECOVERY_SNAPSHOTS:
+        return policy
+
+    return {
+        **policy,
+        "stress_status": "risk_off",
+        "stress_label": "风险解除待确认",
+        "stress_score": max(float(policy.get("stress_score") or 0.0), 70.0),
+        "stress_reasons": [
+            f"严重普跌后仅连续{recovery_count}次恢复，需连续"
+            f"{MARKET_STRESS_RECOVERY_SNAPSHOTS}次确认",
+            *list(policy.get("stress_reasons") or []),
+        ],
+        "risk_action_label": "暂停新开仓，只做持仓风控和观察",
     }
 
 
@@ -1015,6 +1062,72 @@ def _stored_market_overview(db: Session) -> MarketOverviewResponse:
         **_market_snapshot_scope(trade_date=latest_date, is_live=False),
         indexes=indexes,
     )
+
+
+def _recent_full_market_stress_snapshots(db: Session) -> list[tuple[float, float]]:
+    active_security_count = int(
+        db.execute(
+            select(func.count())
+            .select_from(Security)
+            .where(Security.is_active.is_(True))
+            .where(Security.is_st.is_(False))
+        ).scalar_one()
+    )
+    if not active_security_count:
+        return []
+
+    minimum_count = max(1, ceil(active_security_count * MARKET_DAILY_MIN_COVERAGE_RATIO))
+    stock_count = func.count()
+    up_count = func.sum(case((RealtimeQuote.price > RealtimeQuote.pre_close, 1), else_=0))
+    avg_change_pct = func.avg(RealtimeQuote.price / RealtimeQuote.pre_close - 1)
+    rows = db.execute(
+        select(
+            RealtimeQuote.trade_date,
+            RealtimeQuote.quote_time,
+            stock_count.label("stock_count"),
+            up_count.label("up_count"),
+            avg_change_pct.label("avg_change_pct"),
+        )
+        .join(Security, Security.symbol == RealtimeQuote.symbol)
+        .where(Security.is_active.is_(True))
+        .where(Security.is_st.is_(False))
+        .where(
+            RealtimeQuote.trade_date
+            >= now_local().date() - timedelta(days=MARKET_STRESS_RECOVERY_LOOKBACK_DAYS)
+        )
+        .where(RealtimeQuote.price.is_not(None))
+        .where(RealtimeQuote.pre_close.is_not(None))
+        .where(RealtimeQuote.pre_close > 0)
+        .group_by(RealtimeQuote.trade_date, RealtimeQuote.quote_time)
+        .having(stock_count >= minimum_count)
+        .order_by(RealtimeQuote.trade_date.desc(), RealtimeQuote.quote_time.desc())
+    ).all()
+    return [
+        (
+            round(float(row.up_count) / int(row.stock_count), 6),
+            round(float(row.avg_change_pct), 6),
+        )
+        for row in reversed(rows)
+    ]
+
+
+def _apply_market_stress_recovery_guard(
+    db: Session,
+    overview: MarketOverviewResponse,
+) -> MarketOverviewResponse:
+    if overview.stress_status == "risk_off":
+        return overview
+    policy = _market_stress_recovery_policy(
+        {
+            "stress_status": overview.stress_status,
+            "stress_label": overview.stress_label,
+            "stress_score": overview.stress_score,
+            "stress_reasons": overview.stress_reasons,
+            "risk_action_label": overview.risk_action_label,
+        },
+        _recent_full_market_stress_snapshots(db),
+    )
+    return overview.model_copy(update=policy)
 
 
 def _stored_full_market_realtime_overview(db: Session) -> MarketOverviewResponse | None:
@@ -1700,12 +1813,12 @@ def get_market_overview(db: DbSession, live: bool = False) -> MarketOverviewResp
     if live:
         overview = _try_cached_live_a_share_overview(LIVE_MARKET_TIMEOUT_SECONDS)
         if overview is not None:
-            return overview
+            return _apply_market_stress_recovery_guard(db, overview)
         archived = _stored_full_market_realtime_overview(db)
         if archived is not None:
-            return archived
+            return _apply_market_stress_recovery_guard(db, archived)
 
-    return _stored_market_overview(db)
+    return _apply_market_stress_recovery_guard(db, _stored_market_overview(db))
 
 
 @router.get("/sectors/overview", response_model=SectorOverviewResponse)
