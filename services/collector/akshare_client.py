@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from threading import Lock
 from typing import Any
 
 import pandas as pd
@@ -95,6 +96,7 @@ _PROXY_ENV_KEYS = (
     "HTTPS_PROXY",
     "ALL_PROXY",
 )
+_REALTIME_FETCH_LOCK = Lock()
 
 
 @contextmanager
@@ -253,19 +255,32 @@ def fetch_realtime_quotes(
     symbols: set[str] | None = None,
     quote_time: datetime | None = None,
 ) -> list[RealtimeQuoteRow]:
+    with _REALTIME_FETCH_LOCK:
+        return _fetch_realtime_quotes_unlocked(symbols=symbols, quote_time=quote_time)
+
+
+def _fetch_realtime_quotes_unlocked(
+    symbols: set[str] | None = None,
+    quote_time: datetime | None = None,
+) -> list[RealtimeQuoteRow]:
     ak = _akshare()
     current_time = quote_time or datetime.utcnow()
     target_symbols = symbols or set()
     source = "akshare.stock_zh_a_spot_em"
+    used_legacy_source = False
     try:
         with _without_proxy_env():
             df = ak.stock_zh_a_spot_em()
     except Exception:
-        if symbols and len(symbols) <= 200:
-            return fetch_sina_realtime_quotes(symbols=symbols, quote_time=current_time)
-        with _without_proxy_env():
-            df = ak.stock_zh_a_spot()
+        try:
+            with _without_proxy_env():
+                df = ak.stock_zh_a_spot()
+        except Exception:
+            if symbols and len(symbols) <= 200:
+                return fetch_sina_realtime_quotes(symbols=symbols, quote_time=current_time)
+            raise
         source = "akshare.stock_zh_a_spot"
+        used_legacy_source = True
     rows: list[RealtimeQuoteRow] = []
     for raw in df.to_dict("records"):
         symbol = _normalize_a_share_symbol(_first(raw, "代码", "股票代码"))
@@ -296,39 +311,57 @@ def fetch_realtime_quotes(
     if coverage_ratio >= 0.98:
         return rows
 
-    # The legacy full-market endpoint can return a partial page set without raising.
-    try:
-        with _without_proxy_env():
-            fallback_df = ak.stock_zh_a_spot()
-    except Exception:
-        return rows
-
     fallback_rows: list[RealtimeQuoteRow] = []
-    for raw in fallback_df.to_dict("records"):
-        symbol = _normalize_a_share_symbol(_first(raw, "代码", "股票代码"))
-        if not symbol or (symbols and symbol not in symbols):
-            continue
-        fallback_rows.append(
-            RealtimeQuoteRow(
-                symbol=symbol,
-                trade_date=current_time.date().isoformat(),
-                quote_time=current_time,
-                price=_decimal(_first(raw, "最新价", "最新")),
-                open=_decimal(_first(raw, "今开", "开盘")),
-                high=_decimal(_first(raw, "最高")),
-                low=_decimal(_first(raw, "最低")),
-                pre_close=_decimal(_first(raw, "昨收")),
-                pct_change=_decimal(_first(raw, "涨跌幅")),
-                volume=_decimal(_first(raw, "成交量")),
-                amount=_decimal(_first(raw, "成交额")),
-                turnover_rate=_decimal(_first(raw, "换手率")),
-                source="akshare.stock_zh_a_spot.retry",
-            )
-        )
+    if not used_legacy_source:
+        try:
+            with _without_proxy_env():
+                fallback_df = ak.stock_zh_a_spot()
+        except Exception:
+            fallback_df = None
+        if fallback_df is not None:
+            for raw in fallback_df.to_dict("records"):
+                symbol = _normalize_a_share_symbol(_first(raw, "代码", "股票代码"))
+                if not symbol or (symbols and symbol not in symbols):
+                    continue
+                fallback_rows.append(
+                    RealtimeQuoteRow(
+                        symbol=symbol,
+                        trade_date=current_time.date().isoformat(),
+                        quote_time=current_time,
+                        price=_decimal(_first(raw, "最新价", "最新")),
+                        open=_decimal(_first(raw, "今开", "开盘")),
+                        high=_decimal(_first(raw, "最高")),
+                        low=_decimal(_first(raw, "最低")),
+                        pre_close=_decimal(_first(raw, "昨收")),
+                        pct_change=_decimal(_first(raw, "涨跌幅")),
+                        volume=_decimal(_first(raw, "成交量")),
+                        amount=_decimal(_first(raw, "成交额")),
+                        turnover_rate=_decimal(_first(raw, "换手率")),
+                        source="akshare.stock_zh_a_spot.retry",
+                    )
+                )
+
+    primary_match_count = len({row.symbol for row in rows} & target_symbols)
     fallback_match_count = len({row.symbol for row in fallback_rows} & target_symbols)
-    if fallback_match_count > len(matched_symbols & target_symbols):
-        return fallback_rows
-    return rows
+    base_rows, supplement_rows = (
+        (fallback_rows, rows)
+        if fallback_match_count > primary_match_count
+        else (rows, fallback_rows)
+    )
+    combined = {row.symbol: row for row in base_rows}
+    for row in supplement_rows:
+        combined.setdefault(row.symbol, row)
+    missing_symbols = target_symbols - combined.keys()
+    if missing_symbols and len(target_symbols) <= 200:
+        try:
+            sina_rows = fetch_sina_realtime_quotes(
+                symbols=set(missing_symbols),
+                quote_time=current_time,
+            )
+        except Exception:
+            sina_rows = []
+        combined.update((row.symbol, row) for row in sina_rows)
+    return list(combined.values())
 
 
 def fetch_sina_realtime_quotes(

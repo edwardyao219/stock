@@ -1,5 +1,8 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from decimal import Decimal
+from threading import Lock
+from time import sleep
 
 import pandas as pd
 from sqlalchemy import create_engine
@@ -205,6 +208,143 @@ def test_fetch_realtime_quotes_retries_full_market_source_when_primary_is_incomp
 
     assert {row.symbol for row in rows} == {"000001", "000002"}
     assert {row.source for row in rows} == {"akshare.stock_zh_a_spot.retry"}
+
+
+def test_fetch_realtime_quotes_merges_partial_sources_before_returning(monkeypatch) -> None:
+    from services.collector import akshare_client
+
+    def quote(symbol: str) -> dict[str, object]:
+        return {
+            "代码": symbol,
+            "最新价": 10.5,
+            "今开": 10.2,
+            "最高": 10.8,
+            "最低": 10.1,
+            "昨收": 10,
+            "涨跌幅": 5,
+            "成交量": 100,
+            "成交额": 1050,
+            "换手率": 1.2,
+        }
+
+    class _Akshare:
+        def stock_zh_a_spot_em(self):
+            return pd.DataFrame([quote("000001")])
+
+        def stock_zh_a_spot(self):
+            return pd.DataFrame([quote("000002")])
+
+    sina_calls = []
+    monkeypatch.setattr(akshare_client, "_akshare", lambda: _Akshare())
+    monkeypatch.setattr(
+        akshare_client,
+        "fetch_sina_realtime_quotes",
+        lambda symbols, quote_time=None: sina_calls.append((symbols, quote_time))
+        or [_quote("000003")],
+    )
+
+    quote_time = datetime(2026, 7, 17, 10, 56)
+    rows = akshare_client.fetch_realtime_quotes(
+        symbols={"000001", "000002", "000003"},
+        quote_time=quote_time,
+    )
+
+    assert {row.symbol for row in rows} == {"000001", "000002", "000003"}
+    assert sina_calls == [({"000003"}, quote_time)]
+
+
+def test_fetch_realtime_quotes_repairs_primary_failure_with_partial_fallbacks(
+    monkeypatch,
+) -> None:
+    from services.collector import akshare_client
+
+    class _Akshare:
+        def stock_zh_a_spot_em(self):
+            raise RuntimeError("eastmoney unavailable")
+
+        def stock_zh_a_spot(self):
+            return pd.DataFrame(
+                [
+                    {
+                        "代码": "000001",
+                        "最新价": 10.5,
+                        "今开": 10.2,
+                        "最高": 10.8,
+                        "最低": 10.1,
+                        "昨收": 10,
+                        "涨跌幅": 5,
+                        "成交量": 100,
+                        "成交额": 1050,
+                        "换手率": 1.2,
+                    }
+                ]
+            )
+
+    sina_calls = []
+    monkeypatch.setattr(akshare_client, "_akshare", lambda: _Akshare())
+    monkeypatch.setattr(
+        akshare_client,
+        "fetch_sina_realtime_quotes",
+        lambda symbols, quote_time=None: sina_calls.append((symbols, quote_time))
+        or [_quote("000002")],
+    )
+
+    quote_time = datetime(2026, 7, 17, 10, 56)
+    rows = akshare_client.fetch_realtime_quotes(
+        symbols={"000001", "000002"},
+        quote_time=quote_time,
+    )
+
+    assert {row.symbol for row in rows} == {"000001", "000002"}
+    assert sina_calls == [({"000002"}, quote_time)]
+
+
+def test_fetch_realtime_quotes_serializes_overlapping_refreshes(monkeypatch) -> None:
+    from services.collector import akshare_client
+
+    def quote() -> dict[str, object]:
+        return {
+            "代码": "000001",
+            "最新价": 10.5,
+            "今开": 10.2,
+            "最高": 10.8,
+            "最低": 10.1,
+            "昨收": 10,
+            "涨跌幅": 5,
+            "成交量": 100,
+            "成交额": 1050,
+            "换手率": 1.2,
+        }
+
+    active = 0
+    max_active = 0
+    state_lock = Lock()
+
+    class _Akshare:
+        def stock_zh_a_spot_em(self):
+            nonlocal active, max_active
+            with state_lock:
+                active += 1
+                max_active = max(max_active, active)
+            sleep(0.05)
+            with state_lock:
+                active -= 1
+            return pd.DataFrame([quote()])
+
+    monkeypatch.setattr(akshare_client, "_akshare", lambda: _Akshare())
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        list(
+            executor.map(
+                lambda _: akshare_client.fetch_realtime_quotes(
+                    {"000001"},
+                    quote_time=datetime(2026, 7, 17, 11, 8),
+                ),
+                range(2),
+            )
+        )
+
+    assert max_active == 1
 
 
 def test_north_exchange_92_prefix_uses_beijing_realtime_symbol() -> None:

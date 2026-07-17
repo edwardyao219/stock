@@ -51,7 +51,6 @@ import {
   MonthlySummary,
   ReplayDataCoverage,
   ReplayReturnSummary,
-  refreshWorkspaceStocks,
   RuleRegressionStatus,
   SectorCatalysts,
   SectorOverview,
@@ -1497,17 +1496,15 @@ export function App() {
     }
     setError(null);
     try {
-      const nextStocks = options.refreshQuotes
-        ? await refreshWorkspaceStocks("experiment", includeGrowthBoard)
-        : await fetchWorkspaceStocks("experiment", includeGrowthBoard);
+      const refreshedIntradayCandidates = options.refreshQuotes
+        ? await fetchIntradayCandidates("experiment", includeGrowthBoard, true)
+        : null;
+      const nextStocks = await fetchWorkspaceStocks("experiment", includeGrowthBoard);
       setStocks(nextStocks);
       setStartupTracking(await fetchStartupTracking("experiment"));
       setIntradayCandidates(
-        await fetchIntradayCandidates(
-          "experiment",
-          includeGrowthBoard,
-          Boolean(options.refreshQuotes),
-        ),
+        refreshedIntradayCandidates
+        ?? await fetchIntradayCandidates("experiment", includeGrowthBoard),
       );
       setIntradaySnapshots(
         await fetchIntradayCandidateSnapshots("experiment", includeGrowthBoard),
@@ -1770,7 +1767,7 @@ export function App() {
         activePage,
         selectedSymbol,
         isDocumentVisible: document.visibilityState !== "hidden",
-        isHeavyTaskRunning: lowDimensionalReplayLoading || candidateReplayEffectLoading,
+        isHeavyTaskRunning: refreshing || lowDimensionalReplayLoading || candidateReplayEffectLoading,
       });
       if (plan.workspace) loadWorkspace({ refreshQuotes: true, silent: true });
       if (plan.marketOverview) loadMarketOverview();
@@ -1789,6 +1786,7 @@ export function App() {
     selectedSymbol,
     includeGrowthBoard,
     marketOverview?.trade_date,
+    refreshing,
     lowDimensionalReplayLoading,
     candidateReplayEffectLoading,
   ]);

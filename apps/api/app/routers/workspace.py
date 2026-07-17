@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -311,6 +311,12 @@ def _early_hot_sector_quote_coverage(
         item.symbol: item
         for item in db.execute(select(Security).where(Security.symbol.in_(symbols))).scalars()
     }
+    freshness_anchor = as_of
+    clock = as_of.replace(tzinfo=None).time()
+    if time(11, 30) < clock < time(13):
+        freshness_anchor = as_of.replace(hour=11, minute=30, second=0, microsecond=0)
+    elif clock > time(15):
+        freshness_anchor = as_of.replace(hour=15, minute=0, second=0, microsecond=0)
     rows = db.execute(
         select(
             RealtimeQuote.symbol,
@@ -318,6 +324,7 @@ def _early_hot_sector_quote_coverage(
         )
         .where(RealtimeQuote.symbol.in_(symbols))
         .where(RealtimeQuote.trade_date == trade_date)
+        .where(RealtimeQuote.quote_time >= freshness_anchor - timedelta(minutes=5))
         .where(RealtimeQuote.quote_time <= as_of)
         .where(RealtimeQuote.price > 0)
         .where(RealtimeQuote.pre_close > 0)
@@ -755,14 +762,23 @@ def list_intraday_candidates(
     current_time = now_local()
     parsed_as_of = datetime.fromisoformat(as_of) if as_of else current_time
     if refresh_quotes and not as_of:
-        symbols = _active_intraday_candidate_symbols(
-            db,
-            pool_name=pool_name,
-            include_growth_board=include_growth_board,
+        symbols = set(
+            _active_intraday_candidate_symbols(
+                db,
+                pool_name=pool_name,
+                include_growth_board=include_growth_board,
+            )
+        )
+        symbols.update(
+            early_sector_scan_symbols(
+                db,
+                trade_date=current_time.date(),
+                include_growth_board=include_growth_board,
+            )
         )
         if symbols:
             sync_realtime_quotes(symbols=symbols, quote_time=parsed_as_of)
-            db.expire_all()
+            db.rollback()
     market_stress = None if as_of else _live_market_stress_snapshot(db)
     sustained_startup_sectors = _sustained_startup_sectors(
         db,

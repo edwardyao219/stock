@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from apps.api.app.routers.workspace import (
     ManualStockRequest,
+    _early_hot_sector_quote_coverage,
     _intraday_snapshots_for_points,
     _sustained_startup_sectors,
     add_manual_stock,
@@ -873,7 +874,25 @@ def test_list_intraday_candidates_refreshes_research_pool_quotes_when_requested(
     session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
     with session() as db:
-        db.add(Security(symbol="600001", name="盘中新票", exchange="SH", industry="通信设备"))
+        db.add_all(
+            [
+                Security(symbol="600001", name="盘中新票", exchange="SH", industry="通信设备"),
+                Security(symbol="600216", name="热门板块票", exchange="SH", industry="机器人"),
+                SectorFeatureDaily(
+                    sector_code="机器人",
+                    trade_date=date(2026, 1, 22),
+                    features={
+                        "sector_strength_score": 82,
+                        "sector_trend_continuity_score": 78,
+                        "sector_momentum_score": 75,
+                        "sector_breadth_score": 68,
+                        "sector_avg_return_20d": 0.12,
+                        "sector_positive_20d_rate": 70,
+                        "sector_stock_count": 12,
+                    },
+                ),
+            ]
+        )
         db.add(
             ResearchPoolItem(
                 pool_name="experiment",
@@ -885,6 +904,15 @@ def test_list_intraday_candidates_refreshes_research_pool_quotes_when_requested(
         db.commit()
 
         refreshed: dict[str, object] = {}
+        rollback_calls = 0
+        original_rollback = db.rollback
+
+        def track_rollback():
+            nonlocal rollback_calls
+            rollback_calls += 1
+            original_rollback()
+
+        monkeypatch.setattr(db, "rollback", track_rollback)
 
         def fake_sync(symbols, quote_time=None):
             refreshed["symbols"] = set(symbols)
@@ -921,9 +949,10 @@ def test_list_intraday_candidates_refreshes_research_pool_quotes_when_requested(
         )
 
     assert refreshed == {
-        "symbols": {"600001"},
+        "symbols": {"600001", "600216"},
         "quote_time": datetime(2026, 1, 22, 10, 10),
     }
+    assert rollback_calls == 1
     assert payload["candidate_count"] == 1
     assert payload["candidates"][0]["symbol"] == "600001"
     assert payload["candidates"][0]["quote_time"] == "2026-01-22T10:08:00"
@@ -939,6 +968,7 @@ def test_list_intraday_candidates_reports_early_hot_sector_quote_coverage(monkey
             [
                 Security(symbol="600216", name="已刷快照", exchange="SH", industry="机器人"),
                 Security(symbol="600217", name="未刷快照", exchange="SH", industry="机器人"),
+                Security(symbol="600218", name="陈旧快照", exchange="SH", industry="机器人"),
                 Security(symbol="688216", name="科创默认不看", exchange="SH", industry="机器人"),
                 SectorFeatureDaily(
                     sector_code="机器人",
@@ -981,6 +1011,20 @@ def test_list_intraday_candidates_reports_early_hot_sector_quote_coverage(monkey
                     amount=Decimal("1000000"),
                     turnover_rate=Decimal("1.2"),
                 ),
+                RealtimeQuote(
+                    symbol="600218",
+                    trade_date=date(2026, 1, 22),
+                    quote_time=datetime(2026, 1, 22, 9, 30),
+                    price=Decimal("10.5"),
+                    open=Decimal("10"),
+                    high=Decimal("10.8"),
+                    low=Decimal("9.9"),
+                    pre_close=Decimal("10"),
+                    pct_change=None,
+                    volume=Decimal("100000"),
+                    amount=Decimal("1000000"),
+                    turnover_rate=Decimal("1.2"),
+                ),
             ]
         )
         db.commit()
@@ -997,20 +1041,60 @@ def test_list_intraday_candidates_reports_early_hot_sector_quote_coverage(monkey
         )
 
     coverage = payload["quote_coverage"]
-    assert coverage["target_symbol_count"] == 2
+    assert coverage["target_symbol_count"] == 3
     assert coverage["valid_quote_count"] == 1
-    assert coverage["coverage_ratio"] == 0.5
+    assert coverage["coverage_ratio"] == 0.3333
     assert coverage["latest_quote_time"] == "2026-01-22T09:44:00"
-    assert coverage["missing_symbols"] == ["600217"]
+    assert coverage["missing_symbols"] == ["600217", "600218"]
     assert coverage["sectors"] == [
         {
             "sector": "机器人",
-            "target_symbol_count": 2,
+            "target_symbol_count": 3,
             "valid_quote_count": 1,
-            "coverage_ratio": 0.5,
-            "missing_symbols": ["600217"],
+            "coverage_ratio": 0.3333,
+            "missing_symbols": ["600217", "600218"],
         }
     ]
+
+
+def test_early_hot_sector_quote_coverage_keeps_lunch_close_quote(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(Security(symbol="600216", name="午休快照", exchange="SH", industry="机器人"))
+        db.add(
+            RealtimeQuote(
+                symbol="600216",
+                trade_date=date(2026, 1, 22),
+                quote_time=datetime(2026, 1, 22, 11, 29),
+                price=Decimal("10.6"),
+                open=Decimal("10"),
+                high=Decimal("10.8"),
+                low=Decimal("9.9"),
+                pre_close=Decimal("10"),
+                pct_change=None,
+                volume=Decimal("100000"),
+                amount=Decimal("1000000"),
+                turnover_rate=Decimal("1.2"),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(
+            "apps.api.app.routers.workspace.early_sector_scan_symbols",
+            lambda *args, **kwargs: ["600216"],
+        )
+
+        coverage = _early_hot_sector_quote_coverage(
+            db,
+            trade_date=date(2026, 1, 22),
+            as_of=datetime(2026, 1, 22, 12, 15),
+            include_growth_board=False,
+        )
+
+    assert coverage["valid_quote_count"] == 1
+    assert coverage["latest_quote_time"] == "2026-01-22T11:29:00"
 
 
 def test_list_intraday_candidate_snapshots_replays_without_future_quotes(monkeypatch) -> None:
