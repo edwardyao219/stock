@@ -740,6 +740,7 @@ def _candidate_live_market_stress_for_trade_date(
         return None
     try:
         from apps.api.app.routers.market import (
+            MARKET_STRESS_RECOVERY_SNAPSHOTS,
             _apply_market_stress_recovery_guard,
             _store_live_market_cache,
             _try_cached_live_a_share_overview,
@@ -761,7 +762,23 @@ def _candidate_live_market_stress_for_trade_date(
     if overview_date is not None and overview_date.isoformat() != trade_date:
         return None
     status = str(getattr(overview, "stress_status", "") or "")
-    if status not in {"caution", "risk_off"}:
+    default_recovery_stage = "blocked" if status == "risk_off" else "normal"
+    default_recovery_required_count = (
+        MARKET_STRESS_RECOVERY_SNAPSHOTS if status == "risk_off" else 0
+    )
+    recovery_stage = getattr(overview, "recovery_stage", default_recovery_stage)
+    recovery_snapshot_count = getattr(overview, "recovery_snapshot_count", 0)
+    recovery_required_count = getattr(
+        overview,
+        "recovery_required_count",
+        default_recovery_required_count,
+    )
+    recovery_complete = (
+        recovery_stage == "normal"
+        and recovery_required_count > 0
+        and recovery_snapshot_count >= recovery_required_count
+    )
+    if status not in {"caution", "risk_off"} and not recovery_complete:
         return None
     return {
         "trade_date": overview_date.isoformat() if overview_date else trade_date,
@@ -771,6 +788,9 @@ def _candidate_live_market_stress_for_trade_date(
         "stress_score": getattr(overview, "stress_score", None),
         "stress_reasons": list(getattr(overview, "stress_reasons", []) or []),
         "risk_action_label": getattr(overview, "risk_action_label", None),
+        "recovery_stage": recovery_stage,
+        "recovery_snapshot_count": recovery_snapshot_count,
+        "recovery_required_count": recovery_required_count,
     }
 
 

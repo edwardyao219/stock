@@ -202,6 +202,7 @@ button {
 .summary-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  align-items: stretch;
   gap: 10px;
 }
 
@@ -225,6 +226,22 @@ button {
   margin-top: 3px;
   color: #64748b;
   font-size: 12px;
+}
+
+.summary-strip .stress-progress {
+  font-weight: 700;
+}
+
+.summary-strip .stress-progress.blocked {
+  color: #b91c1c;
+}
+
+.summary-strip .stress-progress.limited {
+  color: #a16207;
+}
+
+.summary-strip .stress-progress.normal {
+  color: #166534;
 }
 
 .post-close-review-panel {

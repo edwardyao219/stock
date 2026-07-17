@@ -2655,6 +2655,9 @@ def test_candidate_live_market_stress_applies_recovery_guard(monkeypatch) -> Non
                 "stress_score": 70.0,
                 "stress_reasons": ["严重普跌后仅连续1次恢复，需连续2次确认"],
                 "risk_action_label": "暂停新开仓，只做持仓风控和观察",
+                "recovery_stage": "blocked",
+                "recovery_snapshot_count": 1,
+                "recovery_required_count": 2,
             }
         ),
     )
@@ -2665,6 +2668,54 @@ def test_candidate_live_market_stress_applies_recovery_guard(monkeypatch) -> Non
     assert stress is not None
     assert stress["stress_status"] == "risk_off"
     assert stress["stress_label"] == "风险解除待确认"
+    assert stress["recovery_stage"] == "blocked"
+    assert stress["recovery_snapshot_count"] == 1
+    assert stress["recovery_required_count"] == 2
+
+
+def test_candidate_live_market_stress_keeps_completed_recovery(monkeypatch) -> None:
+    from datetime import date, datetime
+
+    from apps.api.app.routers import market
+
+    overview = market.MarketOverviewResponse(
+        trade_date=date(2026, 7, 20),
+        stock_count=5000,
+        up_count=2800,
+        down_count=2100,
+        flat_count=100,
+        up_ratio=0.56,
+        avg_change_pct=0.006,
+        total_amount=1_000_000,
+        amount_change_pct=None,
+        active_security_count=5000,
+        coverage_ratio=1.0,
+        is_full_market=True,
+        message="live",
+    )
+    fake_db = object()
+
+    monkeypatch.setattr(pipeline, "now_local", lambda: datetime(2026, 7, 20, 10, 0))
+    monkeypatch.setattr(market, "_try_cached_live_a_share_overview", lambda timeout: overview)
+    monkeypatch.setattr(
+        market,
+        "_apply_market_stress_recovery_guard",
+        lambda db, payload: payload.model_copy(
+            update={
+                "recovery_stage": "normal",
+                "recovery_snapshot_count": 4,
+                "recovery_required_count": 4,
+            }
+        ),
+    )
+
+    stress = pipeline._candidate_live_market_stress_for_trade_date("2026-07-20", fake_db)
+
+    assert stress is not None
+    assert stress["stress_status"] == "neutral"
+    assert stress["recovery_stage"] == "normal"
+    assert stress["recovery_snapshot_count"] == 4
+    assert stress["recovery_required_count"] == 4
 
 
 def test_candidate_live_market_stress_falls_back_to_sina_symbol_snapshot(
@@ -2713,6 +2764,9 @@ def test_candidate_live_market_stress_falls_back_to_sina_symbol_snapshot(
         "stress_score": 80.0,
         "stress_reasons": ["上涨占比仅12%，市场宽度明显不足"],
         "risk_action_label": "停止扩散，只做观察和风控",
+        "recovery_stage": "blocked",
+        "recovery_snapshot_count": 0,
+        "recovery_required_count": 2,
     }
 
 

@@ -70,9 +70,10 @@ _SECTOR_OVERVIEW_LOCK = Lock()
 SECTOR_FEATURE_MIN_COVERAGE_RATIO = 0.80
 MARKET_DAILY_MIN_COVERAGE_RATIO = DAILY_CANDIDATE_MIN_COVERAGE_RATIO
 MARKET_STRESS_RECOVERY_SNAPSHOTS = 2
+MARKET_STRESS_NORMAL_RECOVERY_SNAPSHOTS = 4
 MARKET_STRESS_RECOVERY_UP_RATIO = 0.45
 MARKET_STRESS_RECOVERY_AVG_CHANGE_PCT = -0.003
-MARKET_STRESS_RECOVERY_LOOKBACK_DAYS = 7
+MARKET_STRESS_RECOVERY_LOOKBACK_DAYS = 30
 MAINLINE_OUTCOME_WINDOW_LIMIT = 120
 TARGET_INDEXES = (
     ("sh000001", "上证", ("sh000001", "000001")),
@@ -133,6 +134,9 @@ class MarketOverviewResponse(BaseModel):
     stress_reasons: list[str] = Field(default_factory=list)
     stress_scope_label: str = "最近交易日压力"
     risk_action_label: str = "按原计划精选"
+    recovery_stage: str = "normal"
+    recovery_snapshot_count: int = 0
+    recovery_required_count: int = 0
     indexes: list[MarketIndexResponse] = Field(default_factory=list)
 
 
@@ -368,6 +372,11 @@ def _market_stress_policy(
         "stress_score": round(score, 2),
         "stress_reasons": reasons or ["没有明显全市场压力信号"],
         "risk_action_label": action,
+        "recovery_stage": "blocked" if status == "risk_off" else "normal",
+        "recovery_snapshot_count": 0,
+        "recovery_required_count": (
+            MARKET_STRESS_RECOVERY_SNAPSHOTS if status == "risk_off" else 0
+        ),
     }
 
 
@@ -390,15 +399,38 @@ def _market_stress_recovery_policy(
         return policy
 
     recovery_count = 0
-    for up_ratio, avg_change_pct in reversed(snapshots[last_stress_index + 1 :]):
+    for up_ratio, avg_change_pct in snapshots[last_stress_index + 1 :]:
         if (
             up_ratio < MARKET_STRESS_RECOVERY_UP_RATIO
             or avg_change_pct < MARKET_STRESS_RECOVERY_AVG_CHANGE_PCT
         ):
-            break
+            recovery_count = 0
+            continue
         recovery_count += 1
+        if recovery_count >= MARKET_STRESS_NORMAL_RECOVERY_SNAPSHOTS:
+            return {
+                **policy,
+                "recovery_stage": "normal",
+                "recovery_snapshot_count": recovery_count,
+                "recovery_required_count": MARKET_STRESS_NORMAL_RECOVERY_SNAPSHOTS,
+            }
+
     if recovery_count >= MARKET_STRESS_RECOVERY_SNAPSHOTS:
-        return policy
+        return {
+            **policy,
+            "stress_status": "caution",
+            "stress_label": "恢复观察",
+            "stress_score": max(float(policy.get("stress_score") or 0.0), 40.0),
+            "stress_reasons": [
+                f"严重普跌后已连续{recovery_count}次恢复，"
+                f"需连续{MARKET_STRESS_NORMAL_RECOVERY_SNAPSHOTS}次才完全恢复",
+                *list(policy.get("stress_reasons") or []),
+            ],
+            "risk_action_label": "只允许观察和最多1只核心候选",
+            "recovery_stage": "limited",
+            "recovery_snapshot_count": recovery_count,
+            "recovery_required_count": MARKET_STRESS_NORMAL_RECOVERY_SNAPSHOTS,
+        }
 
     return {
         **policy,
@@ -411,6 +443,9 @@ def _market_stress_recovery_policy(
             *list(policy.get("stress_reasons") or []),
         ],
         "risk_action_label": "暂停新开仓，只做持仓风控和观察",
+        "recovery_stage": "blocked",
+        "recovery_snapshot_count": recovery_count,
+        "recovery_required_count": MARKET_STRESS_RECOVERY_SNAPSHOTS,
     }
 
 
@@ -1124,6 +1159,9 @@ def _apply_market_stress_recovery_guard(
             "stress_score": overview.stress_score,
             "stress_reasons": overview.stress_reasons,
             "risk_action_label": overview.risk_action_label,
+            "recovery_stage": overview.recovery_stage,
+            "recovery_snapshot_count": overview.recovery_snapshot_count,
+            "recovery_required_count": overview.recovery_required_count,
         },
         _recent_full_market_stress_snapshots(db),
     )

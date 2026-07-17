@@ -90,6 +90,9 @@ export interface MarketOverview {
   stress_reasons: string[];
   stress_scope_label: string;
   risk_action_label: string;
+  recovery_stage: "blocked" | "limited" | "normal" | string;
+  recovery_snapshot_count: number;
+  recovery_required_count: number;
   indexes: MarketIndex[];
 }
 
@@ -582,6 +585,9 @@ export interface IntradayMarketStress {
   stress_score: number | null;
   risk_action_label: string | null;
   stress_reasons: string[];
+  recovery_stage: "blocked" | "limited" | "normal" | string;
+  recovery_snapshot_count: number;
+  recovery_required_count: number;
 }
 
 export interface IntradayQuoteCoverageSector {

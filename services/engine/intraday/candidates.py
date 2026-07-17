@@ -918,6 +918,7 @@ def _market_stress_signal(market_stress: dict[str, Any] | None) -> MarketStressS
         return 0.0, [], [], [], None
 
     status = str(market_stress.get("stress_status") or "neutral")
+    recovery_stage = str(market_stress.get("recovery_stage") or "normal")
     label = str(market_stress.get("stress_label") or "中性")
     action = str(market_stress.get("risk_action_label") or "")
     raw_reasons = market_stress.get("stress_reasons") or []
@@ -931,6 +932,9 @@ def _market_stress_signal(market_stress: dict[str, Any] | None) -> MarketStressS
         "stress_score": market_stress.get("stress_score"),
         "risk_action_label": action,
         "stress_reasons": reasons,
+        "recovery_stage": recovery_stage,
+        "recovery_snapshot_count": market_stress.get("recovery_snapshot_count", 0),
+        "recovery_required_count": market_stress.get("recovery_required_count", 0),
     }
 
     if status == "risk_off":
@@ -938,6 +942,8 @@ def _market_stress_signal(market_stress: dict[str, Any] | None) -> MarketStressS
         return -12.0, [], ["market_risk_off"], [caution], payload
     if status == "caution":
         caution = f"全市场偏谨慎，{action or '降低频率，等盘中确认'}；{first_reason}"
+        if recovery_stage == "limited":
+            return -5.0, [], [], [caution], payload
         return -5.0, [], ["market_caution"], [caution], payload
     if status == "supportive":
         return 2.0, ["market_supportive"], [], [], payload
@@ -1476,6 +1482,8 @@ def discover_intraday_candidates(
             )
         )
 
+    if market_stress_payload and market_stress_payload.get("recovery_stage") == "limited":
+        formal_limit = min(formal_limit, 1)
     limited_candidates = _apply_formal_limits(
         candidates,
         formal_limit=formal_limit,

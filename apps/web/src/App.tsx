@@ -675,6 +675,26 @@ function marketStressDetail(overview: MarketOverview | null) {
   return `${overview.risk_action_label}${reason ? ` / ${reason}` : ""}`;
 }
 
+type MarketRecoverySnapshot = Pick<
+  MarketOverview,
+  "recovery_stage" | "recovery_snapshot_count" | "recovery_required_count"
+>;
+
+function marketRecoveryText(snapshot: MarketRecoverySnapshot | null | undefined) {
+  if (!snapshot) return "恢复进度等待";
+  const count = snapshot.recovery_snapshot_count ?? 0;
+  if (snapshot.recovery_stage === "blocked") {
+    return `恢复确认 ${count}/${snapshot.recovery_required_count || 2}`;
+  }
+  if (snapshot.recovery_stage === "limited") {
+    return `恢复观察 ${count}/${snapshot.recovery_required_count || 4} · 核心上限1只`;
+  }
+  if (snapshot.recovery_required_count > 0) {
+    return `完全恢复 ${count}/${snapshot.recovery_required_count}`;
+  }
+  return "无需恢复确认";
+}
+
 function dataHealthTone(health: DataHealth | null) {
   if (!health) return "neutral";
   if (health.status === "ok") return "up";
@@ -1131,7 +1151,7 @@ function intradayMarketStressText(stress: IntradayCandidateList["market_stress"]
   if (!stress) return "市场压力未接入";
   const scope = stress.snapshot_scope_label ?? stress.trade_date ?? "盘面";
   const action = stress.risk_action_label ? ` / ${stress.risk_action_label}` : "";
-  return `${scope} ${stress.stress_label}${action}`;
+  return `${scope} ${stress.stress_label} / ${marketRecoveryText(stress)}${action}`;
 }
 
 function intradayQuoteCoverageText(coverage: IntradayCandidateList["quote_coverage"] | undefined) {
@@ -2233,6 +2253,9 @@ export function App() {
             <div>
               <span>{marketStressScopeText}</span>
               <strong className={marketStressTone(marketOverview)}>{marketStressText}</strong>
+              <small className={`stress-progress ${marketOverview?.recovery_stage ?? "normal"}`}>
+                {marketRecoveryText(marketOverview)}
+              </small>
               <small>{marketStressDetail(marketOverview)}</small>
             </div>
             <div>

@@ -426,6 +426,9 @@ def test_market_stress_policy_marks_systemic_risk_from_breadth_and_major_indexes
     assert policy["stress_label"] == "系统性风险"
     assert policy["stress_score"] >= 85
     assert "暂停新开仓" in policy["risk_action_label"]
+    assert policy["recovery_stage"] == "blocked"
+    assert policy["recovery_snapshot_count"] == 0
+    assert policy["recovery_required_count"] == 2
     assert any("深成" in reason and "创业板" in reason for reason in policy["stress_reasons"])
 
 
@@ -464,11 +467,14 @@ def test_market_stress_recovery_policy_keeps_risk_off_after_one_recovery() -> No
 
     assert policy["stress_status"] == "risk_off"
     assert policy["stress_label"] == "风险解除待确认"
+    assert policy["recovery_stage"] == "blocked"
+    assert policy["recovery_snapshot_count"] == 1
+    assert policy["recovery_required_count"] == 2
     assert "连续2次" in policy["stress_reasons"][0]
     assert "暂停新开仓" in policy["risk_action_label"]
 
 
-def test_market_stress_recovery_policy_releases_after_two_recoveries() -> None:
+def test_market_stress_recovery_policy_limits_core_after_two_recoveries() -> None:
     original = {
         "stress_status": "neutral",
         "stress_label": "中性",
@@ -482,7 +488,65 @@ def test_market_stress_recovery_policy_releases_after_two_recoveries() -> None:
         [(0.21, -0.0194), (0.48, 0.002), (0.52, 0.004)],
     )
 
-    assert policy == original
+    assert policy["stress_status"] == "caution"
+    assert policy["stress_label"] == "恢复观察"
+    assert policy["recovery_stage"] == "limited"
+    assert policy["recovery_snapshot_count"] == 2
+    assert policy["recovery_required_count"] == 4
+    assert "最多1只核心候选" in policy["risk_action_label"]
+
+
+def test_market_stress_recovery_policy_releases_normally_after_four_recoveries() -> None:
+    original = {
+        "stress_status": "neutral",
+        "stress_label": "中性",
+        "stress_score": 0.0,
+        "stress_reasons": ["没有明显全市场压力信号"],
+        "risk_action_label": "按原计划精选",
+    }
+
+    policy = market._market_stress_recovery_policy(
+        original,
+        [
+            (0.21, -0.0194),
+            (0.48, 0.002),
+            (0.52, 0.004),
+            (0.50, 0.001),
+            (0.55, 0.006),
+        ],
+    )
+
+    assert policy["stress_status"] == "neutral"
+    assert policy["recovery_stage"] == "normal"
+    assert policy["recovery_snapshot_count"] == 4
+    assert policy["recovery_required_count"] == 4
+
+
+def test_market_stress_recovery_policy_keeps_old_risk_resolved() -> None:
+    original = {
+        "stress_status": "neutral",
+        "stress_label": "中性",
+        "stress_score": 0.0,
+        "stress_reasons": ["没有明显全市场压力信号"],
+        "risk_action_label": "按原计划精选",
+    }
+
+    policy = market._market_stress_recovery_policy(
+        original,
+        [
+            (0.21, -0.0194),
+            (0.48, 0.002),
+            (0.52, 0.004),
+            (0.50, 0.001),
+            (0.55, 0.006),
+            (0.44, 0.0),
+        ],
+    )
+
+    assert policy["stress_status"] == "neutral"
+    assert policy["recovery_stage"] == "normal"
+    assert policy["recovery_snapshot_count"] == 4
+    assert policy["recovery_required_count"] == 4
 
 
 def test_recent_full_market_stress_snapshots_group_persisted_quotes(monkeypatch) -> None:
@@ -535,6 +599,46 @@ def test_recent_full_market_stress_snapshots_group_persisted_quotes(monkeypatch)
         snapshots = market._recent_full_market_stress_snapshots(db)
 
     assert snapshots == [(0.0, -0.1), (0.5, 0.05), (1.0, 0.015)]
+
+
+def test_recent_full_market_stress_snapshots_survive_long_market_holiday(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add(
+            Security(
+                symbol="000001",
+                name="样本1",
+                exchange="SZ",
+                is_active=True,
+                is_st=False,
+            )
+        )
+        db.add(
+            RealtimeQuote(
+                symbol="000001",
+                trade_date=date(2026, 1, 30),
+                quote_time=datetime(2026, 1, 30, 14, 55),
+                price=Decimal("9"),
+                open=Decimal("10"),
+                high=Decimal("10"),
+                low=Decimal("9"),
+                pre_close=Decimal("10"),
+                pct_change=None,
+                volume=Decimal("100"),
+                amount=Decimal("1000"),
+                turnover_rate=None,
+                source="test",
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(market, "now_local", lambda: datetime(2026, 2, 10, 9, 30))
+
+        snapshots = market._recent_full_market_stress_snapshots(db)
+
+    assert snapshots == [(0.0, -0.1)]
 
 
 def test_market_snapshot_scope_marks_stale_live_snapshot() -> None:
@@ -704,6 +808,9 @@ def test_get_market_overview_keeps_recovering_live_snapshot_risk_off(monkeypatch
 
     assert payload.stress_status == "risk_off"
     assert payload.stress_label == "风险解除待确认"
+    assert payload.recovery_stage == "blocked"
+    assert payload.recovery_snapshot_count == 1
+    assert payload.recovery_required_count == 2
     assert "暂停新开仓" in payload.risk_action_label
 
 

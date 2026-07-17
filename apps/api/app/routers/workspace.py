@@ -174,6 +174,9 @@ class IntradayMarketStressResponse(BaseModel):
     stress_score: float | None = None
     risk_action_label: str | None = None
     stress_reasons: list[str] = Field(default_factory=list)
+    recovery_stage: str = "normal"
+    recovery_snapshot_count: int = 0
+    recovery_required_count: int = 0
 
 
 class IntradayQuoteCoverageSectorResponse(BaseModel):
@@ -287,6 +290,9 @@ def _live_market_stress_snapshot(db: Session) -> dict[str, object] | None:
         "stress_score": overview.stress_score,
         "risk_action_label": overview.risk_action_label,
         "stress_reasons": overview.stress_reasons,
+        "recovery_stage": overview.recovery_stage,
+        "recovery_snapshot_count": overview.recovery_snapshot_count,
+        "recovery_required_count": overview.recovery_required_count,
     }
 
 
