@@ -295,6 +295,7 @@ def _early_hot_sector_quote_coverage(
     symbols = early_sector_scan_symbols(
         db,
         trade_date=trade_date,
+        as_of=as_of,
         include_growth_board=include_growth_board,
     )
     if not symbols:
@@ -761,6 +762,7 @@ def list_intraday_candidates(
 ) -> dict:
     current_time = now_local()
     parsed_as_of = datetime.fromisoformat(as_of) if as_of else current_time
+    trade_date = parsed_as_of.date()
     if refresh_quotes and not as_of:
         symbols = set(
             _active_intraday_candidate_symbols(
@@ -772,7 +774,8 @@ def list_intraday_candidates(
         symbols.update(
             early_sector_scan_symbols(
                 db,
-                trade_date=current_time.date(),
+                trade_date=trade_date,
+                as_of=parsed_as_of,
                 include_growth_board=include_growth_board,
             )
         )
@@ -782,12 +785,12 @@ def list_intraday_candidates(
     market_stress = None if as_of else _live_market_stress_snapshot(db)
     sustained_startup_sectors = _sustained_startup_sectors(
         db,
-        trade_date=current_time.date(),
+        trade_date=trade_date,
         as_of=parsed_as_of,
     )
     result = discover_intraday_candidates(
         db,
-        trade_date=current_time.date(),
+        trade_date=trade_date,
         pool_name=pool_name,
         limit=limit,
         formal_limit=formal_limit,
@@ -799,7 +802,7 @@ def list_intraday_candidates(
     )
     result["quote_coverage"] = _early_hot_sector_quote_coverage(
         db,
-        trade_date=current_time.date(),
+        trade_date=trade_date,
         as_of=parsed_as_of,
         include_growth_board=include_growth_board,
     )

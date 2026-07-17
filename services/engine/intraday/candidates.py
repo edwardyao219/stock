@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -18,6 +18,7 @@ from services.engine.theme.attribution import (
     load_latest_theme_moneyflow_rows,
 )
 from services.shared.models import (
+    IntradayMarketTurnSnapshot,
     RealtimeQuote,
     ResearchPoolItem,
     SectorFeatureDaily,
@@ -361,26 +362,77 @@ def _hot_sector_codes(
     return [sector for _, sector in sorted(scored, reverse=True)[:limit]]
 
 
+def _scan_sector_codes(
+    db: Session,
+    *,
+    trade_date: date,
+    as_of: datetime | None = None,
+    limit: int = EARLY_SECTOR_SCAN_MAX_SECTORS,
+) -> list[str]:
+    snapshot_stmt = (
+        select(IntradayMarketTurnSnapshot)
+        .where(IntradayMarketTurnSnapshot.trade_date == trade_date)
+        .order_by(IntradayMarketTurnSnapshot.snapshot_time.desc())
+        .limit(1)
+    )
+    if as_of is not None:
+        snapshot_stmt = snapshot_stmt.where(IntradayMarketTurnSnapshot.snapshot_time <= as_of)
+    snapshot = db.execute(snapshot_stmt).scalar_one_or_none()
+    state = snapshot.state_json or {} if snapshot is not None else {}
+    sectors = []
+    if state.get("data_ready"):
+        sectors = [
+            str(item.get("sector") or "").strip()
+            for item in state.get("leading_sustained_sectors") or []
+            if isinstance(item, dict) and str(item.get("sector") or "").strip()
+        ]
+    daily_feature_date = (
+        trade_date - timedelta(days=1)
+        if as_of is not None and as_of.date() == trade_date
+        else trade_date
+    )
+    for sector in _hot_sector_codes(db, trade_date=daily_feature_date, limit=limit):
+        if sector not in sectors:
+            sectors.append(sector)
+    return sectors[:limit]
+
+
+def _round_robin_sector_values(
+    by_sector: dict[str, list[Any]],
+    sectors: list[str],
+    limit: int,
+) -> list[Any]:
+    result = []
+    max_sector_size = max((len(by_sector[sector]) for sector in sectors), default=0)
+    for index in range(max_sector_size):
+        for sector in sectors:
+            if index < len(by_sector[sector]):
+                result.append(by_sector[sector][index])
+                if len(result) >= limit:
+                    return result
+    return result
+
+
 def early_sector_scan_symbols(
     db: Session,
     *,
     trade_date: date,
+    as_of: datetime | None = None,
     include_growth_board: bool = False,
     limit: int = EARLY_SECTOR_SCAN_MAX_SYMBOLS,
 ) -> list[str]:
     if limit <= 0:
         return []
-    hot_sectors = _hot_sector_codes(db, trade_date=trade_date)
-    if not hot_sectors:
+    scan_sectors = _scan_sector_codes(db, trade_date=trade_date, as_of=as_of)
+    if not scan_sectors:
         return []
 
     stmt = (
-        select(Security.symbol)
-        .where(Security.industry.in_(hot_sectors))
+        select(Security.symbol, Security.industry)
+        .where(Security.industry.in_(scan_sectors))
         .where(Security.is_active.is_(True))
         .where(Security.is_st.is_(False))
         .order_by(Security.symbol.asc())
-        .limit(limit)
     )
     if not include_growth_board:
         stmt = (
@@ -388,7 +440,10 @@ def early_sector_scan_symbols(
             .where(~Security.symbol.startswith("301"))
             .where(~Security.symbol.startswith("688"))
         )
-    return list(db.execute(stmt).scalars())
+    by_sector: dict[str, list[str]] = {sector: [] for sector in scan_sectors}
+    for symbol, sector in db.execute(stmt):
+        by_sector[sector].append(symbol)
+    return _round_robin_sector_values(by_sector, scan_sectors, limit)
 
 
 def _sector_quality(features: dict[str, Any] | None, signal: str) -> tuple[float, str]:
@@ -600,7 +655,7 @@ def _review_window(quote: RealtimeQuote) -> str:
     clock = quote.quote_time.time()
     if clock.hour >= 15:
         return "after_close"
-    if clock.hour == 9 and 15 <= clock.minute <= 45:
+    if clock.hour == 9 and 15 <= clock.minute <= 50:
         return "early_divergence"
     if clock.hour < 11 or (clock.hour == 11 and clock.minute < 15):
         return "morning"
@@ -615,7 +670,7 @@ def _is_early_divergence_time(value: datetime | None) -> bool:
     if value is None:
         return False
     clock = value.time()
-    return clock.hour == 9 and 15 <= clock.minute <= 45
+    return clock.hour == 9 and 15 <= clock.minute <= 50
 
 
 def _early_sector_scan_items(
@@ -630,8 +685,8 @@ def _early_sector_scan_items(
     if not _is_early_divergence_time(as_of):
         return []
 
-    hot_sectors = _hot_sector_codes(db, trade_date=trade_date)
-    if not hot_sectors:
+    scan_sectors = _scan_sector_codes(db, trade_date=trade_date, as_of=as_of)
+    if not scan_sectors:
         return []
 
     latest_times = (
@@ -652,21 +707,27 @@ def _early_sector_scan_items(
             (RealtimeQuote.symbol == latest_times.c.symbol)
             & (RealtimeQuote.quote_time == latest_times.c.quote_time),
         )
-        .where(Security.industry.in_(hot_sectors))
+        .where(Security.industry.in_(scan_sectors))
         .where(Security.is_active.is_(True))
         .where(Security.is_st.is_(False))
         .where(RealtimeQuote.price > 0)
         .where(RealtimeQuote.pre_close > 0)
         .order_by(RealtimeQuote.amount.desc())
-        .limit(EARLY_SECTOR_SCAN_MAX_SYMBOLS)
     )
 
     items: list[ResearchPoolItem] = []
+    by_sector: dict[str, list[Security]] = {sector: [] for sector in scan_sectors}
     for security in db.execute(stmt).scalars():
         if security.symbol in existing_symbols:
             continue
         if not include_growth_board and is_growth_board_symbol(security.symbol):
             continue
+        by_sector[security.industry].append(security)
+    for security in _round_robin_sector_values(
+        by_sector,
+        scan_sectors,
+        EARLY_SECTOR_SCAN_MAX_SYMBOLS,
+    ):
         items.append(
             ResearchPoolItem(
                 pool_name=pool_name,

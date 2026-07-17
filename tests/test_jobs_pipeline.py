@@ -1229,7 +1229,7 @@ def test_celery_intraday_schedule_matches_trading_windows() -> None:
 
 
 def test_celery_has_early_midday_and_late_session_snapshot_jobs() -> None:
-    early_job = celery_app.conf.beat_schedule["paper-early-divergence-snapshot"]
+    early_job = celery_app.conf.beat_schedule["capture-intraday-market-turn-0945"]
     midday_job = celery_app.conf.beat_schedule["paper-midday-snapshot"]
     late_job = celery_app.conf.beat_schedule["paper-late-session-snapshot"]
     early = early_job["schedule"]
@@ -1238,7 +1238,10 @@ def test_celery_has_early_midday_and_late_session_snapshot_jobs() -> None:
 
     assert early.hour == {9}
     assert early.minute == {45}
-    assert early_job["task"] == "services.jobs.tasks.paper_early_divergence_snapshot_task"
+    assert early_job["task"] == (
+        "services.jobs.tasks.capture_early_market_turn_and_paper_snapshot_task"
+    )
+    assert "paper-early-divergence-snapshot" not in celery_app.conf.beat_schedule
     assert midday.hour == {11}
     assert midday.minute == {35}
     assert midday_job["task"] == "services.jobs.tasks.paper_midday_snapshot_task"
@@ -1248,18 +1251,53 @@ def test_celery_has_early_midday_and_late_session_snapshot_jobs() -> None:
 
 
 def test_celery_captures_early_market_repair_snapshots() -> None:
-    expected_times = {
-        "capture-intraday-market-turn-0935": (9, 35),
-        "capture-intraday-market-turn-0945": (9, 45),
-        "capture-intraday-market-turn-1030": (10, 30),
+    expected_jobs = {
+        "capture-intraday-market-turn-0935": (
+            9,
+            35,
+            "services.jobs.tasks.capture_intraday_market_turn_snapshot_task",
+        ),
+        "capture-intraday-market-turn-0945": (
+            9,
+            45,
+            "services.jobs.tasks.capture_early_market_turn_and_paper_snapshot_task",
+        ),
+        "capture-intraday-market-turn-1030": (
+            10,
+            30,
+            "services.jobs.tasks.capture_intraday_market_turn_snapshot_task",
+        ),
     }
 
-    for job_name, (hour, minute) in expected_times.items():
+    for job_name, (hour, minute, task_name) in expected_jobs.items():
         job = celery_app.conf.beat_schedule[job_name]
         schedule = job["schedule"]
-        assert job["task"] == "services.jobs.tasks.capture_intraday_market_turn_snapshot_task"
+        assert job["task"] == task_name
         assert schedule.hour == {hour}
         assert schedule.minute == {minute}
+
+
+def test_early_market_turn_and_paper_snapshot_task_runs_in_order(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(
+        tasks.capture_intraday_market_turn_snapshot_task,
+        "run",
+        lambda: calls.append("market_turn") or {"status": "ok"},
+    )
+    monkeypatch.setattr(
+        tasks.paper_early_divergence_snapshot_task,
+        "run",
+        lambda: calls.append("paper") or {"stage": "early_divergence_snapshot"},
+    )
+
+    result = tasks.capture_early_market_turn_and_paper_snapshot_task()
+
+    assert calls == ["market_turn", "paper"]
+    assert result == {
+        "status": "ok",
+        "market_turn": {"status": "ok"},
+        "paper_snapshot": {"stage": "early_divergence_snapshot"},
+    }
 
 
 def test_celery_captures_korea_semiconductor_signal_before_a_share_open() -> None:
@@ -1324,10 +1362,11 @@ def test_early_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> 
     monkeypatch.setattr(
         tasks,
         "early_sector_scan_symbols",
-        lambda db, *, trade_date, include_growth_board=False: captured.append(
+        lambda db, *, trade_date, as_of, include_growth_board=False: captured.append(
             {
                 "step": "early_symbols",
                 "trade_date": trade_date,
+                "as_of": as_of,
                 "include_growth_board": include_growth_board,
             }
         )
@@ -1358,6 +1397,7 @@ def test_early_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> 
         {
             "step": "early_symbols",
             "trade_date": date(2026, 6, 24),
+            "as_of": datetime(2026, 6, 24, 14, 50),
             "include_growth_board": False,
         },
         {
@@ -1407,7 +1447,7 @@ def test_early_divergence_snapshot_keeps_running_when_quote_refresh_fails(monkey
     monkeypatch.setattr(
         tasks,
         "early_sector_scan_symbols",
-        lambda db, *, trade_date, include_growth_board=False: ["600212"],
+        lambda db, *, trade_date, as_of, include_growth_board=False: ["600212"],
     )
     monkeypatch.setattr(tasks, "sync_realtime_quotes", fake_sync_realtime_quotes)
     monkeypatch.setattr(tasks, "run_intraday_trade_session", fake_run)

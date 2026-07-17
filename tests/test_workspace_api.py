@@ -880,7 +880,7 @@ def test_list_intraday_candidates_refreshes_research_pool_quotes_when_requested(
                 Security(symbol="600216", name="热门板块票", exchange="SH", industry="机器人"),
                 SectorFeatureDaily(
                     sector_code="机器人",
-                    trade_date=date(2026, 1, 22),
+                    trade_date=date(2026, 1, 21),
                     features={
                         "sector_strength_score": 82,
                         "sector_trend_continuity_score": 78,
@@ -972,7 +972,7 @@ def test_list_intraday_candidates_reports_early_hot_sector_quote_coverage(monkey
                 Security(symbol="688216", name="科创默认不看", exchange="SH", industry="机器人"),
                 SectorFeatureDaily(
                     sector_code="机器人",
-                    trade_date=date(2026, 1, 22),
+                    trade_date=date(2026, 1, 21),
                     features={
                         "sector_strength_score": 82,
                         "sector_trend_continuity_score": 78,
@@ -1057,6 +1057,57 @@ def test_list_intraday_candidates_reports_early_hot_sector_quote_coverage(monkey
     ]
 
 
+def test_list_intraday_candidates_uses_as_of_trade_date_across_dependencies(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    captured = {}
+
+    def fake_sustained(db, *, trade_date, as_of):
+        captured["sustained_trade_date"] = trade_date
+        return set()
+
+    def fake_discover(db, *, trade_date, **kwargs):
+        captured["discover_trade_date"] = trade_date
+        return {"candidates": []}
+
+    def fake_coverage(db, *, trade_date, **kwargs):
+        captured["coverage_trade_date"] = trade_date
+        return {}
+
+    monkeypatch.setattr(
+        "apps.api.app.routers.workspace.now_local",
+        lambda: datetime(2026, 1, 22, 10, 10),
+    )
+    monkeypatch.setattr(
+        "apps.api.app.routers.workspace._sustained_startup_sectors",
+        fake_sustained,
+    )
+    monkeypatch.setattr(
+        "apps.api.app.routers.workspace.discover_intraday_candidates",
+        fake_discover,
+    )
+    monkeypatch.setattr(
+        "apps.api.app.routers.workspace._early_hot_sector_quote_coverage",
+        fake_coverage,
+    )
+
+    with session() as db:
+        list_intraday_candidates(
+            db=db,
+            pool_name="experiment",
+            as_of="2026-01-21T10:00:00",
+        )
+
+    assert captured == {
+        "sustained_trade_date": date(2026, 1, 21),
+        "discover_trade_date": date(2026, 1, 21),
+        "coverage_trade_date": date(2026, 1, 21),
+    }
+
+
 def test_early_hot_sector_quote_coverage_keeps_lunch_close_quote(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -1095,6 +1146,32 @@ def test_early_hot_sector_quote_coverage_keeps_lunch_close_quote(monkeypatch) ->
 
     assert coverage["valid_quote_count"] == 1
     assert coverage["latest_quote_time"] == "2026-01-22T11:29:00"
+
+
+def test_early_hot_sector_quote_coverage_scans_sectors_at_as_of(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    captured = {}
+
+    def fake_scan(*args, **kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        "apps.api.app.routers.workspace.early_sector_scan_symbols",
+        fake_scan,
+    )
+    as_of = datetime(2026, 1, 22, 10, 15)
+    with session() as db:
+        _early_hot_sector_quote_coverage(
+            db,
+            trade_date=date(2026, 1, 22),
+            as_of=as_of,
+            include_growth_board=False,
+        )
+
+    assert captured["as_of"] == as_of
 
 
 def test_list_intraday_candidate_snapshots_replays_without_future_quotes(monkeypatch) -> None:

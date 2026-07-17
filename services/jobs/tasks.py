@@ -562,7 +562,7 @@ def _refresh_early_sector_quotes(trade_date: date, quote_time: datetime) -> dict
     warning = ""
     try:
         with SessionLocal() as db:
-            symbols = early_sector_scan_symbols(db, trade_date=trade_date)
+            symbols = early_sector_scan_symbols(db, trade_date=trade_date, as_of=quote_time)
         if symbols:
             rows = len(sync_realtime_quotes(symbols=symbols, quote_time=quote_time))
     except Exception as exc:
@@ -590,6 +590,21 @@ def paper_early_divergence_snapshot_task() -> dict[str, object]:
         force=True,
     ).to_dict()
     result.update(refresh)
+    return result
+
+
+@celery_app.task(
+    name="services.jobs.tasks.capture_early_market_turn_and_paper_snapshot_task"
+)
+def capture_early_market_turn_and_paper_snapshot_task() -> dict[str, object]:
+    market_turn = capture_intraday_market_turn_snapshot_task.run()
+    result: dict[str, object] = {
+        "status": market_turn.get("status", "failed"),
+        "market_turn": market_turn,
+    }
+    if market_turn.get("status") not in {"ok", "warning"}:
+        return result
+    result["paper_snapshot"] = paper_early_divergence_snapshot_task.run()
     return result
 
 

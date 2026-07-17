@@ -43,7 +43,7 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute=35, hour=9),
     },
     "capture-intraday-market-turn-0945": {
-        "task": "services.jobs.tasks.capture_intraday_market_turn_snapshot_task",
+        "task": "services.jobs.tasks.capture_early_market_turn_and_paper_snapshot_task",
         "schedule": crontab(minute=45, hour=9),
     },
     "capture-intraday-market-turn-1030": {
@@ -69,10 +69,6 @@ celery_app.conf.beat_schedule = {
     "paper-intraday-screening": {
         "task": "services.jobs.tasks.monitor_paper_positions_realtime_task",
         "schedule": crontab(minute="0,5,10,15,20,25,30,40,45,55", hour="9-11,13-14"),
-    },
-    "paper-early-divergence-snapshot": {
-        "task": "services.jobs.tasks.paper_early_divergence_snapshot_task",
-        "schedule": crontab(minute=45, hour=9),
     },
     "paper-midday-snapshot": {
         "task": "services.jobs.tasks.paper_midday_snapshot_task",

@@ -10,6 +10,7 @@ from services.engine.intraday.candidates import (
 )
 from services.shared.database import Base
 from services.shared.models import (
+    IntradayMarketTurnSnapshot,
     RealtimeQuote,
     ResearchPoolItem,
     SectorFeatureDaily,
@@ -451,7 +452,7 @@ def test_discover_intraday_candidates_expands_early_scan_to_hot_sector_quotes() 
                 _security("600212", "板块内新启动", industry="机器人"),
                 _sector_features(
                     "机器人",
-                    date(2026, 6, 30),
+                    date(2026, 6, 29),
                     strength=82,
                     continuity=78,
                     momentum=75,
@@ -470,7 +471,7 @@ def test_discover_intraday_candidates_expands_early_scan_to_hot_sector_quotes() 
                 ),
                 _quote(
                     "600212",
-                    datetime(2026, 6, 30, 9, 45),
+                    datetime(2026, 6, 30, 9, 47),
                     price="10.55",
                     open_price="10.00",
                     high="10.60",
@@ -486,7 +487,7 @@ def test_discover_intraday_candidates_expands_early_scan_to_hot_sector_quotes() 
             trade_date=date(2026, 6, 30),
             pool_name="experiment",
             limit=10,
-            as_of=datetime(2026, 6, 30, 9, 45),
+            as_of=datetime(2026, 6, 30, 9, 47),
         )
 
     candidate = result["candidates"][0]
@@ -554,6 +555,152 @@ def test_early_sector_scan_symbols_uses_hot_sectors_before_quotes() -> None:
     assert with_growth_board == ["600216", "600217", "688216"]
 
 
+def test_early_sector_scan_symbols_prioritizes_ready_intraday_leaders() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600101", "当日电力", industry="新型电力"),
+                _security("600201", "日线医药", industry="中成药"),
+                _security("600301", "前日机器人", industry="机器人"),
+                _sector_features(
+                    "中成药",
+                    date(2026, 7, 17),
+                    strength=82,
+                    continuity=78,
+                    momentum=75,
+                    breadth=68,
+                    avg_return_20d=0.12,
+                    positive_20d_rate=70,
+                ),
+                _sector_features(
+                    "机器人",
+                    date(2026, 7, 16),
+                    strength=80,
+                    continuity=76,
+                    momentum=72,
+                    breadth=66,
+                    avg_return_20d=0.10,
+                    positive_20d_rate=68,
+                ),
+                IntradayMarketTurnSnapshot(
+                    trade_date=date(2026, 7, 17),
+                    snapshot_time=datetime(2026, 7, 17, 10, 30),
+                    coverage_ratio=0.99,
+                    breadth_ratio=0.58,
+                    total_amount=123.0,
+                    index_change_pct=0.003,
+                    sector_expansion_count=3,
+                    state_json={
+                        "data_ready": True,
+                        "leading_sustained_sectors": [{"sector": "新型电力"}],
+                    },
+                ),
+            ]
+        )
+        db.commit()
+
+        symbols = early_sector_scan_symbols(
+            db,
+            trade_date=date(2026, 7, 17),
+            as_of=datetime(2026, 7, 17, 10, 31),
+            limit=3,
+        )
+
+    assert symbols == ["600101", "600301"]
+
+
+def test_early_sector_scan_symbols_ignores_unready_intraday_snapshot() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600101", "不可靠盘中板块", industry="新型电力"),
+                _security("600201", "可靠日线板块", industry="机器人"),
+                _sector_features(
+                    "机器人",
+                    date(2026, 7, 16),
+                    strength=82,
+                    continuity=78,
+                    momentum=75,
+                    breadth=68,
+                    avg_return_20d=0.12,
+                    positive_20d_rate=70,
+                ),
+                IntradayMarketTurnSnapshot(
+                    trade_date=date(2026, 7, 17),
+                    snapshot_time=datetime(2026, 7, 17, 10, 30),
+                    coverage_ratio=0.50,
+                    breadth_ratio=0.58,
+                    total_amount=123.0,
+                    index_change_pct=0.003,
+                    sector_expansion_count=3,
+                    state_json={
+                        "data_ready": False,
+                        "leading_sustained_sectors": [{"sector": "新型电力"}],
+                    },
+                ),
+            ]
+        )
+        db.commit()
+
+        symbols = early_sector_scan_symbols(
+            db,
+            trade_date=date(2026, 7, 17),
+            as_of=datetime(2026, 7, 17, 10, 31),
+            limit=1,
+        )
+
+    assert symbols == ["600201"]
+
+
+def test_early_sector_scan_symbols_round_robins_across_sectors() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600101", "电力一", industry="新型电力"),
+                _security("600102", "电力二", industry="新型电力"),
+                _security("600103", "电力三", industry="新型电力"),
+                _security("600201", "芯片一", industry="半导体"),
+                _security("600301", "消费一", industry="消费电子"),
+                IntradayMarketTurnSnapshot(
+                    trade_date=date(2026, 7, 17),
+                    snapshot_time=datetime(2026, 7, 17, 10, 30),
+                    coverage_ratio=0.99,
+                    breadth_ratio=0.58,
+                    total_amount=123.0,
+                    index_change_pct=0.003,
+                    sector_expansion_count=3,
+                    state_json={
+                        "data_ready": True,
+                        "leading_sustained_sectors": [
+                            {"sector": "新型电力"},
+                            {"sector": "半导体"},
+                            {"sector": "消费电子"},
+                        ],
+                    },
+                ),
+            ]
+        )
+        db.commit()
+
+        symbols = early_sector_scan_symbols(
+            db,
+            trade_date=date(2026, 7, 17),
+            as_of=datetime(2026, 7, 17, 10, 31),
+            limit=4,
+        )
+
+    assert symbols == ["600101", "600201", "600301", "600102"]
+
+
 def test_discover_intraday_candidates_expands_early_scan_to_observe_sector() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -564,7 +711,7 @@ def test_discover_intraday_candidates_expands_early_scan_to_observe_sector() -> 
                 _security("600214", "观察板块启动", industry="消费电子"),
                 _sector_features(
                     "消费电子",
-                    date(2026, 6, 30),
+                    date(2026, 6, 29),
                     strength=64,
                     continuity=62,
                     momentum=60,
@@ -618,7 +765,7 @@ def test_discover_intraday_candidates_expands_early_scan_to_durable_month_hot_se
                 _security("600215", "月线热门回调", industry="半导体"),
                 _sector_features(
                     "半导体",
-                    date(2026, 6, 30),
+                    date(2026, 6, 29),
                     strength=58,
                     continuity=58,
                     momentum=45,
