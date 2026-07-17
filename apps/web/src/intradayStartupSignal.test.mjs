@@ -13,9 +13,17 @@ for (const field of ["startup_stage", "startup_label", "startup_score", "startup
   assert(api.includes(field), `盘中候选类型缺少 ${field}`);
 }
 
+for (const field of ["startup_outcomes", "max_gain_pct", "max_drawdown_pct", "market_context_label"]) {
+  assert(api.includes(field), `启动效果类型缺少 ${field}`);
+}
+
 assert(app.includes("item.startup_label"), "盘中候选需要直接显示启动阶段");
 assert(app.includes("item.startup_score.toFixed(1)"), "盘中候选需要显示启动分");
 assert(app.includes("item.startup_reason"), "盘中候选需要展示可解释的启动依据");
+assert(app.includes("[1, 3, 5].map"), "盘中复盘需要覆盖1/3/5日启动效果");
+assert(app.includes("{horizon}日验证"), "盘中复盘需要显示各期限验证标签");
+assert(app.includes("market_context_label"), "启动效果需要显示信号发生时的市场环境");
+assert(styles.includes(".startup-outcome-list"), "启动效果列表需要独立且直观的排版");
 assert(
   /\.intraday-watch-strip\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s.test(
     mobileStyles,

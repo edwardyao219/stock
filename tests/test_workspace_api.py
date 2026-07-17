@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from apps.api.app.routers.workspace import (
+    IntradayCandidateSnapshotListResponse,
     ManualStockRequest,
     _early_hot_sector_quote_coverage,
     _intraday_snapshots_for_points,
@@ -1278,6 +1279,47 @@ def test_list_intraday_candidate_snapshots_does_not_emit_future_stages(monkeypat
         "latest",
     ]
     assert all(item["as_of"] <= "2026-01-22T12:00:00" for item in payload["snapshots"])
+
+
+def test_list_intraday_candidate_snapshots_includes_startup_outcomes(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    current_time = datetime(2026, 1, 22, 12, 0)
+    captured = {}
+
+    def fake_outcomes(db, snapshot_days, *, current_time):
+        captured["snapshot_days"] = snapshot_days
+        captured["current_time"] = current_time
+        return {
+            "signal_count": 1,
+            "completed_count": 0,
+            "waiting_count": 1,
+            "unavailable_count": 0,
+            "context_counts": {"systemic_risk": 1},
+            "summary": {},
+            "outcomes": [],
+        }
+
+    monkeypatch.setattr(
+        "apps.api.app.routers.workspace.now_local",
+        lambda: current_time,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "apps.api.app.routers.workspace.build_intraday_startup_outcomes",
+        fake_outcomes,
+        raising=False,
+    )
+    with session() as db:
+        payload = list_intraday_candidate_snapshots(db=db, pool_name="experiment")
+
+    assert payload["startup_outcomes"]["signal_count"] == 1
+    validated = IntradayCandidateSnapshotListResponse.model_validate(payload)
+    assert validated.startup_outcomes.signal_count == 1
+    assert len(captured["snapshot_days"]) == 1
+    assert captured["snapshot_days"][0] == payload["snapshots"]
+    assert captured["current_time"] == current_time
 
 
 def test_list_intraday_candidate_snapshots_handles_timezone_aware_now(monkeypatch) -> None:

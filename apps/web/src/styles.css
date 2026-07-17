@@ -982,6 +982,80 @@ button {
   margin: 2px 0;
 }
 
+.startup-outcome-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.startup-outcome-summary {
+  border-bottom: 1px solid #e1e8ef;
+  border-top: 1px solid #e1e8ef;
+  display: grid;
+  grid-template-columns: minmax(170px, 1.2fr) repeat(3, minmax(130px, 1fr));
+}
+
+.startup-outcome-summary > div {
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.startup-outcome-summary > div + div {
+  border-left: 1px solid #e1e8ef;
+}
+
+.startup-outcome-summary span,
+.startup-outcome-summary small,
+.startup-outcome-item small {
+  color: #64748b;
+  display: block;
+  font-size: 12px;
+}
+
+.startup-outcome-summary strong {
+  display: block;
+  font-size: 16px;
+  margin: 2px 0;
+}
+
+.startup-outcome-list {
+  display: grid;
+}
+
+.startup-outcome-item {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #e8edf2;
+  color: #17202b;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(170px, 1.3fr) minmax(130px, 0.9fr) repeat(3, minmax(100px, 0.7fr));
+  min-width: 0;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.startup-outcome-item:hover {
+  background: #f8fafc;
+}
+
+.startup-outcome-item.systemic_risk {
+  border-left: 3px solid #dc2626;
+}
+
+.startup-outcome-item.weak_market {
+  border-left: 3px solid #d97706;
+}
+
+.startup-outcome-item span,
+.startup-outcome-item strong,
+.startup-outcome-item b,
+.startup-outcome-item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .snapshot-pattern-notes {
   display: grid;
   gap: 6px;
@@ -5134,6 +5208,16 @@ textarea {
 
   .intraday-watch-item {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .startup-outcome-summary,
+  .startup-outcome-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .startup-outcome-summary > div + div {
+    border-left: 0;
+    border-top: 1px solid #e1e8ef;
   }
 
   .stock-list-panel,

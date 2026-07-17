@@ -1074,6 +1074,34 @@ function candidateExplanationText(item: {
   return cleanDisplayText(parts.join("；"));
 }
 
+function startupHorizonReturnText(item: {
+  status: string;
+  return_pct: number | null;
+}) {
+  if (item.status === "waiting") return "等待";
+  if (item.status === "unavailable") return "无数据";
+  return pct(item.return_pct);
+}
+
+function startupHorizonRangeText(item: {
+  status: string;
+  target_trade_date: string | null;
+  max_gain_pct: number | null;
+  max_drawdown_pct: number | null;
+}) {
+  if (item.status !== "completed") return item.target_trade_date ?? "交易日待确认";
+  return `高 ${pct(item.max_gain_pct)} / 回 ${pct(item.max_drawdown_pct)}`;
+}
+
+function startupOutcomeSummaryText(item: {
+  sample_count: number;
+  win_rate: number | null;
+  avg_return_pct: number | null;
+}) {
+  if (!item.sample_count) return "样本等待";
+  return `${item.sample_count}个 / 胜率 ${pct(item.win_rate)} / 均值 ${pct(item.avg_return_pct)}`;
+}
+
 function candidateBatchText(batch: IntradayCandidateList["candidate_batch"] | undefined) {
   if (!batch) return "等待实时快照";
   const batchDate = batch.auto_feature_date ?? batch.auto_hold_until ?? "暂无自动批次";
@@ -4645,6 +4673,81 @@ export function App() {
                 <RefreshCw size={14} />
               </button>
             </div>
+            {intradaySnapshots?.startup_outcomes ? (
+              <div className="startup-outcome-panel">
+                <div className="startup-outcome-summary">
+                  <div>
+                    <span>启动效果</span>
+                    <strong>{intradaySnapshots.startup_outcomes.signal_count} 个信号</strong>
+                    <small>
+                      完整验证 {intradaySnapshots.startup_outcomes.completed_count} / 等待 {intradaySnapshots.startup_outcomes.waiting_count}
+                      {intradaySnapshots.startup_outcomes.unavailable_count
+                        ? ` / 无数据 ${intradaySnapshots.startup_outcomes.unavailable_count}`
+                        : ""}
+                    </small>
+                  </div>
+                  {[1, 3, 5].map((horizon) => {
+                    const item = intradaySnapshots.startup_outcomes.summary[horizon];
+                    return (
+                      <div key={horizon}>
+                        <span>{horizon}日验证</span>
+                        <strong className={(item?.avg_return_pct ?? 0) >= 0 ? "up" : "down"}>
+                          {item ? pct(item.avg_return_pct) : "-"}
+                        </strong>
+                        <small>{item ? startupOutcomeSummaryText(item) : "样本等待"}</small>
+                      </div>
+                    );
+                  })}
+                </div>
+                {intradaySnapshots.startup_outcomes.outcomes.length ? (
+                  <div className="startup-outcome-list">
+                    {intradaySnapshots.startup_outcomes.outcomes.slice(0, 8).map((outcome) => (
+                      <button
+                        className={`startup-outcome-item ${outcome.market_context}`}
+                        key={`${outcome.signal_time}-${outcome.symbol}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedSymbol(outcome.symbol);
+                          setActivePage("stocks");
+                        }}
+                      >
+                        <span>
+                          <strong>{outcome.symbol} {outcome.name ?? "-"}</strong>
+                          <small>{outcome.sector ?? "-"} / {outcome.signal_date} {timeOnly(outcome.signal_time)}</small>
+                        </span>
+                        <span>
+                          <b>{outcome.startup_label}</b>
+                          <small>
+                            {outcome.market_context_label} / 宽度 {ratioPct(outcome.market_breadth_ratio)}
+                          </small>
+                        </span>
+                        {[1, 3, 5].map((horizon) => {
+                          const item = outcome.horizons[horizon];
+                          return (
+                            <span key={horizon}>
+                              <b
+                                className={
+                                  item.status === "completed"
+                                    ? (item.return_pct ?? 0) >= 0
+                                      ? "up"
+                                      : "down"
+                                    : ""
+                                }
+                              >
+                                {horizon}日 {startupHorizonReturnText(item)}
+                              </b>
+                              <small>{startupHorizonRangeText(item)}</small>
+                            </span>
+                          );
+                        })}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="intraday-empty">暂无刚启动或加速中的历史信号</div>
+                )}
+              </div>
+            ) : null}
             {intradaySnapshots?.learning_summary ? (
               <div className="snapshot-summary-grid">
                 <div>

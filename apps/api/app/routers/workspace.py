@@ -12,6 +12,7 @@ from services.engine.intraday.candidates import (
     discover_intraday_candidates,
     early_sector_scan_symbols,
 )
+from services.engine.intraday.outcomes import build_intraday_startup_outcomes
 from services.engine.research_pool.manual_research import (
     ManualResearchResult,
     refresh_manual_stock_research,
@@ -416,12 +417,59 @@ class IntradaySnapshotLearningSummaryResponse(BaseModel):
     pattern_notes: list[str]
 
 
+class IntradayStartupHorizonResponse(BaseModel):
+    horizon: int
+    status: str
+    target_trade_date: str | None
+    return_pct: float | None
+    max_gain_pct: float | None
+    max_drawdown_pct: float | None
+
+
+class IntradayStartupOutcomeResponse(BaseModel):
+    signal_date: str
+    signal_time: str
+    signal_stage: str
+    signal_stage_label: str
+    symbol: str
+    name: str | None
+    sector: str | None
+    startup_stage: str
+    startup_label: str
+    startup_score: float
+    signal_price: float
+    market_context: str
+    market_context_label: str
+    market_breadth_ratio: float | None
+    market_index_change_pct: float | None
+    horizons: dict[int, IntradayStartupHorizonResponse]
+
+
+class IntradayStartupOutcomeSummaryResponse(BaseModel):
+    sample_count: int
+    win_rate: float | None
+    avg_return_pct: float | None
+    avg_max_gain_pct: float | None
+    avg_max_drawdown_pct: float | None
+
+
+class IntradayStartupOutcomeReportResponse(BaseModel):
+    signal_count: int
+    completed_count: int
+    waiting_count: int
+    unavailable_count: int
+    context_counts: dict[str, int]
+    summary: dict[int, IntradayStartupOutcomeSummaryResponse]
+    outcomes: list[IntradayStartupOutcomeResponse]
+
+
 class IntradayCandidateSnapshotListResponse(BaseModel):
     trade_date: str
     pool_name: str
     snapshots: list[IntradayCandidateSnapshotResponse]
     learning: list[IntradaySnapshotLearningResponse] = []
     learning_summary: IntradaySnapshotLearningSummaryResponse | None = None
+    startup_outcomes: IntradayStartupOutcomeReportResponse
 
 
 class WorkspaceStockResponse(BaseModel):
@@ -1058,6 +1106,7 @@ def list_intraday_candidate_snapshots(
 ) -> dict:
     current_time = now_local()
     historical_learning: list[dict] = []
+    snapshot_days: list[list[dict]] = []
     trade_dates = _recent_intraday_trade_dates(db, current_time, lookback_days)
     for trade_date in trade_dates:
         if trade_date == current_time.date():
@@ -1073,6 +1122,7 @@ def list_intraday_candidate_snapshots(
             formal_limit=formal_limit,
             formal_per_sector_limit=formal_per_sector_limit,
         )
+        snapshot_days.append(day_snapshots)
         historical_learning.extend(_build_intraday_snapshot_learning(day_snapshots))
 
     historical_summary = _build_intraday_learning_summary(
@@ -1099,6 +1149,7 @@ def list_intraday_candidate_snapshots(
         formal_per_sector_limit=formal_per_sector_limit,
         sector_feedback=sector_feedback,
     )
+    snapshot_days.append(snapshots)
     current_learning = _build_intraday_snapshot_learning(snapshots)
     all_learning = [*historical_learning, *current_learning]
 
@@ -1110,6 +1161,11 @@ def list_intraday_candidate_snapshots(
         "learning_summary": _build_intraday_learning_summary(
             all_learning,
             sample_days=len(trade_dates),
+        ),
+        "startup_outcomes": build_intraday_startup_outcomes(
+            db,
+            snapshot_days,
+            current_time=current_time,
         ),
     }
 

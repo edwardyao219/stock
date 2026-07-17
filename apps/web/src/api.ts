@@ -668,12 +668,59 @@ export interface IntradaySnapshotLearningSummary {
   pattern_notes: string[];
 }
 
+export interface IntradayStartupHorizon {
+  horizon: number;
+  status: "completed" | "waiting" | "unavailable";
+  target_trade_date: string | null;
+  return_pct: number | null;
+  max_gain_pct: number | null;
+  max_drawdown_pct: number | null;
+}
+
+export interface IntradayStartupOutcome {
+  signal_date: string;
+  signal_time: string;
+  signal_stage: string;
+  signal_stage_label: string;
+  symbol: string;
+  name: string | null;
+  sector: string | null;
+  startup_stage: string;
+  startup_label: string;
+  startup_score: number;
+  signal_price: number;
+  market_context: string;
+  market_context_label: string;
+  market_breadth_ratio: number | null;
+  market_index_change_pct: number | null;
+  horizons: Record<number, IntradayStartupHorizon>;
+}
+
+export interface IntradayStartupOutcomeSummary {
+  sample_count: number;
+  win_rate: number | null;
+  avg_return_pct: number | null;
+  avg_max_gain_pct: number | null;
+  avg_max_drawdown_pct: number | null;
+}
+
+export interface IntradayStartupOutcomeReport {
+  signal_count: number;
+  completed_count: number;
+  waiting_count: number;
+  unavailable_count: number;
+  context_counts: Record<string, number>;
+  summary: Record<number, IntradayStartupOutcomeSummary>;
+  outcomes: IntradayStartupOutcome[];
+}
+
 export interface IntradayCandidateSnapshotList {
   trade_date: string;
   pool_name: string;
   snapshots: IntradayCandidateSnapshot[];
   learning: IntradaySnapshotLearning[];
   learning_summary: IntradaySnapshotLearningSummary | null;
+  startup_outcomes: IntradayStartupOutcomeReport;
 }
 
 export interface ManualRefresh {
@@ -1504,7 +1551,7 @@ export function fetchIntradayCandidates(
 export function fetchIntradayCandidateSnapshots(
   poolName = "experiment",
   includeGrowthBoard = false,
-  lookbackDays = 5,
+  lookbackDays = 8,
 ) {
   const params = new URLSearchParams({ pool_name: poolName });
   params.set("lookback_days", String(lookbackDays));
