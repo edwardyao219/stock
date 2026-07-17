@@ -3709,6 +3709,83 @@ button {
   color: #1d4f8f;
 }
 
+.stress-recovery-replay {
+  border-top: 1px solid #cbd5e1;
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.stress-recovery-replay-head {
+  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.stress-recovery-replay-head div {
+  display: grid;
+  flex: 1 1 280px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stress-recovery-replay-head > small {
+  color: #64748b;
+  font-size: 12px;
+  flex: 0 0 auto;
+  max-width: 100%;
+  text-align: right;
+}
+
+.stress-recovery-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.stress-recovery-table {
+  border-collapse: collapse;
+  min-width: 560px;
+  width: 100%;
+}
+
+.stress-recovery-table th,
+.stress-recovery-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 6px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.stress-recovery-table th {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stress-recovery-table td {
+  color: #334155;
+  font-size: 12px;
+}
+
+.stress-recovery-table td:first-child strong,
+.stress-recovery-table td:last-child {
+  color: #17202b;
+  font-weight: 700;
+}
+
+.stress-recovery-table td small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.stress-recovery-table tr.current {
+  background: #eff6ff;
+}
+
 .replay-diagnosis .replay-dual-line-policy {
   background: #f2fbf5;
   border: 1px solid #bbf7d0;

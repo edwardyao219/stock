@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlalchemy import desc, select
@@ -14,7 +14,13 @@ from services.collector.akshare_client import (
     RealtimeQuoteRow,
 )
 from services.engine.sector.repository import load_sector_profile, seed_sector_profiles
-from services.shared.models import DailyBar, RealtimeQuote, Security, TradingCalendar
+from services.shared.models import (
+    DailyBar,
+    RealtimeQuote,
+    Security,
+    TradingCalendar,
+    TushareDatasetSyncReceipt,
+)
 from services.shared.upsert import upsert_rows
 
 
@@ -98,7 +104,7 @@ def upsert_daily_bars(db: Session, bars: list[DailyBarRow | IndexDailyRow]) -> i
                 "is_suspended": False,
             }
         )
-    return upsert_rows(
+    written = upsert_rows(
         db,
         DailyBar,
         rows,
@@ -117,6 +123,28 @@ def upsert_daily_bars(db: Session, bars: list[DailyBarRow | IndexDailyRow]) -> i
         ],
         constraint="uq_daily_bars_symbol_date",
     )
+    revision_time = datetime.now(UTC).replace(tzinfo=None)
+    counts_by_date: dict[date, int] = {}
+    for row in rows:
+        trade_date = row["trade_date"]
+        counts_by_date[trade_date] = counts_by_date.get(trade_date, 0) + 1
+    upsert_rows(
+        db,
+        TushareDatasetSyncReceipt,
+        [
+            {
+                "dataset": "daily_bars",
+                "trade_date": trade_date,
+                "row_count": row_count,
+                "completed_at": revision_time,
+            }
+            for trade_date, row_count in counts_by_date.items()
+        ],
+        update_columns=["row_count", "completed_at"],
+        constraint="uq_tushare_dataset_sync_receipt",
+        index_elements=["dataset", "trade_date"],
+    )
+    return written
 
 
 def upsert_realtime_quotes(db: Session, quotes: list[RealtimeQuoteRow]) -> int:

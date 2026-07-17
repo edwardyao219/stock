@@ -1119,6 +1119,56 @@ export interface CandidateReplayMarketStressGatePolicy {
   reasons: string[];
 }
 
+export interface MarketStressRecoveryReplayRow {
+  threshold_label: string;
+  limited_after: number;
+  normal_after: number;
+  risk_event_count: number;
+  completed_recovery_count: number;
+  evaluated_recovery_count: number;
+  unresolved_event_count: number;
+  false_rebound_count: number;
+  false_rebound_rate: number | null;
+  avg_recovery_days: number | null;
+  blocked_days: number;
+  limited_days: number;
+  blocked_opportunity_days: number;
+  limited_opportunity_days: number;
+  is_current: boolean;
+}
+
+export interface MarketStressRecoveryReplayReport {
+  start_date: string;
+  end_date: string;
+  data_source: string;
+  min_coverage_ratio: number;
+  first_trade_date: string | null;
+  last_trade_date: string | null;
+  snapshot_count: number;
+  observed_trade_day_count: number;
+  data_gap_count: number;
+  false_rebound_window: number;
+  recommendation: {
+    status: string;
+    label: string;
+    threshold_label: string;
+    summary: string;
+  };
+  rows: MarketStressRecoveryReplayRow[];
+  cache: {
+    hit: boolean;
+    cache_key: string;
+    version: string;
+  };
+}
+
+export interface MarketStressRecoveryReplayQuery {
+  start_date?: string;
+  end_date?: string;
+  min_coverage_ratio?: number;
+  force_refresh?: boolean;
+}
+
 export interface CandidateReplayDiagnosis {
   horizon: number;
   primary_scope: string;
@@ -1615,6 +1665,23 @@ export function fetchCandidateReplayEffect(query: CandidateReplayEffectQuery = {
     params.set("use_monthly_shards", String(query.use_monthly_shards));
   }
   return request<CandidateReplayEffectReport>(`/rules/candidate-replay-effect?${params.toString()}`);
+}
+
+export function fetchMarketStressRecoveryReplay(
+  query: MarketStressRecoveryReplayQuery = {},
+) {
+  const params = new URLSearchParams();
+  params.set("start_date", query.start_date ?? defaultCandidateReplayStartDate());
+  if (query.end_date) params.set("end_date", query.end_date);
+  if (query.min_coverage_ratio !== undefined) {
+    params.set("min_coverage_ratio", String(query.min_coverage_ratio));
+  }
+  if (query.force_refresh !== undefined) {
+    params.set("force_refresh", String(query.force_refresh));
+  }
+  return request<MarketStressRecoveryReplayReport>(
+    `/rules/market-stress-recovery-replay?${params.toString()}`,
+  );
 }
 
 export function addManualStock(symbol: string, note: string, tags: string[], poolName = "experiment") {

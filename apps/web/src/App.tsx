@@ -30,6 +30,7 @@ import {
   fetchIntradayCandidateSnapshots,
   fetchIntradayCandidates,
   fetchLowDimensionalReplay,
+  fetchMarketStressRecoveryReplay,
   fetchMarketOverview,
   fetchMechanicalReview,
   fetchMonthlySummary,
@@ -46,6 +47,7 @@ import {
   IntradayCandidateSnapshotList,
   IntradayMarketTurn,
   LowDimensionalReplayReport,
+  MarketStressRecoveryReplayReport,
   MarketOverview,
   MechanicalReview,
   MonthlySummary,
@@ -1335,6 +1337,8 @@ export function App() {
   const [lowDimensionalReplayError, setLowDimensionalReplayError] = useState<string | null>(null);
   const [candidateReplayEffect, setCandidateReplayEffect] =
     useState<CandidateReplayEffectReport | null>(null);
+  const [marketStressRecoveryReplay, setMarketStressRecoveryReplay] =
+    useState<MarketStressRecoveryReplayReport | null>(null);
   const [candidateReplayEffectLoading, setCandidateReplayEffectLoading] = useState(false);
   const [candidateReplayEffectError, setCandidateReplayEffectError] = useState<string | null>(null);
   const [ruleRegressionStatus, setRuleRegressionStatus] =
@@ -1614,10 +1618,40 @@ export function App() {
     setCandidateReplayEffectLoading(true);
     setCandidateReplayEffectError(null);
     try {
-      setCandidateReplayEffect(await fetchCandidateReplayEffect(query));
-    } catch (exc) {
+      const [candidateResult, recoveryResult] = await Promise.allSettled([
+        fetchCandidateReplayEffect(query),
+        fetchMarketStressRecoveryReplay({
+          start_date: query?.start_date,
+          end_date: query?.end_date,
+          force_refresh: query?.force_refresh,
+        }),
+      ]);
+      const errors: string[] = [];
+      if (candidateResult.status === "fulfilled") {
+        setCandidateReplayEffect(candidateResult.value);
+      } else {
+        setCandidateReplayEffect(null);
+        errors.push(
+          candidateResult.reason instanceof Error
+            ? candidateResult.reason.message
+            : "策略效果加载失败",
+        );
+      }
+      if (recoveryResult.status === "fulfilled") {
+        setMarketStressRecoveryReplay(recoveryResult.value);
+      } else {
+        setMarketStressRecoveryReplay(null);
+        errors.push(
+          recoveryResult.reason instanceof Error
+            ? recoveryResult.reason.message
+            : "风险恢复回放加载失败",
+        );
+      }
+      setCandidateReplayEffectError(errors.length ? errors.join("；") : null);
+    } catch {
       setCandidateReplayEffect(null);
-      setCandidateReplayEffectError(exc instanceof Error ? exc.message : "策略效果加载失败");
+      setMarketStressRecoveryReplay(null);
+      setCandidateReplayEffectError("策略效果加载失败");
     } finally {
       setCandidateReplayEffectLoading(false);
     }
@@ -3828,6 +3862,58 @@ export function App() {
                 ) : (
                   <small>当前窗口没有明显覆盖风险，可参与月收益和总收益对比。</small>
                 )}
+              </div>
+            ) : null}
+            {marketStressRecoveryReplay ? (
+              <div className="stress-recovery-replay">
+                <div className="stress-recovery-replay-head">
+                  <div>
+                    <strong>{marketStressRecoveryReplay.recommendation.label}</strong>
+                    <small>{uiText(marketStressRecoveryReplay.recommendation.summary)}</small>
+                  </div>
+                  <small>
+                    {marketStressRecoveryReplay.first_trade_date ?? marketStressRecoveryReplay.start_date}
+                    {" ~ "}
+                    {marketStressRecoveryReplay.last_trade_date ?? marketStressRecoveryReplay.end_date}
+                    {" / 有效"}{marketStressRecoveryReplay.snapshot_count}日
+                    {" / 缺口"}{marketStressRecoveryReplay.data_gap_count}日
+                    {" / "}{marketStressRecoveryReplay.cache.hit ? "缓存" : "新计算"}
+                  </small>
+                </div>
+                <div className="stress-recovery-table-wrap">
+                  <table className="stress-recovery-table">
+                    <thead>
+                      <tr>
+                        <th>阈值</th>
+                        <th>风险轮次</th>
+                        <th>假反弹</th>
+                        <th>平均恢复</th>
+                        <th>强势日受限</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {marketStressRecoveryReplay.rows.map((row) => (
+                        <tr className={row.is_current ? "current" : ""} key={row.threshold_label}>
+                          <td>
+                            <strong>{row.threshold_label}</strong>
+                            {row.is_current ? <small>当前</small> : null}
+                          </td>
+                          <td>{row.risk_event_count}</td>
+                          <td>
+                            {row.false_rebound_count} / {pct(row.false_rebound_rate)}
+                          </td>
+                          <td>{row.avg_recovery_days === null ? "-" : `${row.avg_recovery_days}日`}</td>
+                          <td>
+                            {row.blocked_opportunity_days + row.limited_opportunity_days}
+                            <small>
+                              封锁{row.blocked_opportunity_days} / 限制{row.limited_opportunity_days}
+                            </small>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : null}
             {candidateReplayEffect ? (

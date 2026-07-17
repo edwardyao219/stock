@@ -17,6 +17,9 @@ from services.engine.backtest.walk_forward import (
     run_low_dimensional_walk_forward_replay,
     summarize_walk_forward_replay,
 )
+from services.engine.review.market_stress_recovery import (
+    load_or_build_market_stress_recovery_report,
+)
 from services.engine.rules.seed_rules import MVP_RULES
 from services.shared.database import get_db
 from services.shared.time import now_local
@@ -2413,6 +2416,24 @@ def get_candidate_replay_effect(
     )
     _store_candidate_replay_effect_cache(cache_path, cache_key=cache_key, payload=payload)
     return _with_candidate_replay_cache_meta(payload, cache_key=cache_key, hit=False)
+
+
+@router.get("/market-stress-recovery-replay")
+def get_market_stress_recovery_replay(
+    db: DbSession,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    min_coverage_ratio: Annotated[float, Query(ge=0.0, le=1.0)] = 0.80,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    resolved_end_date = end_date or (now_local().date() - timedelta(days=1)).isoformat()
+    return load_or_build_market_stress_recovery_report(
+        db,
+        start_date=start_date or DEFAULT_REPLAY_START_DATE,
+        end_date=resolved_end_date,
+        min_coverage_ratio=min_coverage_ratio,
+        force_refresh=force_refresh,
+    )
 
 
 def prewarm_candidate_replay_effect_cache(
