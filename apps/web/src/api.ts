@@ -1137,6 +1137,22 @@ export interface MarketStressRecoveryReplayRow {
   is_current: boolean;
 }
 
+export interface MarketStressRecoveryYearlyRow {
+  year: number;
+  snapshot_count: number;
+  observed_trade_day_count: number;
+  data_gap_count: number;
+  risk_event_count: number;
+  completed_recovery_count: number;
+  evaluated_recovery_count: number;
+  unresolved_event_count: number;
+  false_rebound_count: number;
+  false_rebound_rate: number | null;
+  avg_recovery_days: number | null;
+  blocked_opportunity_days: number;
+  limited_opportunity_days: number;
+}
+
 export interface MarketStressRecoveryReplayReport {
   start_date: string;
   end_date: string;
@@ -1155,6 +1171,7 @@ export interface MarketStressRecoveryReplayReport {
     summary: string;
   };
   rows: MarketStressRecoveryReplayRow[];
+  yearly_rows: MarketStressRecoveryYearlyRow[];
   cache: {
     hit: boolean;
     cache_key: string;
@@ -1671,7 +1688,7 @@ export function fetchMarketStressRecoveryReplay(
   query: MarketStressRecoveryReplayQuery = {},
 ) {
   const params = new URLSearchParams();
-  params.set("start_date", query.start_date ?? defaultCandidateReplayStartDate());
+  if (query.start_date) params.set("start_date", query.start_date);
   if (query.end_date) params.set("end_date", query.end_date);
   if (query.min_coverage_ratio !== undefined) {
     params.set("min_coverage_ratio", String(query.min_coverage_ratio));

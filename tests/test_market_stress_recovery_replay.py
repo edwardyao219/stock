@@ -120,6 +120,91 @@ def test_replay_market_stress_recovery_resets_confirmation_on_data_gap() -> None
     assert report["data_gap_count"] == 1
 
 
+def test_replay_market_stress_recovery_breaks_current_threshold_down_by_year() -> None:
+    report = replay_market_stress_recovery(
+        [
+            {"trade_date": "2025-12-15", "up_ratio": 0.20, "avg_change_pct": -0.020},
+            {"trade_date": "2025-12-16", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2025-12-17", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2025-12-18", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2025-12-19", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2025-12-22", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2025-12-23", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2025-12-24", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {
+                "trade_date": "2025-12-25",
+                "up_ratio": 0.50,
+                "avg_change_pct": 0.001,
+                "is_usable": False,
+            },
+            {"trade_date": "2026-01-05", "up_ratio": 0.20, "avg_change_pct": -0.020},
+            {"trade_date": "2026-01-06", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-07", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-08", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-09", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-12", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-13", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-14", "up_ratio": 0.60, "avg_change_pct": 0.010},
+        ]
+    )
+
+    assert report["yearly_rows"] == [
+        {
+            "year": 2026,
+            "snapshot_count": 8,
+            "observed_trade_day_count": 8,
+            "data_gap_count": 0,
+            "risk_event_count": 1,
+            "completed_recovery_count": 1,
+            "evaluated_recovery_count": 1,
+            "unresolved_event_count": 0,
+            "false_rebound_count": 0,
+            "false_rebound_rate": 0.0,
+            "avg_recovery_days": 4.0,
+            "blocked_opportunity_days": 1,
+            "limited_opportunity_days": 2,
+        },
+        {
+            "year": 2025,
+            "snapshot_count": 8,
+            "observed_trade_day_count": 9,
+            "data_gap_count": 1,
+            "risk_event_count": 1,
+            "completed_recovery_count": 1,
+            "evaluated_recovery_count": 1,
+            "unresolved_event_count": 0,
+            "false_rebound_count": 0,
+            "false_rebound_rate": 0.0,
+            "avg_recovery_days": 4.0,
+            "blocked_opportunity_days": 1,
+            "limited_opportunity_days": 2,
+        },
+    ]
+
+
+def test_replay_market_stress_recovery_assigns_cross_year_recovery_to_risk_year() -> None:
+    report = replay_market_stress_recovery(
+        [
+            {"trade_date": "2025-12-29", "up_ratio": 0.20, "avg_change_pct": -0.020},
+            {"trade_date": "2025-12-30", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2025-12-31", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-05", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-06", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-07", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-08", "up_ratio": 0.60, "avg_change_pct": 0.010},
+            {"trade_date": "2026-01-09", "up_ratio": 0.60, "avg_change_pct": 0.010},
+        ]
+    )
+
+    yearly = {row["year"]: row for row in report["yearly_rows"]}
+    assert yearly[2025]["risk_event_count"] == 1
+    assert yearly[2025]["completed_recovery_count"] == 1
+    assert yearly[2025]["evaluated_recovery_count"] == 1
+    assert yearly[2025]["avg_recovery_days"] == 4.0
+    assert yearly[2026]["risk_event_count"] == 0
+    assert yearly[2026]["completed_recovery_count"] == 0
+
+
 def test_load_market_stress_recovery_snapshots_marks_low_coverage_days() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

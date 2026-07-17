@@ -39,6 +39,23 @@ const report = {
       is_current: true,
     },
   ],
+  yearly_rows: [
+    {
+      year: 2026,
+      snapshot_count: 131,
+      observed_trade_day_count: 131,
+      data_gap_count: 0,
+      risk_event_count: 4,
+      completed_recovery_count: 3,
+      evaluated_recovery_count: 3,
+      unresolved_event_count: 1,
+      false_rebound_count: 2,
+      false_rebound_rate: 0.666667,
+      avg_recovery_days: 5.0,
+      blocked_opportunity_days: 28,
+      limited_opportunity_days: 19,
+    },
+  ],
   cache: {
     hit: true,
     cache_key: "example",
@@ -47,4 +64,5 @@ const report = {
 } satisfies MarketStressRecoveryReplayReport;
 
 report.rows[0].threshold_label satisfies string;
+report.yearly_rows[0].year satisfies number;
 fetchMarketStressRecoveryReplay({ start_date: "2024-01-01", force_refresh: true });

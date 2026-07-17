@@ -3914,6 +3914,68 @@ export function App() {
                     </tbody>
                   </table>
                 </div>
+                {marketStressRecoveryReplay.yearly_rows.length ? (
+                  <div className="stress-recovery-yearly">
+                    <div className="stress-recovery-yearly-head">
+                      <strong>2/4 年度稳定性</strong>
+                      <small>跨年风险按首次触发年份归属；少于3个可评价样本时仅作观察</small>
+                    </div>
+                    <div className="stress-recovery-table-wrap">
+                      <table className="stress-recovery-table stress-recovery-yearly-table">
+                        <thead>
+                          <tr>
+                            <th>年度</th>
+                            <th>有效日</th>
+                            <th>风险轮次</th>
+                            <th>假反弹</th>
+                            <th>平均恢复</th>
+                            <th>强势日受限</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {marketStressRecoveryReplay.yearly_rows.map((row) => (
+                            <tr key={row.year}>
+                              <td>
+                                <strong>{row.year}</strong>
+                                <small>
+                                  {row.year === Number(marketStressRecoveryReplay.end_date.slice(0, 4))
+                                    ? `截至 ${marketStressRecoveryReplay.end_date.slice(5)}`
+                                    : "完整年度"}
+                                </small>
+                              </td>
+                              <td>
+                                {row.snapshot_count}
+                                <small>缺口 {row.data_gap_count}</small>
+                              </td>
+                              <td>
+                                {row.risk_event_count}
+                                <small>
+                                  完成 {row.completed_recovery_count} / 未解 {row.unresolved_event_count}
+                                </small>
+                              </td>
+                              <td>
+                                {row.false_rebound_count} / {row.evaluated_recovery_count}
+                                <small>
+                                  {pct(row.false_rebound_rate)}
+                                  {row.evaluated_recovery_count < 3 ? " / 样本偏少" : ""}
+                                </small>
+                              </td>
+                              <td>
+                                {row.avg_recovery_days === null ? "-" : `${row.avg_recovery_days}日`}
+                              </td>
+                              <td>
+                                {row.blocked_opportunity_days + row.limited_opportunity_days}
+                                <small>
+                                  封锁 {row.blocked_opportunity_days} / 限制 {row.limited_opportunity_days}
+                                </small>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {candidateReplayEffect ? (

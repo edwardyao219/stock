@@ -3786,6 +3786,39 @@ button {
   background: #eff6ff;
 }
 
+.stress-recovery-yearly {
+  border-top: 1px dashed #cbd5e1;
+  display: grid;
+  gap: 5px;
+  padding-top: 7px;
+}
+
+.stress-recovery-yearly-head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  justify-content: space-between;
+}
+
+.stress-recovery-yearly-head strong {
+  color: #17202b;
+  font-size: 13px;
+}
+
+.stress-recovery-yearly-head small {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.stress-recovery-yearly-table {
+  min-width: 680px;
+}
+
+.stress-recovery-yearly-table td:first-child {
+  color: #17202b;
+}
+
 .replay-diagnosis .replay-dual-line-policy {
   background: #f2fbf5;
   border: 1px solid #bbf7d0;

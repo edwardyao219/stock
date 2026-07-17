@@ -13,7 +13,7 @@ from services.engine.review.repository import INDEX_DAILY_BAR_SYMBOLS
 from services.shared.models import DailyBar, TradingCalendar, TushareDatasetSyncReceipt
 
 RECOVERY_THRESHOLD_CONFIGS = ((1, 3), (2, 4), (2, 5))
-MARKET_STRESS_RECOVERY_CACHE_VERSION = "market-stress-recovery-v2"
+MARKET_STRESS_RECOVERY_CACHE_VERSION = "market-stress-recovery-v3"
 MARKET_STRESS_RECOVERY_CACHE_DIR = Path(".tmp/market-stress-recovery-cache")
 
 
@@ -44,12 +44,14 @@ def _replay_threshold(
     limited_after: int,
     normal_after: int,
     false_rebound_window: int,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     state = "normal"
     recovery_count = 0
     active_risk_index: int | None = None
-    release_indexes: list[int] = []
+    active_risk_year: int | None = None
+    releases: list[tuple[int, int]] = []
     recovery_days: list[int] = []
+    yearly_stats: dict[int, dict[str, Any]] = {}
     risk_event_count = 0
     blocked_days = 0
     limited_days = 0
@@ -57,14 +59,35 @@ def _replay_threshold(
     limited_opportunity_days = 0
 
     for index, snapshot in enumerate(snapshots):
+        snapshot_year = int(str(snapshot["trade_date"])[:4])
+        yearly = yearly_stats.setdefault(
+            snapshot_year,
+            {
+                "snapshot_count": 0,
+                "observed_trade_day_count": 0,
+                "data_gap_count": 0,
+                "risk_event_count": 0,
+                "completed_recovery_count": 0,
+                "evaluated_recovery_count": 0,
+                "false_rebound_count": 0,
+                "recovery_days": [],
+                "blocked_opportunity_days": 0,
+                "limited_opportunity_days": 0,
+            },
+        )
+        yearly["observed_trade_day_count"] += 1
         if not snapshot.get("is_usable", True):
+            yearly["data_gap_count"] += 1
             if state != "normal":
                 state = "blocked"
                 recovery_count = 0
             continue
+        yearly["snapshot_count"] += 1
         if _is_risk_snapshot(snapshot):
             if state == "normal":
                 risk_event_count += 1
+                yearly["risk_event_count"] += 1
+                active_risk_year = snapshot_year
             state = "blocked"
             recovery_count = 0
             active_risk_index = index
@@ -72,10 +95,15 @@ def _replay_threshold(
             recovery_count = recovery_count + 1 if _is_recovery_snapshot(snapshot) else 0
             if recovery_count >= normal_after:
                 state = "normal"
-                release_indexes.append(index)
+                event_year = active_risk_year or snapshot_year
+                releases.append((index, event_year))
+                yearly_stats[event_year]["completed_recovery_count"] += 1
                 if active_risk_index is not None:
-                    recovery_days.append(index - active_risk_index)
+                    duration = index - active_risk_index
+                    recovery_days.append(duration)
+                    yearly_stats[event_year]["recovery_days"].append(duration)
                 active_risk_index = None
+                active_risk_year = None
             elif recovery_count >= limited_after:
                 state = "limited"
             else:
@@ -85,14 +113,16 @@ def _replay_threshold(
             blocked_days += 1
             if _is_supportive_snapshot(snapshot):
                 blocked_opportunity_days += 1
+                yearly["blocked_opportunity_days"] += 1
         elif state == "limited":
             limited_days += 1
             if _is_supportive_snapshot(snapshot):
                 limited_opportunity_days += 1
+                yearly["limited_opportunity_days"] += 1
 
-    evaluated_release_indexes = [
-        release_index
-        for release_index in release_indexes
+    evaluated_releases = [
+        (release_index, event_year)
+        for release_index, event_year in releases
         if release_index + false_rebound_window < len(snapshots)
         and all(
             snapshot.get("is_usable", True)
@@ -101,19 +131,21 @@ def _replay_threshold(
             ]
         )
     ]
-    false_rebound_count = sum(
-        1
-        for release_index in evaluated_release_indexes
+    for _, event_year in evaluated_releases:
+        yearly_stats[event_year]["evaluated_recovery_count"] += 1
+    false_rebound_count = 0
+    for release_index, event_year in evaluated_releases:
         if any(
             _is_risk_snapshot(snapshot)
             for snapshot in snapshots[
                 release_index + 1 : release_index + false_rebound_window + 1
             ]
-        )
-    )
-    completed_recovery_count = len(release_indexes)
-    evaluated_recovery_count = len(evaluated_release_indexes)
-    return {
+        ):
+            false_rebound_count += 1
+            yearly_stats[event_year]["false_rebound_count"] += 1
+    completed_recovery_count = len(releases)
+    evaluated_recovery_count = len(evaluated_releases)
+    row = {
         "threshold_label": f"{limited_after}/{normal_after}",
         "limited_after": limited_after,
         "normal_after": normal_after,
@@ -136,6 +168,33 @@ def _replay_threshold(
         "limited_opportunity_days": limited_opportunity_days,
         "is_current": (limited_after, normal_after) == (2, 4),
     }
+    yearly_rows = []
+    for year in sorted(yearly_stats, reverse=True):
+        stats = yearly_stats[year]
+        evaluated_count = int(stats["evaluated_recovery_count"])
+        yearly_recovery_days = stats.pop("recovery_days")
+        yearly_rows.append(
+            {
+                "year": year,
+                **stats,
+                "unresolved_event_count": max(
+                    0,
+                    int(stats["risk_event_count"])
+                    - int(stats["completed_recovery_count"]),
+                ),
+                "false_rebound_rate": (
+                    round(int(stats["false_rebound_count"]) / evaluated_count, 6)
+                    if evaluated_count
+                    else None
+                ),
+                "avg_recovery_days": (
+                    round(sum(yearly_recovery_days) / len(yearly_recovery_days), 2)
+                    if yearly_recovery_days
+                    else None
+                ),
+            }
+        )
+    return row, yearly_rows
 
 
 def _opportunity_days(row: dict[str, Any]) -> int:
@@ -219,7 +278,7 @@ def replay_market_stress_recovery(
 ) -> dict[str, Any]:
     ordered = sorted(snapshots, key=lambda item: str(item["trade_date"]))
     usable_snapshot_count = sum(1 for item in ordered if item.get("is_usable", True))
-    rows = [
+    replays = [
         _replay_threshold(
             ordered,
             limited_after=limited_after,
@@ -228,12 +287,15 @@ def replay_market_stress_recovery(
         )
         for limited_after, normal_after in RECOVERY_THRESHOLD_CONFIGS
     ]
+    rows = [row for row, _ in replays]
+    yearly_rows = next(yearly for row, yearly in replays if row["is_current"])
     return {
         "snapshot_count": usable_snapshot_count,
         "observed_trade_day_count": len(ordered),
         "data_gap_count": len(ordered) - usable_snapshot_count,
         "false_rebound_window": false_rebound_window,
         "rows": rows,
+        "yearly_rows": yearly_rows,
         "recommendation": _recommend_threshold(rows, min_risk_events=min_risk_events),
     }
 
