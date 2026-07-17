@@ -144,6 +144,10 @@ class IntradayCandidateResponse(BaseModel):
     intraday_state: str
     intraday_label: str
     intraday_score: float
+    startup_stage: str
+    startup_label: str
+    startup_score: float
+    startup_reason: str
     review_window: str
     review_window_label: str
     sector_signal: str

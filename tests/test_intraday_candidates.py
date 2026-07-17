@@ -396,7 +396,7 @@ def test_discover_intraday_candidates_marks_early_divergence_as_watch_only() -> 
                 _candidate("600211", rank=1, score=86),
                 _sector_features(
                     "半导体",
-                    date(2026, 6, 30),
+                    date(2026, 6, 29),
                     strength=82,
                     continuity=78,
                     momentum=75,
@@ -851,6 +851,60 @@ def test_discover_intraday_candidates_does_not_expand_hot_sector_after_early_win
     assert result["candidates"] == []
 
 
+def test_discover_intraday_candidates_expands_live_leading_sector_after_early_window() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600220", "盘中电力启动", industry="电力"),
+                IntradayMarketTurnSnapshot(
+                    trade_date=date(2026, 6, 30),
+                    snapshot_time=datetime(2026, 6, 30, 10, 30),
+                    coverage_ratio=0.99,
+                    breadth_ratio=0.58,
+                    total_amount=123.0,
+                    index_change_pct=0.003,
+                    sector_expansion_count=2,
+                    state_json={
+                        "data_ready": True,
+                        "leading_sustained_sectors": [{"sector": "电力"}],
+                    },
+                ),
+                _quote(
+                    "600220",
+                    datetime(2026, 6, 30, 10, 30),
+                    price="10.10",
+                    high="10.15",
+                    low="9.95",
+                    volume="100000",
+                ),
+                _quote(
+                    "600220",
+                    datetime(2026, 6, 30, 11, 20),
+                    price="10.35",
+                    high="10.40",
+                    low="9.95",
+                    volume="250000",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 11, 35),
+        )
+
+    assert result["candidates"][0]["symbol"] == "600220"
+    assert result["candidates"][0]["startup_label"] == "刚启动"
+    assert "intraday_leading_sector_scan" in result["candidates"][0]["support_flags"]
+
+
 def test_discover_intraday_candidates_marks_after_close_snapshots() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -1088,6 +1142,262 @@ def test_discover_intraday_candidates_marks_volume_confirmation_and_distribution
     assert "volume_expansion_on_weakness" in by_symbol["600502"]["risk_flags"]
     assert "放量回落" in "；".join(by_symbol["600502"]["caution_reasons"])
     assert by_symbol["600501"]["intraday_score"] > by_symbol["600502"]["intraday_score"]
+
+
+def test_discover_intraday_candidates_prioritizes_fresh_start_over_extended_move() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600511", "刚启动", industry="电力"),
+                _security("600512", "已涨高", industry="电力"),
+                _security("600513", "未启动高质量", industry="医药"),
+                _sector_features(
+                    "电力",
+                    date(2026, 6, 29),
+                    strength=64,
+                    continuity=62,
+                    momentum=60,
+                    breadth=56,
+                    avg_return_20d=0.05,
+                    positive_20d_rate=55,
+                ),
+                _sector_features(
+                    "医药",
+                    date(2026, 6, 29),
+                    strength=82,
+                    continuity=78,
+                    momentum=75,
+                    breadth=68,
+                    avg_return_20d=0.12,
+                    positive_20d_rate=70,
+                ),
+                IntradayMarketTurnSnapshot(
+                    trade_date=date(2026, 6, 30),
+                    snapshot_time=datetime(2026, 6, 30, 9, 45),
+                    coverage_ratio=0.99,
+                    breadth_ratio=0.58,
+                    total_amount=123.0,
+                    index_change_pct=0.003,
+                    sector_expansion_count=2,
+                    state_json={
+                        "data_ready": True,
+                        "leading_sustained_sectors": [{"sector": "电力"}],
+                    },
+                ),
+                _quote(
+                    "600511",
+                    datetime(2026, 6, 30, 9, 35),
+                    price="10.10",
+                    high="10.15",
+                    low="9.95",
+                    volume="100000",
+                ),
+                _quote(
+                    "600511",
+                    datetime(2026, 6, 30, 9, 47),
+                    price="10.38",
+                    high="10.40",
+                    low="9.95",
+                    volume="250000",
+                ),
+                _quote(
+                    "600512",
+                    datetime(2026, 6, 30, 9, 35),
+                    price="10.70",
+                    high="10.75",
+                    low="10.00",
+                    volume="100000",
+                ),
+                _quote(
+                    "600512",
+                    datetime(2026, 6, 30, 9, 47),
+                    price="10.90",
+                    high="10.90",
+                    low="10.00",
+                    volume="250000",
+                ),
+                _quote(
+                    "600513",
+                    datetime(2026, 6, 30, 9, 35),
+                    price="10.20",
+                    high="10.30",
+                    low="9.90",
+                    volume="100000",
+                ),
+                _quote(
+                    "600513",
+                    datetime(2026, 6, 30, 9, 47),
+                    price="10.20",
+                    high="10.30",
+                    low="9.90",
+                    volume="120000",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 9, 47),
+        )
+
+    assert [item["symbol"] for item in result["candidates"]] == [
+        "600511",
+        "600513",
+        "600512",
+    ]
+    starting, not_started, extended = result["candidates"]
+    assert starting["startup_stage"] == "starting"
+    assert starting["startup_label"] == "刚启动"
+    assert starting["startup_score"] > extended["startup_score"]
+    assert "前一快照" in starting["startup_reason"]
+    assert "intraday_leading_sector_scan" in starting["support_flags"]
+    assert not_started["startup_stage"] == "not_started"
+    assert extended["startup_stage"] == "extended"
+    assert extended["startup_label"] == "涨幅偏高"
+    assert extended["selection_tier"] == "defer"
+    assert "intraday_overextended" in extended["risk_flags"]
+
+
+def test_discover_intraday_candidates_keeps_live_sector_rank_before_stock_startup() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600521", "第一板块未启动", industry="电力"),
+                _security("600522", "第二板块刚启动", industry="医药"),
+                _candidate("600521", rank=1, score=88),
+                IntradayMarketTurnSnapshot(
+                    trade_date=date(2026, 6, 30),
+                    snapshot_time=datetime(2026, 6, 30, 9, 45),
+                    coverage_ratio=0.99,
+                    breadth_ratio=0.58,
+                    total_amount=123.0,
+                    index_change_pct=0.003,
+                    sector_expansion_count=2,
+                    state_json={
+                        "data_ready": True,
+                        "leading_sustained_sectors": [
+                            {"sector": "电力"},
+                            {"sector": "医药"},
+                        ],
+                    },
+                ),
+                _quote(
+                    "600521",
+                    datetime(2026, 6, 30, 9, 35),
+                    price="10.20",
+                    high="10.30",
+                    low="9.90",
+                    volume="100000",
+                ),
+                _quote(
+                    "600521",
+                    datetime(2026, 6, 30, 9, 47),
+                    price="10.20",
+                    high="10.30",
+                    low="9.90",
+                    volume="120000",
+                ),
+                _quote(
+                    "600522",
+                    datetime(2026, 6, 30, 9, 35),
+                    price="10.10",
+                    high="10.15",
+                    low="9.95",
+                    volume="100000",
+                ),
+                _quote(
+                    "600522",
+                    datetime(2026, 6, 30, 9, 47),
+                    price="10.38",
+                    high="10.40",
+                    low="9.95",
+                    volume="250000",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 9, 47),
+        )
+
+    assert [item["symbol"] for item in result["candidates"][:2]] == ["600521", "600522"]
+    assert "intraday_leading_sector_rank:1" in result["candidates"][0]["support_flags"]
+    assert "intraday_leading_sector_rank:2" in result["candidates"][1]["support_flags"]
+
+
+def test_discover_intraday_candidates_does_not_use_same_day_close_features_intraday() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600523", "历史回放票", industry="电力"),
+                _candidate("600523", rank=1, score=88),
+                _sector_features(
+                    "电力",
+                    date(2026, 6, 29),
+                    strength=40,
+                    continuity=40,
+                    momentum=40,
+                    breadth=40,
+                    avg_return_20d=-0.05,
+                    positive_20d_rate=35,
+                ),
+                _sector_features(
+                    "电力",
+                    date(2026, 6, 30),
+                    strength=82,
+                    continuity=78,
+                    momentum=75,
+                    breadth=68,
+                    avg_return_20d=0.12,
+                    positive_20d_rate=70,
+                ),
+                _quote(
+                    "600523",
+                    datetime(2026, 6, 30, 10, 0),
+                    price="10.10",
+                    high="10.15",
+                    low="9.95",
+                    volume="100000",
+                ),
+                _quote(
+                    "600523",
+                    datetime(2026, 6, 30, 10, 30),
+                    price="10.38",
+                    high="10.40",
+                    low="9.95",
+                    volume="250000",
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+            as_of=datetime(2026, 6, 30, 10, 30),
+        )
+
+    assert result["candidates"][0]["sector_signal"] == "weak_sector"
 
 
 def test_discover_intraday_candidates_applies_sector_feedback_lightly() -> None:

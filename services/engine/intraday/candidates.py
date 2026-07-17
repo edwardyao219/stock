@@ -44,6 +44,10 @@ class IntradayCandidate:
     intraday_state: str
     intraday_label: str
     intraday_score: float
+    startup_stage: str
+    startup_label: str
+    startup_score: float
+    startup_reason: str
     review_window: str
     review_window_label: str
     sector_signal: str
@@ -111,6 +115,14 @@ SELECTION_TIER_PRIORITY = {
     "defer": 0,
 }
 
+STARTUP_LABELS = {
+    "starting": "刚启动",
+    "accelerating": "加速中",
+    "repairing": "修复观察",
+    "extended": "涨幅偏高",
+    "not_started": "未启动",
+}
+
 DEFAULT_FORMAL_LIMIT = 3
 DEFAULT_FORMAL_PER_SECTOR_LIMIT = 2
 EARLY_SECTOR_SCAN_MAX_SECTORS = 3
@@ -120,6 +132,12 @@ EARLY_SECTOR_SCAN_SCORE = 58.0
 
 def _to_float(value: Decimal | None) -> float | None:
     return float(value) if value is not None else None
+
+
+def _available_daily_feature_date(trade_date: date, as_of: datetime | None) -> date:
+    if as_of is not None and as_of.date() == trade_date:
+        return trade_date - timedelta(days=1)
+    return trade_date
 
 
 def _pct(current: Decimal | None, previous: Decimal | None) -> float | None:
@@ -362,7 +380,7 @@ def _hot_sector_codes(
     return [sector for _, sector in sorted(scored, reverse=True)[:limit]]
 
 
-def _scan_sector_codes(
+def _intraday_leading_sector_codes(
     db: Session,
     *,
     trade_date: date,
@@ -379,18 +397,29 @@ def _scan_sector_codes(
         snapshot_stmt = snapshot_stmt.where(IntradayMarketTurnSnapshot.snapshot_time <= as_of)
     snapshot = db.execute(snapshot_stmt).scalar_one_or_none()
     state = snapshot.state_json or {} if snapshot is not None else {}
-    sectors = []
-    if state.get("data_ready"):
-        sectors = [
-            str(item.get("sector") or "").strip()
-            for item in state.get("leading_sustained_sectors") or []
-            if isinstance(item, dict) and str(item.get("sector") or "").strip()
-        ]
-    daily_feature_date = (
-        trade_date - timedelta(days=1)
-        if as_of is not None and as_of.date() == trade_date
-        else trade_date
+    if not state.get("data_ready"):
+        return []
+    return [
+        str(item.get("sector") or "").strip()
+        for item in state.get("leading_sustained_sectors") or []
+        if isinstance(item, dict) and str(item.get("sector") or "").strip()
+    ][:limit]
+
+
+def _scan_sector_codes(
+    db: Session,
+    *,
+    trade_date: date,
+    as_of: datetime | None = None,
+    limit: int = EARLY_SECTOR_SCAN_MAX_SECTORS,
+) -> list[str]:
+    sectors = _intraday_leading_sector_codes(
+        db,
+        trade_date=trade_date,
+        as_of=as_of,
+        limit=limit,
     )
+    daily_feature_date = _available_daily_feature_date(trade_date, as_of)
     for sector in _hot_sector_codes(db, trade_date=daily_feature_date, limit=limit):
         if sector not in sectors:
             sectors.append(sector)
@@ -502,6 +531,93 @@ def _volume_signal(
     if state in {"distribution", "fading", "downside"}:
         return -5.0, [], ["volume_expansion_on_weakness"], ["放量回落，先看承接是否恢复"]
     return 0.0, [], [], []
+
+
+def _startup_signal(
+    quote: RealtimeQuote,
+    previous: RealtimeQuote | None,
+    *,
+    state: str,
+    volume_confirmed: bool,
+) -> tuple[str, str, float, str, list[str], list[str], list[str]]:
+    day_change = _pct(quote.price, quote.pre_close)
+    previous_day_change = _pct(
+        previous.price if previous else None,
+        previous.pre_close if previous else None,
+    )
+    snapshot_change = _pct(quote.price, previous.price if previous else None)
+    range_position = _range_position(quote.price, quote.high, quote.low)
+
+    if day_change is not None and day_change >= 0.085:
+        return (
+            "extended",
+            STARTUP_LABELS["extended"],
+            25.0,
+            f"当日已上涨{day_change:.2%}，属于启动后的高位段，不再按早启动排序",
+            [],
+            ["intraday_overextended"],
+            ["当日涨幅偏高，启动后的追高风险上升"],
+        )
+    if (
+        previous_day_change is not None
+        and previous_day_change <= 0.015
+        and day_change is not None
+        and 0.015 <= day_change <= 0.05
+        and snapshot_change is not None
+        and snapshot_change >= 0.006
+        and range_position is not None
+        and range_position >= 0.65
+        and volume_confirmed
+    ):
+        return (
+            "starting",
+            STARTUP_LABELS["starting"],
+            92.0,
+            (
+                f"前一快照涨幅{previous_day_change:.2%}，最新升至{day_change:.2%}，"
+                "价格靠近日内高位且量能确认"
+            ),
+            ["intraday_fresh_start"],
+            [],
+            [],
+        )
+    if (
+        day_change is not None
+        and 0.025 <= day_change <= 0.075
+        and snapshot_change is not None
+        and snapshot_change >= 0.01
+        and range_position is not None
+        and range_position >= 0.65
+        and volume_confirmed
+    ):
+        return (
+            "accelerating",
+            STARTUP_LABELS["accelerating"],
+            82.0,
+            f"最新快照继续上涨{snapshot_change:.2%}，价格与量能同步加速",
+            ["intraday_accelerating"],
+            [],
+            [],
+        )
+    if state in {"gap_down_repair", "pullback_repair"}:
+        return (
+            "repairing",
+            STARTUP_LABELS["repairing"],
+            60.0,
+            "当前属于回落后的修复，尚未形成新的启动确认",
+            [],
+            [],
+            [],
+        )
+    return (
+        "not_started",
+        STARTUP_LABELS["not_started"],
+        45.0,
+        "尚未同时出现价格抬升、日内高位和量能确认",
+        [],
+        [],
+        [],
+    )
 
 
 def _sector_feedback_signal(
@@ -682,12 +798,23 @@ def _early_sector_scan_items(
     existing_symbols: set[str],
     include_growth_board: bool,
 ) -> list[ResearchPoolItem]:
-    if not _is_early_divergence_time(as_of):
+    intraday_leading_sector_codes = _intraday_leading_sector_codes(
+        db,
+        trade_date=trade_date,
+        as_of=as_of,
+    )
+    is_early_scan = _is_early_divergence_time(as_of)
+    if not is_early_scan and not intraday_leading_sector_codes:
         return []
 
-    scan_sectors = _scan_sector_codes(db, trade_date=trade_date, as_of=as_of)
+    scan_sectors = (
+        _scan_sector_codes(db, trade_date=trade_date, as_of=as_of)
+        if is_early_scan
+        else intraday_leading_sector_codes
+    )
     if not scan_sectors:
         return []
+    intraday_leading_sectors = set(intraday_leading_sector_codes)
 
     latest_times = (
         select(
@@ -728,19 +855,20 @@ def _early_sector_scan_items(
         scan_sectors,
         EARLY_SECTOR_SCAN_MAX_SYMBOLS,
     ):
+        tags = [
+            "early_sector_scan",
+            "mode:potential_watch",
+            "rank:99",
+            f"score:{EARLY_SECTOR_SCAN_SCORE}",
+        ]
+        if security.industry in intraday_leading_sectors:
+            tags.append("intraday_leading_sector_scan")
         items.append(
             ResearchPoolItem(
                 pool_name=pool_name,
                 symbol=security.symbol,
                 note=f"早盘热门板块扩展扫描：{security.industry}",
-                tags_json={
-                    "tags": [
-                        "early_sector_scan",
-                        "mode:potential_watch",
-                        "rank:99",
-                        f"score:{EARLY_SECTOR_SCAN_SCORE}",
-                    ]
-                },
+                tags_json={"tags": tags},
                 status="active",
             )
         )
@@ -832,6 +960,7 @@ def _selection_tier(
         "intraday_downside_pressure",
         "volume_expansion_on_weakness",
         "sector_feedback_intraday_weakened",
+        "intraday_overextended",
     }
     if hard_risks.intersection(risk_flags):
         reason = caution_reasons[0] if caution_reasons else "盘中转弱，先暂缓追入"
@@ -969,10 +1098,17 @@ def _theme_signal_text(
 
 
 def _ordered_candidates(candidates: list[IntradayCandidate]) -> list[IntradayCandidate]:
+    def leading_sector_rank(item: IntradayCandidate) -> int:
+        return _tag_number(item.support_flags, "intraday_leading_sector_rank:", int) or 999
+
     return sorted(
         candidates,
         key=lambda item: (
+            item.selection_tier != "defer",
+            leading_sector_rank(item) < 999,
+            -leading_sector_rank(item),
             SELECTION_TIER_PRIORITY.get(item.selection_tier, 0),
+            item.startup_score,
             item.sector_quality_score,
             item.intraday_score,
             -(item.candidate_rank or 999),
@@ -1081,20 +1217,16 @@ def _select_display_candidates(
         sector_key = item.sector or "未分类"
         sector_counts[sector_key] = sector_counts.get(sector_key, 0) + 1
 
-    for item in ordered:
-        if item.selection_tier != "formal":
-            continue
-        add(item)
-        if len(selected) >= limit:
-            return selected[:limit]
-
     sector_cap = _soft_display_sector_cap(limit)
     overflow: list[IntradayCandidate] = []
     for item in ordered:
         if item.symbol in selected_symbols:
             continue
         sector_key = item.sector or "未分类"
-        if sector_counts.get(sector_key, 0) >= sector_cap:
+        if (
+            item.selection_tier != "formal"
+            and sector_counts.get(sector_key, 0) >= sector_cap
+        ):
             overflow.append(item)
             continue
         add(item)
@@ -1124,6 +1256,14 @@ def discover_intraday_candidates(
     market_stress: dict[str, Any] | None = None,
     sustained_startup_sectors: set[str] | None = None,
 ) -> dict[str, Any]:
+    intraday_leading_sectors = _intraday_leading_sector_codes(
+        db,
+        trade_date=trade_date,
+        as_of=as_of,
+    )
+    intraday_leading_ranks = {
+        sector: index for index, sector in enumerate(intraday_leading_sectors, start=1)
+    }
     source_pool_items = _candidate_items_source(db, pool_name=pool_name)
     candidate_batch = candidate_batch_summary(source_pool_items)
     pool_items = filter_latest_candidate_batch_items(source_pool_items)
@@ -1143,12 +1283,16 @@ def discover_intraday_candidates(
         item.symbol: item
         for item in db.execute(select(Security).where(Security.symbol.in_(symbols))).scalars()
     }
+    daily_feature_date = _available_daily_feature_date(trade_date, as_of)
     sector_features = _sector_feature_map(
         db,
         sorted({security.industry for security in securities.values() if security.industry}),
-        trade_date=trade_date,
+        trade_date=daily_feature_date,
     )
-    theme_moneyflow_rows = load_latest_theme_moneyflow_rows(db, trade_date=trade_date)
+    theme_moneyflow_rows = load_latest_theme_moneyflow_rows(
+        db,
+        trade_date=daily_feature_date,
+    )
     latest_quotes = _latest_quotes(db, symbols, trade_date=trade_date, as_of=as_of)
     (
         market_stress_delta,
@@ -1182,8 +1326,17 @@ def discover_intraday_candidates(
             support_flags.append("candidate_potential_watch")
         if "early_sector_scan" in tags:
             support_flags.append("sector_hot_pool_scan")
+        if "intraday_leading_sector_scan" in tags:
+            support_flags.append("intraday_leading_sector_scan")
         day_change_pct = _pct(quote.price, quote.pre_close)
         security = securities.get(item.symbol)
+        leading_sector_rank = intraday_leading_ranks.get(
+            security.industry if security else None
+        )
+        if leading_sector_rank is not None:
+            if "intraday_leading_sector_scan" not in support_flags:
+                support_flags.append("intraday_leading_sector_scan")
+            support_flags.append(f"intraday_leading_sector_rank:{leading_sector_rank}")
         sector_signal, sector_delta, sector_support, sector_risks, sector_cautions = _sector_signal(
             sector_features.get(security.industry) if security and security.industry else None
         )
@@ -1198,14 +1351,33 @@ def discover_intraday_candidates(
             previous,
             state,
         )
+        (
+            startup_stage,
+            startup_label,
+            startup_score,
+            startup_reason,
+            startup_support,
+            startup_risks,
+            startup_cautions,
+        ) = _startup_signal(
+            quote,
+            previous,
+            state=state,
+            volume_confirmed="intraday_volume_confirmed" in volume_support,
+        )
         feedback_delta, feedback_support, feedback_risks, feedback_cautions = (
             _sector_feedback_signal(
                 security.industry if security else None,
                 sector_feedback,
             )
         )
-        support_flags = [*support_flags, *volume_support, *feedback_support]
-        risk_flags = [*risk_flags, *volume_risks, *feedback_risks]
+        support_flags = [
+            *support_flags,
+            *volume_support,
+            *startup_support,
+            *feedback_support,
+        ]
+        risk_flags = [*risk_flags, *volume_risks, *startup_risks, *feedback_risks]
         theme_signal = build_theme_moneyflow_signal(
             tags=tags,
             note=item.note,
@@ -1228,6 +1400,7 @@ def discover_intraday_candidates(
             sector_cautions=[
                 *sector_cautions,
                 *volume_cautions,
+                *startup_cautions,
                 *feedback_cautions,
                 *theme_signal.caution_reasons,
                 *market_stress_cautions,
@@ -1276,6 +1449,10 @@ def discover_intraday_candidates(
                 intraday_state=state,
                 intraday_label=INTRADAY_LABELS.get(state, "盘中快照"),
                 intraday_score=intraday_score,
+                startup_stage=startup_stage,
+                startup_label=startup_label,
+                startup_score=startup_score,
+                startup_reason=startup_reason,
                 review_window=review_window,
                 review_window_label=REVIEW_WINDOW_LABELS.get(review_window, "盘中快照"),
                 sector_signal=sector_signal,

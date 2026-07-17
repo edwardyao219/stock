@@ -1065,11 +1065,13 @@ function candidateExplanationText(item: {
   selection_reason?: string;
   caution_reasons: string[];
   summary: string;
+  startup_reason?: string | null;
   theme_signal_reason?: string | null;
 }) {
-  const base = cautionText(item);
-  if (!item.theme_signal_reason || base.includes(item.theme_signal_reason)) return base;
-  return cleanDisplayText(`${base}；${item.theme_signal_reason}`);
+  const parts = [item.startup_reason, cautionText(item), item.theme_signal_reason].filter(
+    (value, index, values): value is string => Boolean(value) && values.indexOf(value) === index,
+  );
+  return cleanDisplayText(parts.join("；"));
 }
 
 function candidateBatchText(batch: IntradayCandidateList["candidate_batch"] | undefined) {
@@ -2373,12 +2375,12 @@ export function App() {
                         <em>{candidateExplanationText(item)}</em>
                       </span>
                       <span>
-                        <b>{item.intraday_label}</b>
+                        <b>{item.startup_label}</b>
                         <small>
-                          {pct(item.day_change_pct)} / {item.intraday_score.toFixed(1)}分
+                          启动 {item.startup_score.toFixed(1)}分 / 今日 {pct(item.day_change_pct)}
                         </small>
                         <small>
-                          {item.review_window_label} / {item.sector_quality_label}
+                          {item.intraday_label} / {item.sector_quality_label}
                           {item.sector_quality_score.toFixed(1)}分
                         </small>
                       </span>
@@ -4737,10 +4739,13 @@ export function App() {
                             <small>{item.name ?? "-"} / {item.sector ?? "-"}</small>
                           </span>
                           <span>
-                            <b>{item.intraday_label}</b>
-                            <small>{pct(item.day_change_pct)} / {item.intraday_score.toFixed(1)}分</small>
+                            <b>{item.startup_label}</b>
                             <small>
-                              {item.sector_quality_label}{item.sector_quality_score.toFixed(1)}
+                              启动 {item.startup_score.toFixed(1)}分 / 今日 {pct(item.day_change_pct)}
+                            </small>
+                            <small>
+                              {item.intraday_label} / {item.sector_quality_label}
+                              {item.sector_quality_score.toFixed(1)}
                             </small>
                           </span>
                           <em>{candidateExplanationText(item)}</em>

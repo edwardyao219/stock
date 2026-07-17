@@ -543,6 +543,10 @@ export interface IntradayCandidate {
   intraday_state: string;
   intraday_label: string;
   intraday_score: number;
+  startup_stage: string;
+  startup_label: string;
+  startup_score: number;
+  startup_reason: string;
   review_window: string;
   review_window_label: string;
   sector_signal: string;
