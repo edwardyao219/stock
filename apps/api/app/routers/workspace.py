@@ -786,6 +786,8 @@ def list_intraday_candidates(
         if symbols:
             sync_realtime_quotes(symbols=symbols, quote_time=parsed_as_of)
             db.rollback()
+            parsed_as_of = now_local()
+            trade_date = parsed_as_of.date()
     market_stress = None if as_of else _live_market_stress_snapshot(db)
     sustained_startup_sectors = _sustained_startup_sectors(
         db,

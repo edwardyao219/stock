@@ -866,7 +866,7 @@ def test_list_intraday_candidates_passes_live_market_stress_only_for_current(
     assert captured[1]["market_stress"] is None
 
 
-def test_list_intraday_candidates_refreshes_research_pool_quotes_when_requested(
+def test_list_intraday_candidates_refresh_includes_quotes_returned_after_request_start(
     monkeypatch,
 ) -> None:
     engine = create_engine("sqlite:///:memory:")
@@ -921,7 +921,7 @@ def test_list_intraday_candidates_refreshes_research_pool_quotes_when_requested(
                 RealtimeQuote(
                     symbol="600001",
                     trade_date=date(2026, 1, 22),
-                    quote_time=datetime(2026, 1, 22, 10, 8),
+                    quote_time=datetime(2026, 1, 22, 10, 10, 20),
                     price=Decimal("10.8"),
                     open=Decimal("10"),
                     high=Decimal("10.9"),
@@ -937,9 +937,15 @@ def test_list_intraday_candidates_refreshes_research_pool_quotes_when_requested(
             return []
 
         monkeypatch.setattr("apps.api.app.routers.workspace.sync_realtime_quotes", fake_sync)
+        clock = iter(
+            [
+                datetime(2026, 1, 22, 10, 10),
+                datetime(2026, 1, 22, 10, 10, 30),
+            ]
+        )
         monkeypatch.setattr(
             "apps.api.app.routers.workspace.now_local",
-            lambda: datetime(2026, 1, 22, 10, 10),
+            lambda: next(clock),
             raising=False,
         )
         payload = list_intraday_candidates(
@@ -953,9 +959,10 @@ def test_list_intraday_candidates_refreshes_research_pool_quotes_when_requested(
         "quote_time": datetime(2026, 1, 22, 10, 10),
     }
     assert rollback_calls == 1
+    assert payload["as_of"] == "2026-01-22T10:10:30"
     assert payload["candidate_count"] == 1
     assert payload["candidates"][0]["symbol"] == "600001"
-    assert payload["candidates"][0]["quote_time"] == "2026-01-22T10:08:00"
+    assert payload["candidates"][0]["quote_time"] == "2026-01-22T10:10:20"
 
 
 def test_list_intraday_candidates_reports_early_hot_sector_quote_coverage(monkeypatch) -> None:
