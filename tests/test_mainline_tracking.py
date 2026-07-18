@@ -113,7 +113,44 @@ def test_confirmed_mainline_outcomes_use_1030_signal_close_and_trade_day_horizon
     assert rows[0].horizons[3].return_pct == 0.3
     assert rows[0].horizons[5].status == "waiting"
     assert rows[0].candidate_bindings[0].symbol == "600002"
-    assert rows[0].candidate_bindings[0].horizons[1].return_pct == 0.1
+
+
+def test_mainline_outcomes_keep_0945_observation_separate_from_1030_confirmation() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 1)
+    state = {
+        "cross_day_mainline": {
+            "status": "观察确认",
+            "checkpoint": "9:45观察",
+            "sectors": [
+                {
+                    "sector": "半导体",
+                    "status": "观察确认",
+                    "current_leader_symbol": "600001",
+                }
+            ],
+        }
+    }
+    with Session(engine) as db:
+        db.add(
+            IntradayMarketTurnSnapshot(
+                trade_date=signal_date,
+                snapshot_time=datetime(2026, 7, 1, 9, 45),
+                coverage_ratio=0.99,
+                breadth_ratio=0.6,
+                total_amount=100,
+                index_change_pct=0.002,
+                sector_expansion_count=3,
+                state_json=state,
+            )
+        )
+        db.add(_bar(signal_date, "10"))
+        db.add(_bar(date(2026, 7, 2), "11"))
+        db.commit()
+        rows = list_confirmed_mainline_outcomes(db, signal_type="watch_mainline")
+    assert [item.signal_type for item in rows] == ["watch_mainline"]
+    assert rows[0].horizons[1].return_pct == 0.1
 
 
 def test_mainline_candidate_bindings_keep_only_formal_candidates_in_confirmed_sectors() -> None:

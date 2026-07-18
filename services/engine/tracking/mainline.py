@@ -212,6 +212,16 @@ def list_confirmed_mainline_outcomes(
         signals: list[tuple[str, dict[str, object]]] = []
         if (
             isinstance(cross_day, dict)
+            and cross_day.get("checkpoint") == "9:45观察"
+            and cross_day.get("status") == "观察确认"
+        ):
+            signals.extend(
+                ("watch_mainline", item)
+                for item in cross_day.get("sectors") or []
+                if isinstance(item, dict) and item.get("status") == "观察确认"
+            )
+        if (
+            isinstance(cross_day, dict)
             and cross_day.get("checkpoint") == "10:30复核"
             and cross_day.get("status") == "观察确认"
         ):
