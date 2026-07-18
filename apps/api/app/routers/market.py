@@ -253,6 +253,34 @@ class ResearchSignalBreakdownResponse(BaseModel):
     win_rate: float
 
 
+class ResearchSignalExecutionResponse(BaseModel):
+    status: str
+    plan_id: int | None
+    trade_date: str | None
+    position_id: int | None
+    entry_date: str | None
+    entry_price: float | None
+    entry_slippage_pct: float | None
+    exit_date: str | None
+    pnl_pct: float | None
+    max_gain_pct: float | None
+    max_drawdown_pct: float | None
+    exit_reason: str | None
+    order_reason: str | None
+
+
+class ResearchSignalExecutionFunnelResponse(BaseModel):
+    research_only_count: int
+    planned_count: int
+    waiting_entry_count: int
+    not_entered_count: int
+    open_count: int
+    closed_count: int
+    avg_entry_slippage_pct: float | None
+    closed_avg_pnl_pct: float | None
+    closed_win_rate: float | None
+
+
 class ResearchSignalLedgerItemResponse(BaseModel):
     id: int
     source: str
@@ -267,6 +295,7 @@ class ResearchSignalLedgerItemResponse(BaseModel):
     market_state: str | None
     executable: bool
     evidence: dict[str, object] = Field(default_factory=dict)
+    execution: ResearchSignalExecutionResponse
     horizons: dict[int, ResearchSignalHorizonResponse]
 
 
@@ -281,6 +310,7 @@ class ResearchSignalLedgerResponse(BaseModel):
     market_regimes: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
     market_states: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
     sectors: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
+    execution_funnel: ResearchSignalExecutionFunnelResponse
     signals: list[ResearchSignalLedgerItemResponse] = Field(default_factory=list)
 
 

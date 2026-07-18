@@ -3804,6 +3804,12 @@ export function App() {
                 <div className="research-signal-breakdown">
                   <span>信号 {researchSignalLedger.signal_count}</span>
                   <span>
+                    执行 计划{researchSignalLedger.execution_funnel.planned_count} / 待入场{researchSignalLedger.execution_funnel.waiting_entry_count} / 未成交{researchSignalLedger.execution_funnel.not_entered_count} / 持仓{researchSignalLedger.execution_funnel.open_count} / 已结束{researchSignalLedger.execution_funnel.closed_count}
+                  </span>
+                  <span>
+                    入场滑点 {pct(researchSignalLedger.execution_funnel.avg_entry_slippage_pct)} / 纸面收益 {pct(researchSignalLedger.execution_funnel.closed_avg_pnl_pct)} / 胜率 {pct(researchSignalLedger.execution_funnel.closed_win_rate)}
+                  </span>
+                  <span>
                     类型 {researchSignalLedger.signal_types.length
                       ? researchSignalLedger.signal_types.slice(0, 3).map((item) => `${item.key} 样本${item.sample_count} / ${pct(item.avg_return_pct)}`).join("；")
                       : "等待成熟样本"}

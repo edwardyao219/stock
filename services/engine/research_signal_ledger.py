@@ -8,7 +8,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from services.shared.models import DailyBar, ResearchSignalLedger, TradingCalendar
+from services.shared.models import (
+    DailyBar,
+    PaperOrder,
+    PaperPosition,
+    ResearchSignalLedger,
+    TradePlan,
+    TradingCalendar,
+)
 
 HORIZONS = (1, 3, 5, 10)
 MIN_SAMPLES_FOR_POLICY = 30
@@ -339,6 +346,148 @@ def _breakdowns(signals: list[dict[str, Any]], horizon: int = 3) -> dict[str, li
     }
 
 
+def _execution_report(
+    db: Session,
+    rows: list[ResearchSignalLedger],
+    *,
+    current_time: datetime,
+) -> tuple[dict[int, dict[str, Any]], dict[str, Any]]:
+    signal_dates = {row.signal_date for row in rows}
+    symbols = {row.symbol for row in rows}
+    plans = list(
+        db.execute(
+            select(TradePlan)
+            .where(TradePlan.plan_date.in_(signal_dates))
+            .where(TradePlan.symbol.in_(symbols))
+            .order_by(TradePlan.id)
+        ).scalars()
+    )
+    plans_by_key: dict[tuple[date, str], list[TradePlan]] = defaultdict(list)
+    for plan in plans:
+        plans_by_key[(plan.plan_date, plan.symbol)].append(plan)
+    plan_ids = {plan.id for plan in plans}
+    positions = (
+        list(
+            db.execute(
+                select(PaperPosition)
+                .where(PaperPosition.trade_plan_id.in_(plan_ids))
+                .order_by(PaperPosition.id.desc())
+            ).scalars()
+        )
+        if plan_ids
+        else []
+    )
+    orders = (
+        list(
+            db.execute(
+                select(PaperOrder)
+                .where(PaperOrder.trade_plan_id.in_(plan_ids))
+                .where(PaperOrder.side == "buy")
+                .order_by(PaperOrder.id.desc())
+            ).scalars()
+        )
+        if plan_ids
+        else []
+    )
+    position_by_plan = {
+        position.trade_plan_id: position
+        for position in reversed(positions)
+        if position.trade_plan_id is not None
+    }
+    order_by_plan = {
+        order.trade_plan_id: order
+        for order in reversed(orders)
+        if order.trade_plan_id is not None
+    }
+    executions: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        is_formal_daily = row.signal_type == "daily_formal_strategy"
+        matching_plans = plans_by_key.get((row.signal_date, row.symbol), [])
+        selected_rule = str((row.evidence_json or {}).get("selected_rule_id") or "")
+        plan = next(
+            (item for item in matching_plans if item.rule_id == selected_rule),
+            matching_plans[0] if matching_plans else None,
+        )
+        if not is_formal_daily or plan is None:
+            executions[row.id] = {
+                "status": "research_only",
+                "plan_id": plan.id if plan else None,
+                "trade_date": plan.trade_date.isoformat() if plan else None,
+                "position_id": None,
+                "entry_date": None,
+                "entry_price": None,
+                "entry_slippage_pct": None,
+                "exit_date": None,
+                "pnl_pct": None,
+                "max_gain_pct": None,
+                "max_drawdown_pct": None,
+                "exit_reason": None,
+                "order_reason": None,
+            }
+            continue
+        position = position_by_plan.get(plan.id)
+        order = order_by_plan.get(plan.id)
+        if position is None:
+            awaiting_entry = plan.trade_date > current_time.date() or (
+                plan.trade_date == current_time.date()
+                and (current_time.hour, current_time.minute) < (15, 5)
+            )
+            executions[row.id] = {
+                "status": "waiting_entry" if awaiting_entry else "not_entered",
+                "plan_id": plan.id,
+                "trade_date": plan.trade_date.isoformat(),
+                "position_id": None,
+                "entry_date": None,
+                "entry_price": None,
+                "entry_slippage_pct": None,
+                "exit_date": None,
+                "pnl_pct": None,
+                "max_gain_pct": None,
+                "max_drawdown_pct": None,
+                "exit_reason": None,
+                "order_reason": order.reason if order else None,
+            }
+            continue
+        entry_price = float(position.entry_price)
+        executions[row.id] = {
+            "status": "closed" if position.status == "closed" else "open",
+            "plan_id": plan.id,
+            "trade_date": plan.trade_date.isoformat(),
+            "position_id": position.id,
+            "entry_date": position.entry_date.isoformat(),
+            "entry_price": entry_price,
+            "entry_slippage_pct": round(entry_price / row.signal_price - 1, 6),
+            "exit_date": position.exit_date.isoformat() if position.exit_date else None,
+            "pnl_pct": float(position.pnl_pct) if position.pnl_pct is not None else None,
+            "max_gain_pct": round(float(position.highest_price) / entry_price - 1, 6),
+            "max_drawdown_pct": round(float(position.lowest_price) / entry_price - 1, 6),
+            "exit_reason": position.exit_reason,
+            "order_reason": order.reason if order else None,
+        }
+    values = list(executions.values())
+    entered = [item for item in values if item["entry_slippage_pct"] is not None]
+    closed = [item for item in values if item["status"] == "closed" and item["pnl_pct"] is not None]
+    return executions, {
+        "research_only_count": sum(item["status"] == "research_only" for item in values),
+        "planned_count": sum(item["plan_id"] is not None for item in values),
+        "waiting_entry_count": sum(item["status"] == "waiting_entry" for item in values),
+        "not_entered_count": sum(item["status"] == "not_entered" for item in values),
+        "open_count": sum(item["status"] == "open" for item in values),
+        "closed_count": len(closed),
+        "avg_entry_slippage_pct": (
+            round(fmean(float(item["entry_slippage_pct"]) for item in entered), 6)
+            if entered
+            else None
+        ),
+        "closed_avg_pnl_pct": (
+            round(fmean(float(item["pnl_pct"]) for item in closed), 6) if closed else None
+        ),
+        "closed_win_rate": (
+            round(sum(float(item["pnl_pct"]) > 0 for item in closed) / len(closed), 6)
+            if closed
+            else None
+        ),
+    }
 def evaluate_research_signal_ledger(
     db: Session,
     *,
@@ -366,6 +515,17 @@ def evaluate_research_signal_ledger(
             "market_regimes": [],
             "market_states": [],
             "sectors": [],
+            "execution_funnel": {
+                "research_only_count": 0,
+                "planned_count": 0,
+                "waiting_entry_count": 0,
+                "not_entered_count": 0,
+                "open_count": 0,
+                "closed_count": 0,
+                "avg_entry_slippage_pct": None,
+                "closed_avg_pnl_pct": None,
+                "closed_win_rate": None,
+            },
             "signals": [],
         }
     first_signal_date = min(item.signal_date for item in rows)
@@ -388,6 +548,7 @@ def evaluate_research_signal_ledger(
             .where(DailyBar.trade_date <= cutoff)
         ).scalars()
     }
+    executions, execution_funnel = _execution_report(db, rows, current_time=current_time)
     signals = []
     for row in rows:
         signals.append(
@@ -405,6 +566,7 @@ def evaluate_research_signal_ledger(
                 "market_state": row.market_state,
                 "executable": row.executable,
                 "evidence": row.evidence_json or {},
+                "execution": executions[row.id],
                 "horizons": {
                     horizon: _horizon_result(
                         row=row,
@@ -429,5 +591,6 @@ def evaluate_research_signal_ledger(
         "horizons": summary,
         "breakdown_horizon": 3,
         **breakdowns,
+        "execution_funnel": execution_funnel,
         "signals": signals,
     }

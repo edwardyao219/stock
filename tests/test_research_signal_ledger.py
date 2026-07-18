@@ -5,7 +5,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from services.shared.database import Base
-from services.shared.models import DailyBar, TradingCalendar
+from services.shared.models import (
+    DailyBar,
+    PaperOrder,
+    PaperPosition,
+    TradePlan,
+    TradingCalendar,
+)
 
 
 def _bar(symbol: str, trade_date: date, close: str, *, suspended: bool = False) -> DailyBar:
@@ -215,6 +221,8 @@ def test_market_api_exposes_research_signal_ledger_report() -> None:
     assert report.signal_count == 0
     assert report.policy_status == "insufficient"
     assert report.horizons[3].minimum_sample_count == 30
+    assert report.execution_funnel.planned_count == 0
+    assert report.execution_funnel.closed_count == 0
 
 
 def test_daily_candidate_signal_builder_requires_current_feature_date_and_close_price() -> None:
@@ -256,3 +264,122 @@ def test_daily_candidate_signal_builder_requires_current_feature_date_and_close_
         signal_time=signal_time,
         prices_by_symbol={"600001": 10.2},
     ) == []
+
+
+def test_research_signal_ledger_links_daily_signals_to_paper_execution() -> None:
+    from services.engine.research_signal_ledger import (
+        evaluate_research_signal_ledger,
+        record_research_signals,
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_time = datetime(2026, 7, 1, 15, 5)
+    with Session(engine) as db:
+        record_research_signals(
+            db,
+            [
+                {
+                    "source": "daily_candidate_discovery",
+                    "signal_type": "daily_formal_strategy",
+                    "signal_time": signal_time,
+                    "symbol": "600001",
+                    "signal_price": 10.0,
+                    "evidence": {"selected_rule_id": "R001"},
+                },
+                {
+                    "source": "daily_candidate_discovery",
+                    "signal_type": "daily_observation",
+                    "signal_time": signal_time,
+                    "symbol": "600002",
+                    "signal_price": 10.0,
+                },
+                {
+                    "source": "daily_candidate_discovery",
+                    "signal_type": "daily_formal_strategy",
+                    "signal_time": signal_time,
+                    "symbol": "600003",
+                    "signal_price": 10.0,
+                    "evidence": {"selected_rule_id": "R001"},
+                },
+            ],
+        )
+        db.add_all(
+            [
+                TradePlan(
+                    id=1,
+                    plan_date=date(2026, 7, 1),
+                    trade_date=date(2026, 7, 2),
+                    symbol="600001",
+                    rule_id="R001",
+                    strategy_type="swing",
+                    entry_condition_json={},
+                    position_size=Decimal("0.1"),
+                    status="executed",
+                ),
+                TradePlan(
+                    id=2,
+                    plan_date=date(2026, 7, 1),
+                    trade_date=date(2026, 7, 2),
+                    symbol="600003",
+                    rule_id="R001",
+                    strategy_type="swing",
+                    entry_condition_json={},
+                    position_size=Decimal("0.1"),
+                    status="planned",
+                ),
+                PaperPosition(
+                    id=1,
+                    account_id=1,
+                    trade_plan_id=1,
+                    symbol="600001",
+                    rule_id="R001",
+                    strategy_type="swing",
+                    entry_date=date(2026, 7, 2),
+                    entry_price=Decimal("10.2"),
+                    quantity=100,
+                    highest_price=Decimal("11.5"),
+                    lowest_price=Decimal("9.8"),
+                    status="closed",
+                    exit_date=date(2026, 7, 6),
+                    exit_price=Decimal("11.22"),
+                    exit_reason="time_exit",
+                    pnl=Decimal("102"),
+                    pnl_pct=Decimal("0.1"),
+                ),
+                PaperOrder(
+                    account_id=1,
+                    trade_plan_id=2,
+                    symbol="600003",
+                    side="buy",
+                    order_date=date(2026, 7, 2),
+                    quantity=0,
+                    status="skipped",
+                    reason="高开超过计划上限",
+                ),
+            ]
+        )
+        db.commit()
+
+        report = evaluate_research_signal_ledger(
+            db,
+            current_time=datetime(2026, 7, 10, 16, 0),
+        )
+
+    assert report["execution_funnel"] == {
+        "research_only_count": 1,
+        "planned_count": 2,
+        "waiting_entry_count": 0,
+        "not_entered_count": 1,
+        "open_count": 0,
+        "closed_count": 1,
+        "avg_entry_slippage_pct": 0.02,
+        "closed_avg_pnl_pct": 0.1,
+        "closed_win_rate": 1.0,
+    }
+    by_symbol = {item["symbol"]: item for item in report["signals"]}
+    assert by_symbol["600001"]["execution"]["status"] == "closed"
+    assert by_symbol["600001"]["execution"]["entry_slippage_pct"] == 0.02
+    assert by_symbol["600002"]["execution"]["status"] == "research_only"
+    assert by_symbol["600003"]["execution"]["status"] == "not_entered"
+    assert by_symbol["600003"]["execution"]["order_reason"] == "高开超过计划上限"

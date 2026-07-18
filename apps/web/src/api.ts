@@ -237,6 +237,17 @@ export interface ResearchSignalLedger {
   breakdown_horizon: number;
   signal_types: ResearchSignalBreakdown[];
   sectors: ResearchSignalBreakdown[];
+  execution_funnel: {
+    research_only_count: number;
+    planned_count: number;
+    waiting_entry_count: number;
+    not_entered_count: number;
+    open_count: number;
+    closed_count: number;
+    avg_entry_slippage_pct: number | null;
+    closed_avg_pnl_pct: number | null;
+    closed_win_rate: number | null;
+  };
 }
 
 export interface IntradayExpandingSector {
