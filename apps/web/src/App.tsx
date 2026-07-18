@@ -3666,6 +3666,7 @@ export function App() {
               <small>统计10:30确认主线与强启动对照；收益按信号日收盘计算。</small>
             </div>
             {mainlineOutcomeSummary ? (
+              <>
               <div className="review-strip-meta">
                 <span className={mainlineOutcomeSummary.policy_status === "usable" ? "up" : "down"}>
                   {mainlineOutcomeSummary.policy_status === "usable"
@@ -3707,6 +3708,23 @@ export function App() {
                     : "3日样本等待"}
                 </span>
               </div>
+              <div className="mainline-phase-compare">
+                {[
+                  ["watch_mainline", "9:45观察"],
+                  ["confirmed_mainline", "10:30确认"],
+                  ["strong_benchmark", "强启动对照"],
+                ].map(([key, label]) => {
+                  const item = mainlineOutcomeSummary.phase_summaries[key]?.find((row) => row.horizon === 3);
+                  return (
+                    <div key={key}>
+                      <span>{label}</span>
+                      <strong className={(item?.avg_return_pct ?? 0) >= 0 ? "up" : "down"}>{pct(item?.avg_return_pct)}</strong>
+                      <small>样本 {item?.sample_count ?? 0} / 胜率 {pct(item?.win_rate)}{item?.eligible_for_policy ? "" : " / 仅观察"}</small>
+                    </div>
+                  );
+                })}
+              </div>
+              </>
             ) : null}
             {confirmedMainlineOutcomes.length ? (
               <div className="sector-catalyst-list">

@@ -455,6 +455,12 @@ button {
 .after-close-push-metrics .late-market-turn-health.warning { color: #b45309; }
 .after-close-push-metrics .late-market-turn-health.missing { color: #b91c1c; }
 
+.mainline-phase-compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #e1e8ef; }
+.mainline-phase-compare > div { min-width: 0; padding: 8px 10px; }
+.mainline-phase-compare > div + div { border-left: 1px solid #e1e8ef; }
+.mainline-phase-compare span, .mainline-phase-compare small { color: #64748b; display: block; font-size: 12px; }
+.mainline-phase-compare strong { display: block; font-size: 16px; margin: 2px 0; }
+
 .post-close-review-board {
   display: grid;
   gap: 10px;
