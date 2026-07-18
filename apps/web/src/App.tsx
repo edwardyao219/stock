@@ -3729,7 +3729,8 @@ export function App() {
                 const watch = mainlineOutcomeSummary.phase_summaries.watch_mainline?.find((item) => item.horizon === 3);
                 const confirmed = mainlineOutcomeSummary.phase_summaries.confirmed_mainline?.find((item) => item.horizon === 3);
                 const comparable = watch?.eligible_for_policy && confirmed?.eligible_for_policy;
-                return <small className="mainline-phase-delta">观察到确认的3日增量 {comparable ? pct((confirmed.avg_return_pct ?? 0) - (watch.avg_return_pct ?? 0)) : "样本不足，仅观察"}</small>;
+                const delta = (confirmed?.avg_return_pct ?? 0) - (watch?.avg_return_pct ?? 0);
+                return <small className="mainline-phase-delta">观察到确认的3日增量 {comparable ? `${pct(delta)} / ${delta >= 0 ? "确认优势待复核" : "确认优势未出现"}` : "样本不足，仅观察"}</small>;
               })()}
               </>
             ) : null}
