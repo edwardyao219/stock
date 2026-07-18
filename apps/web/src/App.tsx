@@ -4828,6 +4828,11 @@ export function App() {
                 <strong>{scoreText(dataHealth?.volume_confirmation_median ?? null)}</strong>
                 <small>样本稳定性</small>
               </div>
+              <div>
+                <span>尾盘快照</span>
+                <strong>{dataHealth?.late_market_turn_20d?.healthy_days ?? 0} 日</strong>
+                <small>近20日已发现 {dataHealth?.late_market_turn_20d?.observed_days ?? 0} 日</small>
+              </div>
             </div>
             <div className="data-health-schedule">
               <div>
