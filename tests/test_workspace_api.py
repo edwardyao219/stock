@@ -1298,6 +1298,19 @@ def test_list_intraday_candidate_snapshots_includes_startup_outcomes(monkeypatch
             "unavailable_count": 0,
             "context_counts": {"systemic_risk": 1},
             "summary": {},
+            "regime_transition_summary": {
+                1: [
+                    {
+                        "regime_transition": "range -> rebound",
+                        "sample_count": 3,
+                        "win_rate": 1.0,
+                        "avg_return_pct": 0.02,
+                        "is_sufficient_samples": True,
+                    }
+                ],
+                3: [],
+                5: [],
+            },
             "outcomes": [],
         }
 
@@ -1317,6 +1330,10 @@ def test_list_intraday_candidate_snapshots_includes_startup_outcomes(monkeypatch
     assert payload["startup_outcomes"]["signal_count"] == 1
     validated = IntradayCandidateSnapshotListResponse.model_validate(payload)
     assert validated.startup_outcomes.signal_count == 1
+    assert (
+        validated.startup_outcomes.regime_transition_summary[1][0].regime_transition
+        == "range -> rebound"
+    )
     assert len(captured["snapshot_days"]) == 1
     assert captured["snapshot_days"][0] == payload["snapshots"]
     assert captured["current_time"] == current_time

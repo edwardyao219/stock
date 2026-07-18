@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from datetime import date, datetime
 from statistics import fmean
 from typing import Any
@@ -8,7 +8,12 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from services.shared.models import DailyBar, IntradayMarketTurnSnapshot, TradingCalendar
+from services.shared.models import (
+    DailyBar,
+    IntradayMarketTurnSnapshot,
+    MarketRegimeDaily,
+    TradingCalendar,
+)
 
 HORIZONS = (1, 3, 5)
 STARTUP_STAGES = {"starting", "accelerating"}
@@ -168,6 +173,33 @@ def _summary(outcomes: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     return summary
 
 
+def _regime_transition_summary(outcomes: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    summary: dict[int, list[dict[str, Any]]] = {}
+    for horizon in HORIZONS:
+        returns_by_transition: dict[str, list[float]] = {}
+        for outcome in outcomes:
+            transition = outcome.get("regime_transition")
+            result = outcome["horizons"][horizon]
+            if not transition or result["status"] != "completed":
+                continue
+            returns_by_transition.setdefault(str(transition), []).append(
+                float(result["return_pct"])
+            )
+        summary[horizon] = [
+            {
+                "regime_transition": transition,
+                "sample_count": len(returns),
+                "win_rate": round(sum(value > 0 for value in returns) / len(returns), 4),
+                "avg_return_pct": round(fmean(returns), 6),
+                "is_sufficient_samples": len(returns) >= 3,
+            }
+            for transition, returns in sorted(
+                returns_by_transition.items(), key=lambda item: (-len(item[1]), item[0])
+            )
+        ]
+    return summary
+
+
 def build_intraday_startup_outcomes(
     db: Session,
     snapshot_days: list[list[dict[str, Any]]],
@@ -183,6 +215,7 @@ def build_intraday_startup_outcomes(
             "unavailable_count": 0,
             "context_counts": {},
             "summary": _summary([]),
+            "regime_transition_summary": _regime_transition_summary([]),
             "outcomes": [],
         }
 
@@ -224,9 +257,32 @@ def build_intraday_startup_outcomes(
     market_by_date: dict[date, list[IntradayMarketTurnSnapshot]] = {}
     for item in market_snapshots:
         market_by_date.setdefault(item.trade_date, []).append(item)
+    calendar_dates = list(
+        db.execute(
+            select(TradingCalendar.trade_date)
+            .where(TradingCalendar.is_open.is_(True))
+            .where(TradingCalendar.trade_date <= max(signal_dates))
+            .order_by(TradingCalendar.trade_date)
+        ).scalars()
+    )
+    previous_trade_dates = {}
+    for signal_date in signal_dates:
+        index = bisect_left(calendar_dates, signal_date)
+        previous_trade_dates[signal_date] = calendar_dates[index - 1] if index else None
+    regime_dates = signal_dates | {
+        trade_date for trade_date in previous_trade_dates.values() if trade_date is not None
+    }
+    regimes_by_date = {
+        item.trade_date: item.regime
+        for item in db.execute(
+            select(MarketRegimeDaily).where(MarketRegimeDaily.trade_date.in_(regime_dates))
+        ).scalars()
+    }
 
     outcomes: list[dict[str, Any]] = []
     for signal in signals:
+        market_regime = regimes_by_date.get(signal["signal_date"])
+        previous_market_regime = regimes_by_date.get(previous_trade_dates[signal["signal_date"]])
         outcome = {
             **{key: value for key, value in signal.items() if key != "signal_date"},
             "signal_date": signal["signal_date"].isoformat(),
@@ -234,6 +290,13 @@ def build_intraday_startup_outcomes(
             **_market_context(
                 market_by_date.get(signal["signal_date"], []),
                 signal["signal_time"],
+            ),
+            "market_regime": market_regime,
+            "previous_market_regime": previous_market_regime,
+            "regime_transition": (
+                f"{previous_market_regime} -> {market_regime}"
+                if previous_market_regime and market_regime
+                else None
             ),
         }
         outcome["horizons"] = {
@@ -269,5 +332,6 @@ def build_intraday_startup_outcomes(
         "unavailable_count": unavailable_count,
         "context_counts": context_counts,
         "summary": _summary(outcomes),
+        "regime_transition_summary": _regime_transition_summary(outcomes),
         "outcomes": outcomes,
     }

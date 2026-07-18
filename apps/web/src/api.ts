@@ -701,6 +701,9 @@ export interface IntradayStartupOutcome {
   market_context_label: string;
   market_breadth_ratio: number | null;
   market_index_change_pct: number | null;
+  market_regime: string | null;
+  previous_market_regime: string | null;
+  regime_transition: string | null;
   horizons: Record<number, IntradayStartupHorizon>;
 }
 
@@ -712,6 +715,14 @@ export interface IntradayStartupOutcomeSummary {
   avg_max_drawdown_pct: number | null;
 }
 
+export interface IntradayRegimeTransitionSummary {
+  regime_transition: string;
+  sample_count: number;
+  win_rate: number;
+  avg_return_pct: number;
+  is_sufficient_samples: boolean;
+}
+
 export interface IntradayStartupOutcomeReport {
   signal_count: number;
   completed_count: number;
@@ -719,6 +730,7 @@ export interface IntradayStartupOutcomeReport {
   unavailable_count: number;
   context_counts: Record<string, number>;
   summary: Record<number, IntradayStartupOutcomeSummary>;
+  regime_transition_summary: Record<number, IntradayRegimeTransitionSummary[]>;
   outcomes: IntradayStartupOutcome[];
 }
 

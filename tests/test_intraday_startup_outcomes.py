@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 
 from services.engine import intraday
 from services.shared.database import Base
-from services.shared.models import DailyBar, IntradayMarketTurnSnapshot, TradingCalendar
+from services.shared.models import (
+    DailyBar,
+    IntradayMarketTurnSnapshot,
+    MarketRegimeDaily,
+    TradingCalendar,
+)
 
 
 def _bar(symbol: str, trade_date: date, close: str) -> DailyBar:
@@ -238,3 +243,77 @@ def test_intraday_startup_outcomes_reject_incomplete_price_path() -> None:
     assert result["summary"][1]["sample_count"] == 1
     assert result["summary"][3]["sample_count"] == 0
     assert result["unavailable_count"] == 1
+
+
+def test_intraday_startup_outcomes_group_completed_returns_by_regime_transition() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    open_dates = [
+        date(2026, 6, 30),
+        date(2026, 7, 1),
+        date(2026, 7, 2),
+        date(2026, 7, 3),
+        date(2026, 7, 6),
+        date(2026, 7, 7),
+        date(2026, 7, 8),
+        date(2026, 7, 9),
+        date(2026, 7, 10),
+        date(2026, 7, 13),
+        date(2026, 7, 14),
+        date(2026, 7, 15),
+    ]
+    signal_dates = [date(2026, 7, 1), date(2026, 7, 6), date(2026, 7, 8)]
+
+    with Session(engine) as db:
+        db.add_all([TradingCalendar(trade_date=item, is_open=True) for item in open_dates])
+        db.add_all(
+            [
+                _bar("600001", item, str(10 + index))
+                for index, item in enumerate(open_dates)
+            ]
+        )
+        db.add_all(
+            [
+                MarketRegimeDaily(trade_date=date(2026, 6, 30), regime="range", source="test"),
+                MarketRegimeDaily(trade_date=date(2026, 7, 1), regime="rebound", source="test"),
+                MarketRegimeDaily(trade_date=date(2026, 7, 3), regime="range", source="test"),
+                MarketRegimeDaily(trade_date=date(2026, 7, 6), regime="rebound", source="test"),
+                MarketRegimeDaily(trade_date=date(2026, 7, 7), regime="range", source="test"),
+                MarketRegimeDaily(trade_date=date(2026, 7, 8), regime="rebound", source="test"),
+            ]
+        )
+        db.commit()
+
+        result = intraday.build_intraday_startup_outcomes(
+            db,
+            [
+                [
+                    _snapshot(
+                        as_of=datetime.combine(signal_date, datetime.min.time()).replace(hour=10),
+                        stage="latest",
+                        startup_stage="starting",
+                        startup_label="刚启动",
+                        price=10.0,
+                    )
+                ]
+                for signal_date in signal_dates
+            ],
+            current_time=datetime(2026, 7, 13, 16, 0),
+        )
+
+    transition = next(
+        item["regime_transition"]
+        for item in result["outcomes"]
+        if item["signal_date"] == "2026-07-01"
+    )
+    assert transition == "range -> rebound"
+    one_day_rows = result["regime_transition_summary"][1]
+    assert one_day_rows == [
+        {
+            "regime_transition": "range -> rebound",
+            "sample_count": 3,
+            "win_rate": 1.0,
+            "avg_return_pct": 0.466667,
+            "is_sufficient_samples": True,
+        }
+    ]

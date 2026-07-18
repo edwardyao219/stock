@@ -1149,6 +1149,10 @@ function startupOutcomeSummaryText(item: {
   return `${item.sample_count}个 / 胜率 ${pct(item.win_rate)} / 均值 ${pct(item.avg_return_pct)}`;
 }
 
+function regimeTransitionText(value: string) {
+  return value.split(" -> ").map(marketRegimeLabel).join(" -> ");
+}
+
 function candidateBatchText(batch: IntradayCandidateList["candidate_batch"] | undefined) {
   if (!batch) return "等待实时快照";
   const batchDate = batch.auto_feature_date ?? batch.auto_hold_until ?? "暂无自动批次";
@@ -4944,6 +4948,28 @@ export function App() {
                     );
                   })}
                 </div>
+                {([1, 3, 5] as const).some(
+                  (horizon) => intradaySnapshots.startup_outcomes.regime_transition_summary[horizon]?.length,
+                ) ? (
+                  <div className="regime-transition-table">
+                    <div className="regime-transition-head">
+                      <span>阶段切换回看</span>
+                      <small>仅观察，统计不参与候选排序</small>
+                    </div>
+                    {([1, 3, 5] as const).flatMap((horizon) =>
+                      (intradaySnapshots.startup_outcomes.regime_transition_summary[horizon] ?? []).map((item) => (
+                        <div className="regime-transition-row" key={`${horizon}-${item.regime_transition}`}>
+                          <span>{horizon}日</span>
+                          <strong>{regimeTransitionText(item.regime_transition)}</strong>
+                          <small>{item.sample_count} 个成熟样本</small>
+                          <b className={item.avg_return_pct >= 0 ? "up" : "down"}>{pct(item.avg_return_pct)}</b>
+                          <small>胜率 {pct(item.win_rate)}</small>
+                          <em>{item.is_sufficient_samples ? "持续观察" : "样本偏少"}</em>
+                        </div>
+                      )),
+                    )}
+                  </div>
+                ) : null}
                 {intradaySnapshots.startup_outcomes.outcomes.length ? (
                   <div className="startup-outcome-list">
                     {intradaySnapshots.startup_outcomes.outcomes.slice(0, 8).map((outcome) => (

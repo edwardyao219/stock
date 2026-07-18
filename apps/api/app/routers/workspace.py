@@ -448,6 +448,9 @@ class IntradayStartupOutcomeResponse(BaseModel):
     market_context_label: str
     market_breadth_ratio: float | None
     market_index_change_pct: float | None
+    market_regime: str | None
+    previous_market_regime: str | None
+    regime_transition: str | None
     horizons: dict[int, IntradayStartupHorizonResponse]
 
 
@@ -459,6 +462,14 @@ class IntradayStartupOutcomeSummaryResponse(BaseModel):
     avg_max_drawdown_pct: float | None
 
 
+class IntradayRegimeTransitionSummaryResponse(BaseModel):
+    regime_transition: str
+    sample_count: int
+    win_rate: float
+    avg_return_pct: float
+    is_sufficient_samples: bool
+
+
 class IntradayStartupOutcomeReportResponse(BaseModel):
     signal_count: int
     completed_count: int
@@ -466,6 +477,7 @@ class IntradayStartupOutcomeReportResponse(BaseModel):
     unavailable_count: int
     context_counts: dict[str, int]
     summary: dict[int, IntradayStartupOutcomeSummaryResponse]
+    regime_transition_summary: dict[int, list[IntradayRegimeTransitionSummaryResponse]]
     outcomes: list[IntradayStartupOutcomeResponse]
 
 
