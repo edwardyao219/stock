@@ -179,7 +179,6 @@ def _mainline_outcome_health(db) -> dict[str, object]:
     return {"horizons": list(rows.values())}
 
 
-@celery_app.task(name="services.jobs.tasks.pre_market_check")
 def _previous_late_market_turn_health(reference_date: date) -> dict[str, object]:
     with SessionLocal() as db:
         trade_date = db.execute(
