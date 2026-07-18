@@ -207,6 +207,38 @@ export interface MainlineOutcomeBreakdownRow {
   failure_rate: number;
 }
 
+export interface ResearchSignalSummaryHorizon {
+  horizon: number;
+  signal_count: number;
+  completed_count: number;
+  waiting_count: number;
+  unavailable_count: number;
+  minimum_sample_count: number;
+  eligible_for_policy: boolean;
+  avg_return_pct: number | null;
+  win_rate: number | null;
+}
+
+export interface ResearchSignalBreakdown {
+  key: string;
+  sample_count: number;
+  minimum_sample_count: number;
+  eligible_for_policy: boolean;
+  avg_return_pct: number;
+  win_rate: number;
+}
+
+export interface ResearchSignalLedger {
+  signal_count: number;
+  minimum_sample_count: number;
+  policy_status: string;
+  policy_label: string;
+  horizons: Record<number, ResearchSignalSummaryHorizon>;
+  breakdown_horizon: number;
+  signal_types: ResearchSignalBreakdown[];
+  sectors: ResearchSignalBreakdown[];
+}
+
 export interface IntradayExpandingSector {
   sector: string;
   symbol_count: number;
@@ -1589,6 +1621,10 @@ export function fetchConfirmedMainlineOutcomes() {
 
 export function fetchMainlineOutcomeSummary() {
   return request<MainlineOutcomeSummary>("/market/mainline-outcome-summary");
+}
+
+export function fetchResearchSignalLedger() {
+  return request<ResearchSignalLedger>("/market/research-signal-ledger");
 }
 
 export function fetchSectorOverview() {

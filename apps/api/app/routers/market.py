@@ -31,6 +31,7 @@ from services.engine.news.repository import (
     snapshot_to_report,
     store_message_snapshot,
 )
+from services.engine.research_signal_ledger import evaluate_research_signal_ledger
 from services.engine.review.sector_replay import replay_sector_month
 from services.engine.sector.names import canonical_sector_name as _canonical_sector_name
 from services.engine.tracking.mainline import (
@@ -215,6 +216,72 @@ class MainlineOutcomeSummaryResponse(BaseModel):
     phase_summaries: dict[str, list[MainlineOutcomeSummaryHorizonResponse]] = Field(
         default_factory=dict
     )
+
+
+class ResearchSignalHorizonResponse(BaseModel):
+    horizon: int
+    status: str
+    target_trade_date: str | None
+    return_pct: float | None
+    max_gain_pct: float | None
+    max_drawdown_pct: float | None
+    reason: str | None
+
+
+class ResearchSignalSummaryHorizonResponse(BaseModel):
+    horizon: int
+    signal_count: int
+    completed_count: int
+    waiting_count: int
+    unavailable_count: int
+    waiting_reasons: dict[str, int] = Field(default_factory=dict)
+    unavailable_reasons: dict[str, int] = Field(default_factory=dict)
+    minimum_sample_count: int
+    eligible_for_policy: bool
+    avg_return_pct: float | None
+    win_rate: float | None
+    avg_max_gain_pct: float | None
+    avg_max_drawdown_pct: float | None
+
+
+class ResearchSignalBreakdownResponse(BaseModel):
+    key: str
+    sample_count: int
+    minimum_sample_count: int
+    eligible_for_policy: bool
+    avg_return_pct: float
+    win_rate: float
+
+
+class ResearchSignalLedgerItemResponse(BaseModel):
+    id: int
+    source: str
+    signal_type: str
+    signal_time: str
+    signal_date: str
+    symbol: str
+    name: str | None
+    sector: str | None
+    signal_price: float
+    market_regime: str | None
+    market_state: str | None
+    executable: bool
+    evidence: dict[str, object] = Field(default_factory=dict)
+    horizons: dict[int, ResearchSignalHorizonResponse]
+
+
+class ResearchSignalLedgerResponse(BaseModel):
+    signal_count: int
+    minimum_sample_count: int
+    policy_status: str
+    policy_label: str
+    horizons: dict[int, ResearchSignalSummaryHorizonResponse]
+    breakdown_horizon: int
+    signal_types: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
+    market_regimes: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
+    market_states: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
+    sectors: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
+    signals: list[ResearchSignalLedgerItemResponse] = Field(default_factory=list)
 
 
 class IntradayMarketTurnResponse(BaseModel):
@@ -1867,6 +1934,16 @@ def get_mainline_outcome_summary(db: DbSession) -> MainlineOutcomeSummaryRespons
             )
             for signal_type in ("watch_mainline", "confirmed_mainline", "strong_benchmark")
         },
+    )
+
+
+@router.get("/research-signal-ledger", response_model=ResearchSignalLedgerResponse)
+def get_research_signal_ledger(
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 500,
+) -> ResearchSignalLedgerResponse:
+    return ResearchSignalLedgerResponse(
+        **evaluate_research_signal_ledger(db, current_time=now_local(), limit=limit)
     )
 
 

@@ -460,6 +460,9 @@ button {
 .mainline-phase-compare > div + div { border-left: 1px solid #e1e8ef; }
 .mainline-phase-compare span, .mainline-phase-compare small { color: #64748b; display: block; font-size: 12px; }
 .mainline-phase-compare strong { display: block; font-size: 16px; margin: 2px 0; }
+.research-signal-ledger { border-top: 1px solid #e1e8ef; margin-top: 12px; padding-top: 10px; }
+.research-signal-breakdown { display: flex; flex-wrap: wrap; gap: 6px 14px; color: #64748b; font-size: 12px; padding: 4px 0; }
+.research-signal-breakdown span { min-width: 0; }
 
 .post-close-review-board {
   display: grid;

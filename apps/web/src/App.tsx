@@ -17,6 +17,7 @@ import {
   CandidateReplayEffectReport,
   ConfirmedMainlineOutcome,
   MainlineOutcomeSummary,
+  ResearchSignalLedger,
   DataHealth,
   addManualStock,
   createTrackingSnapshots,
@@ -25,6 +26,7 @@ import {
   fetchCandles,
   fetchConfirmedMainlineOutcomes,
   fetchMainlineOutcomeSummary,
+  fetchResearchSignalLedger,
   fetchDataHealth,
   fetchIntradayMarketTurn,
   fetchIntradayCandidateSnapshots,
@@ -1365,6 +1367,8 @@ export function App() {
   >([]);
   const [mainlineOutcomeSummary, setMainlineOutcomeSummary] =
     useState<MainlineOutcomeSummary | null>(null);
+  const [researchSignalLedger, setResearchSignalLedger] =
+    useState<ResearchSignalLedger | null>(null);
   const [intradayCandidates, setIntradayCandidates] = useState<IntradayCandidateList | null>(null);
   const [intradaySnapshots, setIntradaySnapshots] =
     useState<IntradayCandidateSnapshotList | null>(null);
@@ -1733,15 +1737,18 @@ export function App() {
 
   async function loadConfirmedMainlineOutcomes() {
     try {
-      const [outcomes, summary] = await Promise.all([
+      const [outcomes, summary, ledger] = await Promise.all([
         fetchConfirmedMainlineOutcomes(),
         fetchMainlineOutcomeSummary(),
+        fetchResearchSignalLedger(),
       ]);
       setConfirmedMainlineOutcomes(outcomes);
       setMainlineOutcomeSummary(summary);
+      setResearchSignalLedger(ledger);
     } catch {
       setConfirmedMainlineOutcomes([]);
       setMainlineOutcomeSummary(null);
+      setResearchSignalLedger(null);
     }
   }
 
@@ -3775,6 +3782,40 @@ export function App() {
             ) : (
               <div className="empty compact">暂无已成熟的主线效果样本</div>
             )}
+            {researchSignalLedger ? (
+              <div className="research-signal-ledger">
+                <div className="snapshot-review-head">
+                  <strong>真实信号账本</strong>
+                  <small>只记录实际盘中快照，收益仅在后续完整交易日结算。</small>
+                </div>
+                <div className="review-strip-meta">
+                  <span className={researchSignalLedger.policy_status === "usable" ? "up" : "down"}>
+                    {researchSignalLedger.policy_label} / 门槛 {researchSignalLedger.minimum_sample_count} 个3日成熟样本
+                  </span>
+                  {[1, 3, 5, 10].map((horizon) => {
+                    const item = researchSignalLedger.horizons[horizon];
+                    return item ? (
+                      <span key={horizon}>
+                        {horizon}日 成熟{item.completed_count} / 等待{item.waiting_count} / 异常{item.unavailable_count} / 均值 {pct(item.avg_return_pct)}
+                      </span>
+                    ) : null;
+                  })}
+                </div>
+                <div className="research-signal-breakdown">
+                  <span>信号 {researchSignalLedger.signal_count}</span>
+                  <span>
+                    类型 {researchSignalLedger.signal_types.length
+                      ? researchSignalLedger.signal_types.slice(0, 3).map((item) => `${item.key} 样本${item.sample_count} / ${pct(item.avg_return_pct)}`).join("；")
+                      : "等待成熟样本"}
+                  </span>
+                  <span>
+                    板块 {researchSignalLedger.sectors.length
+                      ? researchSignalLedger.sectors.slice(0, 3).map((item) => `${item.key} 样本${item.sample_count} / ${pct(item.avg_return_pct)}`).join("；")
+                      : "等待成熟样本"}
+                  </span>
+                </div>
+              </div>
+            ) : null}
           </section>
           {monthlySummary ? (
             <section className="monthly-summary-panel">

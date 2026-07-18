@@ -448,6 +448,36 @@ class CandidateDiscoverySnapshot(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ResearchSignalLedger(Base):
+    __tablename__ = "research_signal_ledger"
+    __table_args__ = (
+        UniqueConstraint(
+            "source",
+            "signal_type",
+            "signal_time",
+            "symbol",
+            name="uq_research_signal_ledger_identity",
+        ),
+        Index("ix_research_signal_ledger_date_type", "signal_date", "signal_type"),
+        Index("ix_research_signal_ledger_symbol_date", "symbol", "signal_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(64), index=True)
+    signal_type: Mapped[str] = mapped_column(String(64), index=True)
+    signal_time: Mapped[datetime] = mapped_column(DateTime, index=True)
+    signal_date: Mapped[date] = mapped_column(Date, index=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    name: Mapped[Optional[str]] = mapped_column(String(64))
+    sector: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    signal_price: Mapped[float] = mapped_column(Float)
+    market_regime: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    market_state: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    executable: Mapped[bool] = mapped_column(Boolean, default=False)
+    evidence_json: Mapped[dict[str, Any]] = mapped_column(LargePortableJSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class MarketMessageSnapshot(Base):
     __tablename__ = "market_message_snapshots"
 

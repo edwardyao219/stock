@@ -130,6 +130,7 @@ def build_cross_day_mainline_validation(
                 "current_leader_symbol": (
                     str(current.get("leader_symbol") or "") if current else None
                 ),
+                "current_leader_price": _float(current.get("leader_price")) if current else None,
             }
         )
     if not check_due:
@@ -227,7 +228,7 @@ def build_intraday_market_turn_snapshot(
         _float(getattr(quote, "amount", None)) or 0.0 for quote, _change_pct in valid_quotes
     )
     sector_changes: dict[str, list[float]] = defaultdict(list)
-    sector_quotes: dict[str, list[tuple[str, float, float]]] = defaultdict(list)
+    sector_quotes: dict[str, list[tuple[str, float, float, float]]] = defaultdict(list)
     for quote, change_pct in valid_quotes:
         sector = sector_by_symbol.get(str(getattr(quote, "symbol", "")))
         if sector:
@@ -237,6 +238,7 @@ def build_intraday_market_turn_snapshot(
                     str(getattr(quote, "symbol", "")),
                     change_pct,
                     _float(getattr(quote, "amount", None)) or 0.0,
+                    price,
                 )
             )
     expanding_sectors = []
@@ -250,7 +252,7 @@ def build_intraday_market_turn_snapshot(
             sector_quotes[sector],
             key=lambda value: (-value[1], -value[2], value[0]),
         )
-        leader_symbol, leader_change_pct, _leader_amount = ranked_quotes[0]
+        leader_symbol, leader_change_pct, _leader_amount, leader_price = ranked_quotes[0]
         expanding_sectors.append(
             {
                 "sector": sector,
@@ -260,6 +262,7 @@ def build_intraday_market_turn_snapshot(
                 "avg_change_pct": round(sum(changes) / symbol_count, 6),
                 "total_amount": round(sum(value[2] for value in sector_quotes[sector]), 2),
                 "leader_symbol": leader_symbol,
+                "leader_price": round(leader_price, 4),
                 "leader_change_pct": round(leader_change_pct, 6),
             }
         )
