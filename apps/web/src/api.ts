@@ -188,6 +188,7 @@ export interface MainlineOutcomeSummary {
     failure_rate: number | null;
   }>;
   phase_summaries: Record<string, MainlineOutcomeSummary["horizons"]>;
+  phase_market_states: Record<string, Array<{ key: string; sample_count: number; avg_return_pct: number; win_rate: number }>>;
   minimum_sample_count: number;
   policy_status: string;
   policy_label: string;

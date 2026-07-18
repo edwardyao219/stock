@@ -150,6 +150,7 @@ def summarize_mainline_outcome_breakdowns(
     outcomes: list[ConfirmedMainlineOutcome],
     *,
     horizon: int = 3,
+    signal_type: str = "strong_benchmark",
 ) -> dict[str, object]:
     def grouped(key_name: str) -> list[dict[str, bool | int | float | str]]:
         groups: dict[str, list[float]] = {}
@@ -157,7 +158,7 @@ def summarize_mainline_outcome_breakdowns(
             value = item.horizons.get(horizon)
             key = item.sector if key_name == "sector" else item.market_state
             if (
-                item.signal_type != "strong_benchmark"
+                item.signal_type != signal_type
                 or not key
                 or value is None
                 or value.status != "completed"

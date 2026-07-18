@@ -209,6 +209,9 @@ class MainlineOutcomeSummaryResponse(BaseModel):
     breakdown_horizon: int
     sectors: list[dict[str, bool | int | float | str]] = Field(default_factory=list)
     market_states: list[dict[str, bool | int | float | str]] = Field(default_factory=list)
+    phase_market_states: dict[str, list[dict[str, bool | int | float | str]]] = Field(
+        default_factory=dict
+    )
     phase_summaries: dict[str, list[MainlineOutcomeSummaryHorizonResponse]] = Field(
         default_factory=dict
     )
@@ -1853,6 +1856,15 @@ def get_mainline_outcome_summary(db: DbSession) -> MainlineOutcomeSummaryRespons
                 MainlineOutcomeSummaryHorizonResponse(**item)
                 for item in summarize_mainline_outcomes(outcomes, signal_type=signal_type).values()
             ]
+            for signal_type in ("watch_mainline", "confirmed_mainline", "strong_benchmark")
+        },
+        phase_market_states={
+            signal_type: list(
+                summarize_mainline_outcome_breakdowns(
+                    outcomes,
+                    signal_type=signal_type,
+                )["market_states"]
+            )
             for signal_type in ("watch_mainline", "confirmed_mainline", "strong_benchmark")
         },
     )
