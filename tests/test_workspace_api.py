@@ -9,6 +9,7 @@ from apps.api.app.routers.workspace import (
     ManualStockRequest,
     _early_hot_sector_quote_coverage,
     _intraday_snapshots_for_points,
+    _recent_intraday_trade_dates,
     _sustained_startup_sectors,
     add_manual_stock,
     get_startup_tracking,
@@ -1225,6 +1226,23 @@ def test_list_intraday_candidate_snapshots_replays_without_future_quotes(monkeyp
                     turnover_rate=Decimal("1.2"),
                 )
             )
+        db.add_all(
+            [
+                IntradayMarketTurnSnapshot(
+                    trade_date=trade_date,
+                    snapshot_time=datetime.combine(trade_date, datetime.min.time()).replace(
+                        hour=15
+                    ),
+                    coverage_ratio=0.95,
+                    breadth_ratio=0.5,
+                    total_amount=1000000,
+                    index_change_pct=0.001,
+                    sector_expansion_count=1,
+                    state_json={"data_ready": True},
+                )
+                for trade_date in [date(2026, 1, 21), date(2026, 1, 22)]
+            ]
+        )
         db.commit()
 
         monkeypatch.setattr(
@@ -1337,6 +1355,83 @@ def test_list_intraday_candidate_snapshots_includes_startup_outcomes(monkeypatch
     assert len(captured["snapshot_days"]) == 1
     assert captured["snapshot_days"][0] == payload["snapshots"]
     assert captured["current_time"] == current_time
+
+
+def test_recent_intraday_trade_dates_require_ready_market_coverage() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    dates = [date(2026, 1, 19), date(2026, 1, 20), date(2026, 1, 21), date(2026, 1, 22)]
+
+    with session() as db:
+        db.add_all(
+            [
+                RealtimeQuote(
+                    symbol="600001",
+                    trade_date=trade_date,
+                    quote_time=datetime.combine(trade_date, datetime.min.time()).replace(hour=15),
+                    price=Decimal("10"),
+                    open=Decimal("10"),
+                    high=Decimal("10"),
+                    low=Decimal("10"),
+                    pre_close=Decimal("10"),
+                    pct_change=None,
+                    volume=Decimal("100000"),
+                    amount=Decimal("1000000"),
+                    turnover_rate=None,
+                )
+                for trade_date in dates
+            ]
+        )
+        db.add_all(
+            [
+                IntradayMarketTurnSnapshot(
+                    trade_date=date(2026, 1, 19),
+                    snapshot_time=datetime(2026, 1, 19, 15),
+                    coverage_ratio=0.95,
+                    breadth_ratio=0.5,
+                    total_amount=1000000,
+                    index_change_pct=0.001,
+                    sector_expansion_count=1,
+                    state_json={"data_ready": True},
+                ),
+                IntradayMarketTurnSnapshot(
+                    trade_date=date(2026, 1, 20),
+                    snapshot_time=datetime(2026, 1, 20, 15),
+                    coverage_ratio=0.79,
+                    breadth_ratio=0.5,
+                    total_amount=1000000,
+                    index_change_pct=0.001,
+                    sector_expansion_count=1,
+                    state_json={"data_ready": True},
+                ),
+                IntradayMarketTurnSnapshot(
+                    trade_date=date(2026, 1, 21),
+                    snapshot_time=datetime(2026, 1, 21, 15),
+                    coverage_ratio=0.95,
+                    breadth_ratio=0.5,
+                    total_amount=1000000,
+                    index_change_pct=0.001,
+                    sector_expansion_count=1,
+                    state_json={"data_ready": False},
+                ),
+                IntradayMarketTurnSnapshot(
+                    trade_date=date(2026, 1, 22),
+                    snapshot_time=datetime(2026, 1, 22, 15),
+                    coverage_ratio=0.95,
+                    breadth_ratio=0.5,
+                    total_amount=1000000,
+                    index_change_pct=0.001,
+                    sector_expansion_count=1,
+                    state_json={"data_ready": True},
+                ),
+            ]
+        )
+        db.commit()
+
+        result = _recent_intraday_trade_dates(db, datetime(2026, 1, 22, 16), limit=20)
+
+    assert result == [date(2026, 1, 22), date(2026, 1, 19)]
 
 
 def test_list_intraday_candidate_snapshots_handles_timezone_aware_now(monkeypatch) -> None:

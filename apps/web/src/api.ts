@@ -1657,7 +1657,7 @@ export function fetchIntradayCandidates(
 export function fetchIntradayCandidateSnapshots(
   poolName = "experiment",
   includeGrowthBoard = false,
-  lookbackDays = 8,
+  lookbackDays = 20,
 ) {
   const params = new URLSearchParams({ pool_name: poolName });
   params.set("lookback_days", String(lookbackDays));

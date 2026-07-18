@@ -40,6 +40,7 @@ from services.engine.workspace.repository import (
 )
 from services.shared.database import get_db
 from services.shared.models import (
+    IntradayMarketTurnSnapshot,
     RealtimeQuote,
     ResearchPoolItem,
     Security,
@@ -931,14 +932,36 @@ def _fixed_intraday_snapshot_points_for_day(value: datetime) -> list[tuple[str, 
 
 
 def _recent_intraday_trade_dates(db: Session, current_time: datetime, limit: int) -> list:
-    stmt = (
-        select(RealtimeQuote.trade_date)
-        .where(RealtimeQuote.trade_date <= current_time.date())
-        .group_by(RealtimeQuote.trade_date)
-        .order_by(RealtimeQuote.trade_date.desc())
-        .limit(max(1, limit))
+    quote_dates = set(
+        db.execute(
+            select(RealtimeQuote.trade_date)
+            .where(RealtimeQuote.trade_date <= current_time.date())
+            .group_by(RealtimeQuote.trade_date)
+        ).scalars()
     )
-    return [item[0] for item in db.execute(stmt).all()]
+    snapshots = db.execute(
+        select(IntradayMarketTurnSnapshot)
+        .where(IntradayMarketTurnSnapshot.trade_date <= current_time.date())
+        .order_by(
+            IntradayMarketTurnSnapshot.trade_date.desc(),
+            IntradayMarketTurnSnapshot.snapshot_time.desc(),
+        )
+    ).scalars()
+    eligible_dates: list[date] = []
+    seen_dates: set[date] = set()
+    for snapshot in snapshots:
+        if snapshot.trade_date in seen_dates:
+            continue
+        seen_dates.add(snapshot.trade_date)
+        if (
+            snapshot.trade_date in quote_dates
+            and snapshot.coverage_ratio >= 0.80
+            and (snapshot.state_json or {}).get("data_ready")
+        ):
+            eligible_dates.append(snapshot.trade_date)
+            if len(eligible_dates) >= max(1, limit):
+                break
+    return eligible_dates
 
 
 _SUPPORTIVE_INTRADAY_STATES = {"gap_down_repair", "strong_continuation", "pullback_repair"}
@@ -1120,7 +1143,7 @@ def list_intraday_candidate_snapshots(
     formal_limit: Annotated[int, Query(ge=1, le=10)] = 3,
     formal_per_sector_limit: Annotated[int, Query(ge=1, le=5)] = 2,
     include_growth_board: bool = False,
-    lookback_days: Annotated[int, Query(ge=1, le=20)] = 5,
+    lookback_days: Annotated[int, Query(ge=1, le=20)] = 20,
 ) -> dict:
     current_time = now_local()
     historical_learning: list[dict] = []
