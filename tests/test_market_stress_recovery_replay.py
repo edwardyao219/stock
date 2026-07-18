@@ -282,7 +282,7 @@ def test_load_market_stress_recovery_regimes_rejects_conflicting_day_snapshots()
                     next_trade_date=date(2026, 1, 5),
                     candidate_limit=15,
                     include_fundamentals=False,
-                    discovery_json={"market_regime": "panic"},
+                    discovery_json={"feature_date": "2026-01-02", "market_regime": "panic"},
                 ),
                 CandidateDiscoverySnapshot(
                     cache_version="candidate-v5-startup-signal",
@@ -290,7 +290,7 @@ def test_load_market_stress_recovery_regimes_rejects_conflicting_day_snapshots()
                     next_trade_date=date(2026, 1, 5),
                     candidate_limit=20,
                     include_fundamentals=False,
-                    discovery_json={"market_regime": "panic"},
+                    discovery_json={"feature_date": "2026-01-02", "market_regime": "panic"},
                 ),
                 CandidateDiscoverySnapshot(
                     cache_version="candidate-v5-startup-signal",
@@ -298,7 +298,7 @@ def test_load_market_stress_recovery_regimes_rejects_conflicting_day_snapshots()
                     next_trade_date=date(2026, 1, 6),
                     candidate_limit=15,
                     include_fundamentals=False,
-                    discovery_json={"market_regime": "range"},
+                    discovery_json={"feature_date": "2026-01-05", "market_regime": "range"},
                 ),
                 CandidateDiscoverySnapshot(
                     cache_version="candidate-v5-startup-signal",
@@ -306,7 +306,15 @@ def test_load_market_stress_recovery_regimes_rejects_conflicting_day_snapshots()
                     next_trade_date=date(2026, 1, 6),
                     candidate_limit=20,
                     include_fundamentals=False,
-                    discovery_json={"market_regime": "rebound"},
+                    discovery_json={"feature_date": "2026-01-05", "market_regime": "rebound"},
+                ),
+                CandidateDiscoverySnapshot(
+                    cache_version="candidate-v5-startup-signal",
+                    signal_date=date(2026, 1, 6),
+                    next_trade_date=date(2026, 1, 7),
+                    candidate_limit=15,
+                    include_fundamentals=False,
+                    discovery_json={"feature_date": "2026-01-05", "market_regime": "weak_trend"},
                 ),
             ]
         )

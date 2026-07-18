@@ -76,7 +76,7 @@ const report = {
   cache: {
     hit: true,
     cache_key: "example",
-    version: "market-stress-recovery-v2",
+    version: "market-stress-recovery-v5",
   },
 } satisfies MarketStressRecoveryReplayReport;
 

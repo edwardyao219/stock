@@ -20,7 +20,7 @@ from services.shared.models import (
 )
 
 RECOVERY_THRESHOLD_CONFIGS = ((1, 3), (2, 4), (2, 5))
-MARKET_STRESS_RECOVERY_CACHE_VERSION = "market-stress-recovery-v4"
+MARKET_STRESS_RECOVERY_CACHE_VERSION = "market-stress-recovery-v5"
 MARKET_STRESS_RECOVERY_CACHE_DIR = Path(".tmp/market-stress-recovery-cache")
 MARKET_REGIME_ORDER = (
     "strong_trend",
@@ -401,6 +401,11 @@ def load_market_stress_recovery_regimes(
     values_by_date: dict[str, set[str]] = defaultdict(set)
     for signal_date, discovery in rows:
         snapshot = (discovery or {}).get("market_regime_snapshot") or {}
+        feature_date = str(
+            (discovery or {}).get("feature_date") or snapshot.get("trade_date") or ""
+        )
+        if feature_date != signal_date.isoformat():
+            continue
         regime = str((discovery or {}).get("market_regime") or snapshot.get("regime") or "")
         if regime in MARKET_REGIMES:
             values_by_date[signal_date.isoformat()].add(regime)
