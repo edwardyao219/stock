@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session
 
 from apps.api.app.routers.rules import get_candidate_replay_effect
 from services.collector.realtime import sync_realtime_quotes
+from services.engine.features.late_market_turn_health import (
+    late_market_turn_health,
+    late_market_turn_snapshot,
+)
 from services.engine.intraday.candidates import (
     discover_intraday_candidates,
     early_sector_scan_symbols,
@@ -971,14 +975,14 @@ def _intraday_history_health(db: Session, current_time: datetime, limit: int) ->
         "not_ready_days": 0,
     }
     for trade_date in observed_dates:
-        snapshot = latest_snapshots.get(trade_date)
+        snapshot = late_market_turn_snapshot(db, trade_date)
         if trade_date not in quote_dates:
             exclusion_counts["missing_quote_days"] += 1
         elif snapshot is None:
             exclusion_counts["missing_market_snapshot_days"] += 1
         elif snapshot.coverage_ratio < 0.80:
             exclusion_counts["low_coverage_days"] += 1
-        elif not (snapshot.state_json or {}).get("data_ready"):
+        elif late_market_turn_health(snapshot)["status"] != "ok":
             exclusion_counts["not_ready_days"] += 1
         else:
             eligible_dates.append(trade_date)

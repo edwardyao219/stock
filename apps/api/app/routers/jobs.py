@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
@@ -10,6 +10,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.engine.backtest.replay import run_historical_replay
+from services.engine.features.late_market_turn_health import (
+    late_market_turn_health,
+    late_market_turn_snapshot,
+)
 from services.jobs.pipeline import (
     prepare_next_trade_session,
     resolve_next_trade_date,
@@ -22,7 +26,6 @@ from services.jobs.tasks import run_after_close_safe_recovery_task
 from services.shared.database import get_db
 from services.shared.models import (
     BacktestTradeRecord,
-    IntradayMarketTurnSnapshot,
     MarketRegimeDaily,
     ReviewReport,
     RulePerformanceDaily,
@@ -272,33 +275,13 @@ def get_after_close_status(
         report_date = date.fromisoformat(target_date)
     except ValueError:
         report_date = None
-    late_snapshot = db.execute(
-        select(IntradayMarketTurnSnapshot)
-        .where(IntradayMarketTurnSnapshot.trade_date == report_date)
-        .where(
-            IntradayMarketTurnSnapshot.snapshot_time
-            >= datetime.combine(report_date, datetime.min.time()).replace(hour=14, minute=50)
-        )
-        .order_by(IntradayMarketTurnSnapshot.snapshot_time.desc())
-        .limit(1)
-    ).scalar_one_or_none() if report_date is not None else None
-    late_snapshot_ready = bool(
-        late_snapshot is not None
-        and late_snapshot.coverage_ratio >= 0.80
-        and (late_snapshot.state_json or {}).get("data_ready")
-    )
-    late_market_turn_health = (
-        {"status": "missing", "message": "缺少尾盘市场快照"}
-        if late_snapshot is None
-        else {
-            "status": "ok" if late_snapshot_ready else "warning",
-            "coverage_ratio": late_snapshot.coverage_ratio,
-            "message": "尾盘市场快照正常"
-            if late_snapshot_ready else "尾盘市场快照覆盖不足或未就绪",
-        }
+    late_market_health = (
+        late_market_turn_health(late_market_turn_snapshot(db, report_date))
+        if report_date is not None
+        else {"status": "missing", "message": "收盘日期无效"}
     )
     if cached:
-        cached = {**cached, "late_market_turn_health": late_market_turn_health}
+        cached = {**cached, "late_market_turn_health": late_market_health}
         if cached.get("market_regime") is None and db is not None:
             try:
                 regime_date = date.fromisoformat(target_date)
@@ -329,7 +312,7 @@ def get_after_close_status(
         status="unknown",
         message=f"{target_date} 还没有收盘推送记录；如果刚重启过服务，请以钉钉和候选池为准。",
         source="empty",
-        late_market_turn_health=late_market_turn_health,
+        late_market_turn_health=late_market_health,
     )
 
 

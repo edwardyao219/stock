@@ -17,6 +17,10 @@ from services.engine.features.health import (
 from services.engine.features.intraday_market_turn_snapshot import (
     build_intraday_market_turn_snapshot,
 )
+from services.engine.features.late_market_turn_health import (
+    late_market_turn_health,
+    late_market_turn_snapshot,
+)
 from services.engine.intraday.candidates import early_sector_scan_symbols
 from services.engine.review.mechanical import generate_daily_mechanical_review
 from services.engine.review.monthly_summary import generate_monthly_trade_summary
@@ -190,33 +194,11 @@ def _previous_late_market_turn_health(reference_date: date) -> dict[str, object]
         ).scalar_one_or_none()
         if trade_date is None:
             return {"status": "skipped", "message": "前一交易日未确认。"}
-        late_snapshot_time = datetime.combine(trade_date, datetime.min.time()).replace(
-            hour=14,
-            minute=50,
-        )
-        snapshot = db.execute(
-            select(IntradayMarketTurnSnapshot)
-            .where(IntradayMarketTurnSnapshot.trade_date == trade_date)
-            .where(IntradayMarketTurnSnapshot.snapshot_time >= late_snapshot_time)
-            .order_by(IntradayMarketTurnSnapshot.snapshot_time.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-    if snapshot is None:
-        return {
-            "status": "warning",
-            "trade_date": trade_date.isoformat(),
-            "message": "缺少尾盘市场快照。",
-        }
-    if snapshot.coverage_ratio < 0.80 or not (snapshot.state_json or {}).get("data_ready"):
-        return {
-            "status": "warning",
-            "trade_date": trade_date.isoformat(),
-            "message": "尾盘市场快照覆盖不足或未就绪。",
-        }
+        health = late_market_turn_health(late_market_turn_snapshot(db, trade_date))
     return {
-        "status": "ok",
+        **health,
+        "status": "warning" if health["status"] != "ok" else "ok",
         "trade_date": trade_date.isoformat(),
-        "message": "尾盘市场快照正常。",
     }
 
 

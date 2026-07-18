@@ -9,9 +9,9 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from services.engine.features.late_market_turn_health import late_market_turn_history_health
 from services.shared.models import (
     DailyBar,
-    IntradayMarketTurnSnapshot,
     MarketRegimeDaily,
     Security,
     StockFeatureDaily,
@@ -473,20 +473,7 @@ def inspect_daily_data_health(
             )
         )
 
-    latest_turns: dict[date, IntradayMarketTurnSnapshot] = {}
-    for snapshot in db.execute(
-        select(IntradayMarketTurnSnapshot).order_by(
-            IntradayMarketTurnSnapshot.trade_date.desc(),
-            IntradayMarketTurnSnapshot.snapshot_time.desc(),
-        )
-    ).scalars():
-        latest_turns.setdefault(snapshot.trade_date, snapshot)
-        if len(latest_turns) >= 20:
-            break
-    late_market_turn_20d = {"observed_days": len(latest_turns), "healthy_days": 0}
-    for snapshot in latest_turns.values():
-        if snapshot.coverage_ratio >= 0.80 and (snapshot.state_json or {}).get("data_ready"):
-            late_market_turn_20d["healthy_days"] += 1
+    late_market_turn_20d = late_market_turn_history_health(db)
 
     return DailyDataHealthReport(
         trade_date=target_date,
