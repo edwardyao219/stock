@@ -143,7 +143,7 @@ def test_format_candidate_screening_text_contains_reasons() -> None:
     assert "覆盖 95.8%" in text
     assert "候选诊断：候选偏少：弱市收缩，只保留少数观察票。" in text
     assert "市场弱趋势，候选上限收缩到3只。" in text
-    assert "市场环境：weak_trend" not in text
+    assert "市场阶段：弱趋势 / 风险高" in text
     assert "情绪阀门：risk_off | 仓位系数 0.0" not in text
     assert "603083 剑桥科技 通信设备 正式策略命中 第82.5分" in text
     assert "趋势强度领先" in text
@@ -202,7 +202,7 @@ def test_format_candidate_screening_text_keeps_dingtalk_stock_only() -> None:
 
     assert "盘后股票候选" in text
     assert "603061 金海通 半导体" in text
-    assert "市场环境" not in text
+    assert "市场阶段：弱趋势 / 风险高" in text
     assert "情绪阀门" not in text
     assert "资金参与" not in text
     assert "板块分布" not in text

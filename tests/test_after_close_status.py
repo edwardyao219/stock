@@ -8,6 +8,11 @@ def test_after_close_status_exposes_candidate_review_and_dingtalk_outcomes() -> 
             "trade_date": "2026-07-14",
             "steps": [
                 {
+                    "name": "sync_market_regime",
+                    "status": "ok",
+                    "detail": "市场阶段 panic，风险 high。",
+                },
+                {
                     "name": "discover_next_session_candidates",
                     "status": "ok",
                     "summary": "明日候选完成：写入 0 只股票。",
@@ -21,6 +26,8 @@ def test_after_close_status_exposes_candidate_review_and_dingtalk_outcomes() -> 
     assert status["candidate_web_status"] == "ok"
     assert status["review_status"] == "ok"
     assert status["dingtalk_status"] == "ok"
+    assert status["market_regime"] == "panic"
+    assert status["market_regime_risk_level"] == "high"
 
 
 def test_merge_after_close_status_preserves_push_outcomes(monkeypatch) -> None:

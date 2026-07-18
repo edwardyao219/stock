@@ -2561,6 +2561,7 @@ export function App() {
                         <span>计划证据 {afterCloseStatus.plan_rows_refreshed}/{afterCloseStatus.existing_plans} / {afterCloseStatusLabel(afterCloseStatus.plan_refresh_status)}</span>
                         <span>资金更新 {dateTimeText(afterCloseStatus.moneyflow_updated_at)}</span>
                         <span>调度健康 {String(afterCloseStatus.scheduler_health?.state ?? "正常") === "failed" ? "需人工处理" : String(afterCloseStatus.scheduler_health?.state ?? "正常") === "completed" ? "正常" : "恢复中"}</span>
+                        <span>市场阶段 {marketRegimeText(afterCloseStatus.market_regime)} / 风险 {afterCloseStatus.market_regime_risk_level ?? "未记录"}</span>
                         <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>
                         <span>Tushare证据</span>
                         {(afterCloseStatus.tushare_evidence_health?.datasets ?? []).map((dataset) => {

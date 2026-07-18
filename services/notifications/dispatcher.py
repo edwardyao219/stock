@@ -584,6 +584,26 @@ def _market_stress_snapshot(discovery: dict[str, Any]) -> dict[str, Any]:
     return snapshot if isinstance(snapshot, dict) else {}
 
 
+def _market_regime_summary(discovery: dict[str, Any]) -> str | None:
+    snapshot = discovery.get("market_regime_snapshot") or {}
+    regime = str(discovery.get("market_regime") or snapshot.get("regime") or "").strip()
+    if not regime:
+        return None
+    label = {
+        "strong_trend": "强趋势",
+        "weak_trend": "弱趋势",
+        "range": "震荡",
+        "panic": "恐慌",
+        "rebound": "反弹确认",
+        "rebound_unconfirmed": "反弹未确认",
+    }.get(regime, regime)
+    risk_level = str(snapshot.get("risk_level") or "").strip()
+    if not risk_level:
+        risk_level = "high" if regime in {"panic", "weak_trend"} else "medium"
+    risk_label = {"high": "高", "medium": "中", "normal": "低"}.get(risk_level, risk_level)
+    return f"市场阶段：{label} / 风险{risk_label}"
+
+
 def _market_stress_summary(discovery: dict[str, Any]) -> str | None:
     snapshot = _market_stress_snapshot(discovery)
     label = str(snapshot.get("stress_label") or "").strip()
@@ -1537,6 +1557,9 @@ def format_candidate_screening_text(
         warning = discovery.get("universe_warning")
         if warning:
             lines.append(f"提示：{warning}")
+        regime_summary = _market_regime_summary(discovery)
+        if regime_summary:
+            lines.append(regime_summary)
         stress_summary = _market_stress_summary(discovery)
         if stress_summary:
             lines.append(stress_summary)
@@ -1624,6 +1647,9 @@ def format_candidate_screening_text(
     warning = discovery.get("universe_warning")
     if warning:
         lines.append(f"提示：{warning}")
+    regime_summary = _market_regime_summary(discovery)
+    if regime_summary:
+        lines.append(regime_summary)
     stress_summary = _market_stress_summary(discovery)
     if stress_summary:
         lines.append(stress_summary)

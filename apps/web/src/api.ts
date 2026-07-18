@@ -1441,6 +1441,8 @@ export interface AfterCloseStatus {
   existing_plans: number;
   plan_rows_refreshed: number;
   market_summary: string | null;
+  market_regime: string | null;
+  market_regime_risk_level: string | null;
   tushare_evidence_health: TushareEvidenceHealth;
   scheduler_health: Record<string, unknown>;
   source: string;

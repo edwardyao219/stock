@@ -20,7 +20,12 @@ from services.jobs.pipeline import (
 from services.jobs.status import read_after_close_status
 from services.jobs.tasks import run_after_close_safe_recovery_task
 from services.shared.database import get_db
-from services.shared.models import BacktestTradeRecord, ReviewReport, RulePerformanceDaily
+from services.shared.models import (
+    BacktestTradeRecord,
+    MarketRegimeDaily,
+    ReviewReport,
+    RulePerformanceDaily,
+)
 from services.shared.time import now_local
 
 router = APIRouter()
@@ -149,6 +154,8 @@ class AfterCloseStatusResponse(BaseModel):
     existing_plans: int = 0
     plan_rows_refreshed: int = 0
     market_summary: str | None = None
+    market_regime: str | None = None
+    market_regime_risk_level: str | None = None
     tushare_evidence_health: dict[str, Any] = Field(default_factory=dict)
     scheduler_health: dict[str, Any] = Field(default_factory=dict)
     source: str = "cache"
@@ -260,6 +267,18 @@ def get_after_close_status(
     target_date = trade_date or _today()
     cached = read_after_close_status(target_date)
     if cached:
+        if cached.get("market_regime") is None and db is not None:
+            try:
+                regime_date = date.fromisoformat(target_date)
+            except ValueError:
+                regime_date = None
+            regime = db.get(MarketRegimeDaily, regime_date) if regime_date else None
+            if regime is not None:
+                cached = {
+                    **cached,
+                    "market_regime": regime.regime,
+                    "market_regime_risk_level": regime.risk_level,
+                }
         if cached.get("review_status") == "skipped":
             try:
                 report_date = date.fromisoformat(target_date)

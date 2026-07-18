@@ -246,6 +246,30 @@ def test_inspect_daily_data_health_reports_missing_market_regime() -> None:
     assert "market_regime_missing" not in {issue.code for issue in present.issues}
 
 
+def test_inspect_daily_data_health_flags_two_consecutive_market_regime_gaps() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    first_date = date(2026, 7, 10)
+    second_date = date(2026, 7, 13)
+
+    with sessionmaker(bind=engine)() as db:
+        db.add(Security(symbol="000001", name="样本", exchange="SZ", is_active=True, is_st=False))
+        for trade_date in (first_date, second_date):
+            db.add(_daily_bar("000001", trade_date, amount="1000000000"))
+            db.add(
+                StockFeatureDaily(
+                    symbol="000001",
+                    trade_date=trade_date,
+                    features={"amount_ratio_5d": 1.0, "volume_confirmation_score": 60.0},
+                )
+            )
+        db.commit()
+
+        report = inspect_daily_data_health(db, trade_date=second_date)
+
+    assert "market_regime_consecutive_missing" in {issue.code for issue in report.issues}
+
+
 def test_inspect_daily_data_health_blocks_candidates_below_daily_coverage_threshold() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

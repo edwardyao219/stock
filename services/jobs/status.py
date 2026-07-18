@@ -49,6 +49,13 @@ def _extract_market_summary(values: list[str]) -> str | None:
     return None
 
 
+def _extract_market_regime(steps: list[dict[str, Any]]) -> tuple[str | None, str | None]:
+    step = next((item for item in steps if item.get("name") == "sync_market_regime"), None)
+    detail = str((step or {}).get("detail") or "")
+    match = re.search(r"市场阶段\s+(\S+)，风险\s+(\S+)。", detail)
+    return match.groups() if match else (None, None)
+
+
 def _step_status(steps: list[dict[str, Any]], name: str) -> str:
     step = next((item for item in steps if item.get("name") == name), None)
     return str(step.get("status") or "not_run") if step else "not_run"
@@ -98,6 +105,7 @@ def build_after_close_status(
     )
 
     dingtalk_statuses = _extract_dingtalk_statuses(step_texts)
+    market_regime, market_regime_risk_level = _extract_market_regime(steps)
     return {
         "trade_date": str(result.get("trade_date") or ""),
         "next_trade_date": result.get("next_trade_date"),
@@ -111,6 +119,8 @@ def build_after_close_status(
         "review_status": _step_status(steps, "generate_daily_review"),
         "dingtalk_status": _dingtalk_status(dingtalk_statuses),
         "market_summary": _extract_market_summary(step_texts),
+        "market_regime": market_regime,
+        "market_regime_risk_level": market_regime_risk_level,
         "tushare_evidence_health": result.get("tushare_evidence_health") or {},
         "scheduler_health": result.get("scheduler_health") or {},
         "source": "cache",

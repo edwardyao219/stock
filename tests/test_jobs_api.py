@@ -10,7 +10,12 @@ from services.jobs import run_pipeline as run_pipeline_cli
 from services.jobs import status as job_status
 from services.jobs.pipeline import DailyPipelineResult, PipelineStepResult
 from services.shared.database import Base
-from services.shared.models import BacktestTradeRecord, ReviewReport, RulePerformanceDaily
+from services.shared.models import (
+    BacktestTradeRecord,
+    MarketRegimeDaily,
+    ReviewReport,
+    RulePerformanceDaily,
+)
 
 
 def _result(stage: str) -> DailyPipelineResult:
@@ -83,6 +88,36 @@ def test_after_close_status_returns_unknown_without_cache(monkeypatch) -> None:
     assert payload.status == "unknown"
     assert payload.trade_date == "2026-07-09"
     assert "还没有收盘推送记录" in payload.message
+
+
+def test_after_close_status_backfills_market_regime_from_daily_record(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {"trade_date": trade_date, "status": "ok", "message": "已完成"},
+    )
+
+    with session() as db:
+        db.add(
+            MarketRegimeDaily(
+                trade_date=date(2026, 7, 17),
+                regime="panic",
+                trend_score=22.0,
+                breadth_score=18.0,
+                emotion_score=20.0,
+                volatility_score=74.0,
+                risk_level="high",
+                source="test",
+            )
+        )
+        db.commit()
+        payload = jobs.get_after_close_status(db=db, trade_date="2026-07-17")
+
+    assert payload.market_regime == "panic"
+    assert payload.market_regime_risk_level == "high"
 
 
 def test_after_close_status_marks_delayed_review_complete_when_report_exists(monkeypatch) -> None:

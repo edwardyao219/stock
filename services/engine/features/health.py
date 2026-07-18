@@ -338,6 +338,28 @@ def inspect_daily_data_health(
                 None,
             )
         )
+    recent_feature_dates = list(
+        db.execute(
+            select(StockFeatureDaily.trade_date)
+            .where(StockFeatureDaily.trade_date <= target_date)
+            .group_by(StockFeatureDaily.trade_date)
+            .order_by(StockFeatureDaily.trade_date.desc())
+            .limit(2)
+        ).scalars()
+    ) if target_date else []
+    if len(recent_feature_dates) == 2 and all(
+        db.get(MarketRegimeDaily, trade_date) is None for trade_date in recent_feature_dates
+    ):
+        issues.append(
+            _issue(
+                "market_regime_consecutive_missing",
+                "warning",
+                "市场阶段连续缺口：最近两个特征日均未生成阶段记录。",
+                "market_regime_daily",
+                2,
+                0,
+            )
+        )
     has_distribution_sample = len(bars) >= MIN_DISTRIBUTION_SAMPLE_SIZE
     has_feature_distribution_sample = len(feature_rows) >= MIN_DISTRIBUTION_SAMPLE_SIZE
 
