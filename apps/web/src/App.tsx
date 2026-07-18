@@ -4831,7 +4831,12 @@ export function App() {
               <div>
                 <span>尾盘快照</span>
                 <strong>{dataHealth?.late_market_turn_20d?.healthy_days ?? 0} 日</strong>
-                <small>近20日已发现 {dataHealth?.late_market_turn_20d?.observed_days ?? 0} 日</small>
+                <small>
+                  {(dataHealth?.late_market_turn_20d?.observed_days ?? 0) > 0
+                    && (dataHealth?.late_market_turn_20d?.healthy_days ?? 0) / (dataHealth?.late_market_turn_20d?.observed_days ?? 1) < 0.8
+                    ? "历史回放样本可能不足"
+                    : `近20日已发现 ${dataHealth?.late_market_turn_20d?.observed_days ?? 0} 日`}
+                </small>
               </div>
             </div>
             <div className="data-health-schedule">
