@@ -1,3 +1,6 @@
+from datetime import datetime
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -66,6 +69,30 @@ def test_prepare_next_trade_session_runs_prepare_steps(monkeypatch) -> None:
         "generate_trade_plans",
     ]
     assert result.steps[4].detail == "plans:2026-06-25:False"
+
+
+def test_pre_market_check_surfaces_late_market_turn_warning(monkeypatch) -> None:
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 20, 8, 30))
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-21")
+    monkeypatch.setattr(
+        tasks,
+        "prepare_next_trade_session",
+        lambda *args: SimpleNamespace(
+            to_dict=lambda: {"trade_date": "2026-07-20", "status": "ok"}
+        ),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_previous_late_market_turn_health",
+        lambda trade_date: {"status": "warning", "trade_date": "2026-07-17"},
+    )
+
+    result = tasks.pre_market_check()
+
+    assert result["late_market_turn_health"] == {
+        "status": "warning",
+        "trade_date": "2026-07-17",
+    }
 
 
 def test_sync_daily_market_data_step_returns_chinese_failure_summary(monkeypatch) -> None:

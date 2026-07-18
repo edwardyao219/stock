@@ -51,6 +51,7 @@ from services.shared.models import (
     IntradayMarketTurnSnapshot,
     MarketRegimeDaily,
     Security,
+    TradingCalendar,
 )
 from services.shared.time import now_local
 
@@ -179,10 +180,56 @@ def _mainline_outcome_health(db) -> dict[str, object]:
 
 
 @celery_app.task(name="services.jobs.tasks.pre_market_check")
-def pre_market_check() -> dict[str, str]:
+def _previous_late_market_turn_health(reference_date: date) -> dict[str, object]:
+    with SessionLocal() as db:
+        trade_date = db.execute(
+            select(TradingCalendar.trade_date)
+            .where(TradingCalendar.trade_date < reference_date)
+            .where(TradingCalendar.is_open.is_(True))
+            .order_by(TradingCalendar.trade_date.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if trade_date is None:
+            return {"status": "skipped", "message": "前一交易日未确认。"}
+        late_snapshot_time = datetime.combine(trade_date, datetime.min.time()).replace(
+            hour=14,
+            minute=50,
+        )
+        snapshot = db.execute(
+            select(IntradayMarketTurnSnapshot)
+            .where(IntradayMarketTurnSnapshot.trade_date == trade_date)
+            .where(IntradayMarketTurnSnapshot.snapshot_time >= late_snapshot_time)
+            .order_by(IntradayMarketTurnSnapshot.snapshot_time.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+    if snapshot is None:
+        return {
+            "status": "warning",
+            "trade_date": trade_date.isoformat(),
+            "message": "缺少尾盘市场快照。",
+        }
+    if snapshot.coverage_ratio < 0.80 or not (snapshot.state_json or {}).get("data_ready"):
+        return {
+            "status": "warning",
+            "trade_date": trade_date.isoformat(),
+            "message": "尾盘市场快照覆盖不足或未就绪。",
+        }
+    return {
+        "status": "ok",
+        "trade_date": trade_date.isoformat(),
+        "message": "尾盘市场快照正常。",
+    }
+
+
+@celery_app.task(name="services.jobs.tasks.pre_market_check")
+def pre_market_check() -> dict[str, object]:
     today = now_local().date().isoformat()
     result = prepare_next_trade_session(today, resolve_next_trade_date(today))
-    return result.to_dict()
+    payload = result.to_dict()
+    payload["late_market_turn_health"] = _previous_late_market_turn_health(
+        date.fromisoformat(today)
+    )
+    return payload
 
 
 @celery_app.task(name="services.jobs.tasks.capture_korea_semiconductor_signal_task")
