@@ -209,6 +209,9 @@ class MainlineOutcomeSummaryResponse(BaseModel):
     breakdown_horizon: int
     sectors: list[dict[str, bool | int | float | str]] = Field(default_factory=list)
     market_states: list[dict[str, bool | int | float | str]] = Field(default_factory=list)
+    phase_summaries: dict[str, list[MainlineOutcomeSummaryHorizonResponse]] = Field(
+        default_factory=dict
+    )
 
 
 class IntradayMarketTurnResponse(BaseModel):
@@ -1829,7 +1832,6 @@ def get_mainline_outcome_summary(db: DbSession) -> MainlineOutcomeSummaryRespons
     outcomes = list_confirmed_mainline_outcomes(
         db,
         limit=MAINLINE_OUTCOME_WINDOW_LIMIT,
-        signal_type="strong_benchmark",
     )
     rows = summarize_mainline_outcomes(outcomes)
     breakdowns = summarize_mainline_outcome_breakdowns(outcomes)
@@ -1846,6 +1848,13 @@ def get_mainline_outcome_summary(db: DbSession) -> MainlineOutcomeSummaryRespons
         breakdown_horizon=int(breakdowns["horizon"]),
         sectors=list(breakdowns["sectors"]),
         market_states=list(breakdowns["market_states"]),
+        phase_summaries={
+            signal_type: [
+                MainlineOutcomeSummaryHorizonResponse(**item)
+                for item in summarize_mainline_outcomes(outcomes, signal_type=signal_type).values()
+            ]
+            for signal_type in ("watch_mainline", "confirmed_mainline", "strong_benchmark")
+        },
     )
 
 
