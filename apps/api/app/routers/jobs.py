@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
@@ -22,6 +22,7 @@ from services.jobs.tasks import run_after_close_safe_recovery_task
 from services.shared.database import get_db
 from services.shared.models import (
     BacktestTradeRecord,
+    IntradayMarketTurnSnapshot,
     MarketRegimeDaily,
     ReviewReport,
     RulePerformanceDaily,
@@ -156,6 +157,7 @@ class AfterCloseStatusResponse(BaseModel):
     market_summary: str | None = None
     market_regime: str | None = None
     market_regime_risk_level: str | None = None
+    late_market_turn_health: dict[str, Any] = Field(default_factory=dict)
     tushare_evidence_health: dict[str, Any] = Field(default_factory=dict)
     scheduler_health: dict[str, Any] = Field(default_factory=dict)
     source: str = "cache"
@@ -266,7 +268,37 @@ def get_after_close_status(
 ) -> AfterCloseStatusResponse:
     target_date = trade_date or _today()
     cached = read_after_close_status(target_date)
+    try:
+        report_date = date.fromisoformat(target_date)
+    except ValueError:
+        report_date = None
+    late_snapshot = db.execute(
+        select(IntradayMarketTurnSnapshot)
+        .where(IntradayMarketTurnSnapshot.trade_date == report_date)
+        .where(
+            IntradayMarketTurnSnapshot.snapshot_time
+            >= datetime.combine(report_date, datetime.min.time()).replace(hour=14, minute=50)
+        )
+        .order_by(IntradayMarketTurnSnapshot.snapshot_time.desc())
+        .limit(1)
+    ).scalar_one_or_none() if report_date is not None else None
+    late_snapshot_ready = bool(
+        late_snapshot is not None
+        and late_snapshot.coverage_ratio >= 0.80
+        and (late_snapshot.state_json or {}).get("data_ready")
+    )
+    late_market_turn_health = (
+        {"status": "missing", "message": "缺少尾盘市场快照"}
+        if late_snapshot is None
+        else {
+            "status": "ok" if late_snapshot_ready else "warning",
+            "coverage_ratio": late_snapshot.coverage_ratio,
+            "message": "尾盘市场快照正常"
+            if late_snapshot_ready else "尾盘市场快照覆盖不足或未就绪",
+        }
+    )
     if cached:
+        cached = {**cached, "late_market_turn_health": late_market_turn_health}
         if cached.get("market_regime") is None and db is not None:
             try:
                 regime_date = date.fromisoformat(target_date)
@@ -297,6 +329,7 @@ def get_after_close_status(
         status="unknown",
         message=f"{target_date} 还没有收盘推送记录；如果刚重启过服务，请以钉钉和候选池为准。",
         source="empty",
+        late_market_turn_health=late_market_turn_health,
     )
 
 
