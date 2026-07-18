@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import defaultdict
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -9,12 +10,27 @@ from typing import Any
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from services.engine.backtest.walk_forward import CANDIDATE_DISCOVERY_CACHE_VERSION
 from services.engine.review.repository import INDEX_DAILY_BAR_SYMBOLS
-from services.shared.models import DailyBar, TradingCalendar, TushareDatasetSyncReceipt
+from services.shared.models import (
+    CandidateDiscoverySnapshot,
+    DailyBar,
+    TradingCalendar,
+    TushareDatasetSyncReceipt,
+)
 
 RECOVERY_THRESHOLD_CONFIGS = ((1, 3), (2, 4), (2, 5))
-MARKET_STRESS_RECOVERY_CACHE_VERSION = "market-stress-recovery-v3"
+MARKET_STRESS_RECOVERY_CACHE_VERSION = "market-stress-recovery-v4"
 MARKET_STRESS_RECOVERY_CACHE_DIR = Path(".tmp/market-stress-recovery-cache")
+MARKET_REGIME_ORDER = (
+    "strong_trend",
+    "rebound",
+    "rebound_unconfirmed",
+    "range",
+    "weak_trend",
+    "panic",
+)
+MARKET_REGIMES = frozenset(MARKET_REGIME_ORDER)
 
 
 def _is_risk_snapshot(snapshot: dict[str, Any]) -> bool:
@@ -44,14 +60,16 @@ def _replay_threshold(
     limited_after: int,
     normal_after: int,
     false_rebound_window: int,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     state = "normal"
     recovery_count = 0
     active_risk_index: int | None = None
     active_risk_year: int | None = None
-    releases: list[tuple[int, int]] = []
+    active_risk_regime: str | None = None
+    releases: list[tuple[int, int, str | None]] = []
     recovery_days: list[int] = []
     yearly_stats: dict[int, dict[str, Any]] = {}
+    regime_stats: dict[str, dict[str, Any]] = {}
     risk_event_count = 0
     blocked_days = 0
     limited_days = 0
@@ -60,6 +78,9 @@ def _replay_threshold(
 
     for index, snapshot in enumerate(snapshots):
         snapshot_year = int(str(snapshot["trade_date"])[:4])
+        snapshot_regime = str(snapshot.get("market_regime") or "")
+        if snapshot_regime not in MARKET_REGIMES:
+            snapshot_regime = ""
         yearly = yearly_stats.setdefault(
             snapshot_year,
             {
@@ -76,6 +97,23 @@ def _replay_threshold(
             },
         )
         yearly["observed_trade_day_count"] += 1
+        regime = (
+            regime_stats.setdefault(
+                snapshot_regime,
+                {
+                    "snapshot_count": 0,
+                    "risk_event_count": 0,
+                    "completed_recovery_count": 0,
+                    "evaluated_recovery_count": 0,
+                    "false_rebound_count": 0,
+                    "recovery_days": [],
+                },
+            )
+            if snapshot_regime
+            else None
+        )
+        if regime is not None:
+            regime["snapshot_count"] += 1
         if not snapshot.get("is_usable", True):
             yearly["data_gap_count"] += 1
             if state != "normal":
@@ -88,6 +126,9 @@ def _replay_threshold(
                 risk_event_count += 1
                 yearly["risk_event_count"] += 1
                 active_risk_year = snapshot_year
+                active_risk_regime = snapshot_regime or None
+                if regime is not None:
+                    regime["risk_event_count"] += 1
             state = "blocked"
             recovery_count = 0
             active_risk_index = index
@@ -96,14 +137,20 @@ def _replay_threshold(
             if recovery_count >= normal_after:
                 state = "normal"
                 event_year = active_risk_year or snapshot_year
-                releases.append((index, event_year))
+                event_regime = active_risk_regime
+                releases.append((index, event_year, event_regime))
                 yearly_stats[event_year]["completed_recovery_count"] += 1
+                if event_regime is not None:
+                    regime_stats[event_regime]["completed_recovery_count"] += 1
                 if active_risk_index is not None:
                     duration = index - active_risk_index
                     recovery_days.append(duration)
                     yearly_stats[event_year]["recovery_days"].append(duration)
+                    if event_regime is not None:
+                        regime_stats[event_regime]["recovery_days"].append(duration)
                 active_risk_index = None
                 active_risk_year = None
+                active_risk_regime = None
             elif recovery_count >= limited_after:
                 state = "limited"
             else:
@@ -121,8 +168,8 @@ def _replay_threshold(
                 yearly["limited_opportunity_days"] += 1
 
     evaluated_releases = [
-        (release_index, event_year)
-        for release_index, event_year in releases
+        (release_index, event_year, event_regime)
+        for release_index, event_year, event_regime in releases
         if release_index + false_rebound_window < len(snapshots)
         and all(
             snapshot.get("is_usable", True)
@@ -131,10 +178,12 @@ def _replay_threshold(
             ]
         )
     ]
-    for _, event_year in evaluated_releases:
+    for _, event_year, event_regime in evaluated_releases:
         yearly_stats[event_year]["evaluated_recovery_count"] += 1
+        if event_regime is not None:
+            regime_stats[event_regime]["evaluated_recovery_count"] += 1
     false_rebound_count = 0
-    for release_index, event_year in evaluated_releases:
+    for release_index, event_year, event_regime in evaluated_releases:
         if any(
             _is_risk_snapshot(snapshot)
             for snapshot in snapshots[
@@ -143,6 +192,8 @@ def _replay_threshold(
         ):
             false_rebound_count += 1
             yearly_stats[event_year]["false_rebound_count"] += 1
+            if event_regime is not None:
+                regime_stats[event_regime]["false_rebound_count"] += 1
     completed_recovery_count = len(releases)
     evaluated_recovery_count = len(evaluated_releases)
     row = {
@@ -194,7 +245,35 @@ def _replay_threshold(
                 ),
             }
         )
-    return row, yearly_rows
+    regime_rows = []
+    for regime_name in MARKET_REGIME_ORDER:
+        stats = regime_stats.get(regime_name)
+        if stats is None:
+            continue
+        evaluated_count = int(stats["evaluated_recovery_count"])
+        regime_recovery_days = stats.pop("recovery_days")
+        regime_rows.append(
+            {
+                "regime": regime_name,
+                **stats,
+                "unresolved_event_count": max(
+                    0,
+                    int(stats["risk_event_count"])
+                    - int(stats["completed_recovery_count"]),
+                ),
+                "false_rebound_rate": (
+                    round(int(stats["false_rebound_count"]) / evaluated_count, 6)
+                    if evaluated_count
+                    else None
+                ),
+                "avg_recovery_days": (
+                    round(sum(regime_recovery_days) / len(regime_recovery_days), 2)
+                    if regime_recovery_days
+                    else None
+                ),
+            }
+        )
+    return row, yearly_rows, regime_rows
 
 
 def _opportunity_days(row: dict[str, Any]) -> int:
@@ -278,6 +357,9 @@ def replay_market_stress_recovery(
 ) -> dict[str, Any]:
     ordered = sorted(snapshots, key=lambda item: str(item["trade_date"]))
     usable_snapshot_count = sum(1 for item in ordered if item.get("is_usable", True))
+    regime_coverage_count = sum(
+        1 for item in ordered if str(item.get("market_regime") or "") in MARKET_REGIMES
+    )
     replays = [
         _replay_threshold(
             ordered,
@@ -287,16 +369,45 @@ def replay_market_stress_recovery(
         )
         for limited_after, normal_after in RECOVERY_THRESHOLD_CONFIGS
     ]
-    rows = [row for row, _ in replays]
-    yearly_rows = next(yearly for row, yearly in replays if row["is_current"])
+    rows = [row for row, _, _ in replays]
+    yearly_rows = next(yearly for row, yearly, _ in replays if row["is_current"])
+    regime_rows = next(regimes for row, _, regimes in replays if row["is_current"])
     return {
         "snapshot_count": usable_snapshot_count,
         "observed_trade_day_count": len(ordered),
         "data_gap_count": len(ordered) - usable_snapshot_count,
+        "market_regime_coverage_count": regime_coverage_count,
+        "market_regime_gap_count": len(ordered) - regime_coverage_count,
         "false_rebound_window": false_rebound_window,
         "rows": rows,
         "yearly_rows": yearly_rows,
+        "regime_rows": regime_rows,
         "recommendation": _recommend_threshold(rows, min_risk_events=min_risk_events),
+    }
+
+
+def load_market_stress_recovery_regimes(
+    db: Session,
+    *,
+    start_date: str,
+    end_date: str,
+) -> dict[str, str]:
+    rows = db.execute(
+        select(CandidateDiscoverySnapshot.signal_date, CandidateDiscoverySnapshot.discovery_json)
+        .where(CandidateDiscoverySnapshot.cache_version == CANDIDATE_DISCOVERY_CACHE_VERSION)
+        .where(CandidateDiscoverySnapshot.signal_date >= date.fromisoformat(start_date))
+        .where(CandidateDiscoverySnapshot.signal_date <= date.fromisoformat(end_date))
+    ).all()
+    values_by_date: dict[str, set[str]] = defaultdict(set)
+    for signal_date, discovery in rows:
+        snapshot = (discovery or {}).get("market_regime_snapshot") or {}
+        regime = str((discovery or {}).get("market_regime") or snapshot.get("regime") or "")
+        if regime in MARKET_REGIMES:
+            values_by_date[signal_date.isoformat()].add(regime)
+    return {
+        trade_date: next(iter(regimes))
+        for trade_date, regimes in values_by_date.items()
+        if len(regimes) == 1
     }
 
 
@@ -380,11 +491,20 @@ def build_market_stress_recovery_report(
         end_date=end_date,
         min_coverage_ratio=min_coverage_ratio,
     )
+    regimes = load_market_stress_recovery_regimes(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    for snapshot in snapshots:
+        snapshot["market_regime"] = regimes.get(str(snapshot["trade_date"]))
     replay = replay_market_stress_recovery(snapshots)
     return {
         "start_date": start_date,
         "end_date": end_date,
         "data_source": "daily_bars",
+        "market_regime_data_source": "candidate_discovery_snapshots",
+        "market_regime_cache_version": CANDIDATE_DISCOVERY_CACHE_VERSION,
         "min_coverage_ratio": min_coverage_ratio,
         "first_trade_date": snapshots[0]["trade_date"] if snapshots else None,
         "last_trade_date": snapshots[-1]["trade_date"] if snapshots else None,
@@ -425,6 +545,15 @@ def load_or_build_market_stress_recovery_report(
         .where(TushareDatasetSyncReceipt.trade_date >= date.fromisoformat(start_date))
         .where(TushareDatasetSyncReceipt.trade_date <= date.fromisoformat(end_date))
     ).scalar_one_or_none()
+    regime_snapshot_count, latest_regime_revision = db.execute(
+        select(
+            func.count(),
+            func.max(CandidateDiscoverySnapshot.updated_at),
+        )
+        .where(CandidateDiscoverySnapshot.cache_version == CANDIDATE_DISCOVERY_CACHE_VERSION)
+        .where(CandidateDiscoverySnapshot.signal_date >= date.fromisoformat(start_date))
+        .where(CandidateDiscoverySnapshot.signal_date <= date.fromisoformat(end_date))
+    ).one()
     calendar_open_count, latest_calendar_date = db.execute(
         select(func.count(), func.max(TradingCalendar.trade_date))
         .where(TradingCalendar.trade_date >= date.fromisoformat(start_date))
@@ -439,6 +568,11 @@ def load_or_build_market_stress_recovery_report(
         "latest_trade_date": latest_trade_date.isoformat() if latest_trade_date else None,
         "latest_stock_count": latest_stock_count,
         "latest_revision": latest_revision.isoformat() if latest_revision else None,
+        "market_regime_cache_version": CANDIDATE_DISCOVERY_CACHE_VERSION,
+        "market_regime_snapshot_count": int(regime_snapshot_count),
+        "latest_market_regime_revision": (
+            latest_regime_revision.isoformat() if latest_regime_revision else None
+        ),
         "calendar_open_count": int(calendar_open_count),
         "latest_calendar_date": (
             latest_calendar_date.isoformat() if latest_calendar_date else None

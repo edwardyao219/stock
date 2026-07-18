@@ -234,6 +234,17 @@ function outcomeMarketStateLabel(value: string) {
   }[value] ?? "其他状态";
 }
 
+function marketRegimeLabel(value: string) {
+  return {
+    strong_trend: "强趋势",
+    rebound: "反弹确认",
+    rebound_unconfirmed: "反弹未确认",
+    range: "震荡",
+    weak_trend: "弱趋势",
+    panic: "恐慌",
+  }[value] ?? "未知";
+}
+
 function price(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return value.toFixed(2);
@@ -3968,6 +3979,54 @@ export function App() {
                                 <small>
                                   封锁 {row.blocked_opportunity_days} / 限制 {row.limited_opportunity_days}
                                 </small>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+                {marketStressRecoveryReplay.regime_rows.length ? (
+                  <div className="stress-recovery-yearly">
+                    <div className="stress-recovery-yearly-head">
+                      <strong>2/4 阶段稳定性</strong>
+                      <small>
+                        阶段覆盖 {marketStressRecoveryReplay.market_regime_coverage_count} / {marketStressRecoveryReplay.observed_trade_day_count} 日；
+                        风险轮次按首次触发日归属
+                      </small>
+                    </div>
+                    <div className="stress-recovery-table-wrap">
+                      <table className="stress-recovery-table stress-recovery-regime-table">
+                        <thead>
+                          <tr>
+                            <th>触发阶段</th>
+                            <th>阶段日数</th>
+                            <th>风险轮次</th>
+                            <th>假反弹</th>
+                            <th>平均恢复</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {marketStressRecoveryReplay.regime_rows.map((row) => (
+                            <tr key={row.regime}>
+                              <td><strong>{marketRegimeLabel(row.regime)}</strong></td>
+                              <td>{row.snapshot_count}</td>
+                              <td>
+                                {row.risk_event_count}
+                                <small>
+                                  完成 {row.completed_recovery_count} / 未解 {row.unresolved_event_count}
+                                </small>
+                              </td>
+                              <td>
+                                {row.false_rebound_count} / {row.evaluated_recovery_count}
+                                <small>
+                                  {pct(row.false_rebound_rate)}
+                                  {row.evaluated_recovery_count < 3 ? " / 样本偏少" : ""}
+                                </small>
+                              </td>
+                              <td>
+                                {row.avg_recovery_days === null ? "-" : `${row.avg_recovery_days}日`}
                               </td>
                             </tr>
                           ))}

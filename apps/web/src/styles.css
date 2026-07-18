@@ -3815,6 +3815,10 @@ button {
   min-width: 680px;
 }
 
+.stress-recovery-regime-table {
+  min-width: 610px;
+}
+
 .stress-recovery-yearly-table td:first-child {
   color: #17202b;
 }

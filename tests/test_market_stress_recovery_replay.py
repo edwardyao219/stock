@@ -10,7 +10,12 @@ from services.collector.repository import upsert_daily_bars
 from services.engine.review import market_stress_recovery
 from services.engine.review.market_stress_recovery import replay_market_stress_recovery
 from services.shared.database import Base
-from services.shared.models import DailyBar, TradingCalendar, TushareDatasetSyncReceipt
+from services.shared.models import (
+    CandidateDiscoverySnapshot,
+    DailyBar,
+    TradingCalendar,
+    TushareDatasetSyncReceipt,
+)
 
 
 def test_market_stress_recovery_replay_route_is_registered() -> None:
@@ -203,6 +208,117 @@ def test_replay_market_stress_recovery_assigns_cross_year_recovery_to_risk_year(
     assert yearly[2025]["avg_recovery_days"] == 4.0
     assert yearly[2026]["risk_event_count"] == 0
     assert yearly[2026]["completed_recovery_count"] == 0
+
+
+def test_replay_market_stress_recovery_splits_current_threshold_by_risk_start_regime() -> None:
+    report = replay_market_stress_recovery(
+        [
+            {
+                "trade_date": "2026-01-02",
+                "up_ratio": 0.20,
+                "avg_change_pct": -0.020,
+                "market_regime": "panic",
+            },
+            {
+                "trade_date": "2026-01-05",
+                "up_ratio": 0.60,
+                "avg_change_pct": 0.010,
+                "market_regime": "range",
+            },
+            {
+                "trade_date": "2026-01-06",
+                "up_ratio": 0.60,
+                "avg_change_pct": 0.010,
+                "market_regime": "range",
+            },
+            {
+                "trade_date": "2026-01-07",
+                "up_ratio": 0.60,
+                "avg_change_pct": 0.010,
+                "market_regime": "range",
+            },
+            {
+                "trade_date": "2026-01-08",
+                "up_ratio": 0.60,
+                "avg_change_pct": 0.010,
+                "market_regime": "range",
+            },
+            {
+                "trade_date": "2026-01-09",
+                "up_ratio": 0.20,
+                "avg_change_pct": -0.020,
+                "market_regime": "panic",
+            },
+        ]
+    )
+
+    regimes = {row["regime"]: row for row in report["regime_rows"]}
+    assert report["market_regime_coverage_count"] == 6
+    assert report["market_regime_gap_count"] == 0
+    assert regimes["panic"] == {
+        "regime": "panic",
+        "snapshot_count": 2,
+        "risk_event_count": 2,
+        "completed_recovery_count": 1,
+        "evaluated_recovery_count": 0,
+        "unresolved_event_count": 1,
+        "false_rebound_count": 0,
+        "false_rebound_rate": None,
+        "avg_recovery_days": 4.0,
+    }
+    assert regimes["range"]["snapshot_count"] == 4
+
+
+def test_load_market_stress_recovery_regimes_rejects_conflicting_day_snapshots() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                CandidateDiscoverySnapshot(
+                    cache_version="candidate-v5-startup-signal",
+                    signal_date=date(2026, 1, 2),
+                    next_trade_date=date(2026, 1, 5),
+                    candidate_limit=15,
+                    include_fundamentals=False,
+                    discovery_json={"market_regime": "panic"},
+                ),
+                CandidateDiscoverySnapshot(
+                    cache_version="candidate-v5-startup-signal",
+                    signal_date=date(2026, 1, 2),
+                    next_trade_date=date(2026, 1, 5),
+                    candidate_limit=20,
+                    include_fundamentals=False,
+                    discovery_json={"market_regime": "panic"},
+                ),
+                CandidateDiscoverySnapshot(
+                    cache_version="candidate-v5-startup-signal",
+                    signal_date=date(2026, 1, 5),
+                    next_trade_date=date(2026, 1, 6),
+                    candidate_limit=15,
+                    include_fundamentals=False,
+                    discovery_json={"market_regime": "range"},
+                ),
+                CandidateDiscoverySnapshot(
+                    cache_version="candidate-v5-startup-signal",
+                    signal_date=date(2026, 1, 5),
+                    next_trade_date=date(2026, 1, 6),
+                    candidate_limit=20,
+                    include_fundamentals=False,
+                    discovery_json={"market_regime": "rebound"},
+                ),
+            ]
+        )
+        db.commit()
+
+        regimes = market_stress_recovery.load_market_stress_recovery_regimes(
+            db,
+            start_date="2026-01-01",
+            end_date="2026-01-31",
+        )
+
+    assert regimes == {"2026-01-02": "panic"}
 
 
 def test_load_market_stress_recovery_snapshots_marks_low_coverage_days() -> None:

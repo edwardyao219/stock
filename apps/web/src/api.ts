@@ -1153,16 +1153,32 @@ export interface MarketStressRecoveryYearlyRow {
   limited_opportunity_days: number;
 }
 
+export interface MarketStressRecoveryRegimeRow {
+  regime: string;
+  snapshot_count: number;
+  risk_event_count: number;
+  completed_recovery_count: number;
+  evaluated_recovery_count: number;
+  unresolved_event_count: number;
+  false_rebound_count: number;
+  false_rebound_rate: number | null;
+  avg_recovery_days: number | null;
+}
+
 export interface MarketStressRecoveryReplayReport {
   start_date: string;
   end_date: string;
   data_source: string;
+  market_regime_data_source: string;
+  market_regime_cache_version: string;
   min_coverage_ratio: number;
   first_trade_date: string | null;
   last_trade_date: string | null;
   snapshot_count: number;
   observed_trade_day_count: number;
   data_gap_count: number;
+  market_regime_coverage_count: number;
+  market_regime_gap_count: number;
   false_rebound_window: number;
   recommendation: {
     status: string;
@@ -1172,6 +1188,7 @@ export interface MarketStressRecoveryReplayReport {
   };
   rows: MarketStressRecoveryReplayRow[];
   yearly_rows: MarketStressRecoveryYearlyRow[];
+  regime_rows: MarketStressRecoveryRegimeRow[];
   cache: {
     hit: boolean;
     cache_key: string;

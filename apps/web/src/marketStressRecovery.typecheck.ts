@@ -7,12 +7,16 @@ const report = {
   start_date: "2024-01-01",
   end_date: "2026-07-16",
   data_source: "daily_bars",
+  market_regime_data_source: "candidate_discovery_snapshots",
+  market_regime_cache_version: "candidate-v5-startup-signal",
   min_coverage_ratio: 0.8,
   first_trade_date: "2024-01-02",
   last_trade_date: "2026-07-16",
   snapshot_count: 611,
   observed_trade_day_count: 613,
   data_gap_count: 2,
+  market_regime_coverage_count: 613,
+  market_regime_gap_count: 0,
   false_rebound_window: 3,
   recommendation: {
     status: "keep_current",
@@ -56,6 +60,19 @@ const report = {
       limited_opportunity_days: 19,
     },
   ],
+  regime_rows: [
+    {
+      regime: "range",
+      snapshot_count: 341,
+      risk_event_count: 18,
+      completed_recovery_count: 17,
+      evaluated_recovery_count: 17,
+      unresolved_event_count: 1,
+      false_rebound_count: 11,
+      false_rebound_rate: 0.647059,
+      avg_recovery_days: 4.88,
+    },
+  ],
   cache: {
     hit: true,
     cache_key: "example",
@@ -65,4 +82,5 @@ const report = {
 
 report.rows[0].threshold_label satisfies string;
 report.yearly_rows[0].year satisfies number;
+report.regime_rows[0].regime satisfies string;
 fetchMarketStressRecoveryReplay({ start_date: "2024-01-01", force_refresh: true });
