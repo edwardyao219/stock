@@ -1326,6 +1326,15 @@ def test_celery_captures_early_market_repair_snapshots() -> None:
         assert schedule.minute == {minute}
 
 
+def test_celery_captures_late_market_turn_before_close_snapshot() -> None:
+    job = celery_app.conf.beat_schedule["capture-intraday-market-turn-1450"]
+    schedule = job["schedule"]
+
+    assert job["task"] == "services.jobs.tasks.capture_intraday_market_turn_snapshot_task"
+    assert schedule.hour == {14}
+    assert schedule.minute == {50}
+
+
 def test_early_market_turn_and_paper_snapshot_task_runs_in_order(monkeypatch) -> None:
     calls = []
     monkeypatch.setattr(

@@ -74,6 +74,10 @@ celery_app.conf.beat_schedule = {
         "task": "services.jobs.tasks.paper_midday_snapshot_task",
         "schedule": crontab(minute=35, hour=11),
     },
+    "capture-intraday-market-turn-1450": {
+        "task": "services.jobs.tasks.capture_intraday_market_turn_snapshot_task",
+        "schedule": crontab(minute=50, hour=14),
+    },
     "paper-late-session-snapshot": {
         "task": "services.jobs.tasks.paper_late_session_snapshot_task",
         "schedule": crontab(minute=50, hour=14),
