@@ -463,6 +463,18 @@ button {
 .research-signal-ledger { border-top: 1px solid #e1e8ef; margin-top: 12px; padding-top: 10px; }
 .research-signal-breakdown { display: flex; flex-wrap: wrap; gap: 6px 14px; color: #64748b; font-size: 12px; padding: 4px 0; }
 .research-signal-breakdown span { min-width: 0; }
+.historical-signal-replay { background: #f8fafc; border-top: 1px solid #cbd5e1; margin-top: 10px; padding: 10px; }
+.historical-signal-replay .snapshot-review-head > * { overflow-wrap: anywhere; }
+.historical-replay-overview { color: #475569; display: flex; flex-wrap: wrap; font-size: 12px; gap: 6px 16px; padding: 5px 0 8px; }
+.historical-replay-horizons { border: 1px solid #dbe4ee; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.historical-replay-horizons > div { min-width: 0; padding: 8px 10px; }
+.historical-replay-horizons > div + div { border-left: 1px solid #dbe4ee; }
+.historical-replay-horizons span, .historical-replay-horizons small { color: #64748b; display: block; font-size: 12px; }
+.historical-replay-horizons strong { display: block; font-size: 16px; margin: 2px 0; }
+.historical-replay-recent { border-top: 1px solid #dbe4ee; display: grid; gap: 4px; margin-top: 6px; padding-top: 6px; }
+.historical-replay-recent > span { align-items: baseline; display: flex; flex-wrap: wrap; gap: 4px 10px; min-width: 0; }
+.historical-replay-recent strong { color: #334155; font-size: 12px; }
+.historical-replay-recent small { color: #64748b; font-size: 12px; }
 
 .post-close-review-board {
   display: grid;
@@ -5413,6 +5425,18 @@ textarea {
 
   .intraday-coverage-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .historical-replay-horizons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .historical-replay-horizons > div:nth-child(3) {
+    border-left: 0;
+  }
+
+  .historical-replay-horizons > div:nth-child(n + 3) {
+    border-top: 1px solid #dbe4ee;
   }
 
   .intraday-watch-list {

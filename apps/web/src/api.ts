@@ -262,6 +262,49 @@ export interface ResearchSignalLedger {
   }>;
 }
 
+export interface HistoricalSignalReplay {
+  source_type: "historical_replay";
+  cache_version: string;
+  policy_eligible: false;
+  research_sample_sufficient: boolean;
+  policy_label: string;
+  available_snapshot_count: number;
+  source_snapshot_count: number;
+  evaluated_snapshot_count: number;
+  excluded_snapshot_count: number;
+  exclusion_reasons: Record<string, number>;
+  candidate_exclusion_reasons: Record<string, number>;
+  signal_count: number;
+  start_date: string | null;
+  end_date: string | null;
+  covered_month_count: number;
+  minimum_sample_count: number;
+  horizons: Record<number, ResearchSignalSummaryHorizon>;
+  breakdown_horizon: number;
+  selection_modes: ResearchSignalBreakdown[];
+  market_regimes: ResearchSignalBreakdown[];
+  market_states: ResearchSignalBreakdown[];
+  sectors: ResearchSignalBreakdown[];
+  recent_signals: Array<{
+    source_type: "historical_replay";
+    signal_date: string;
+    symbol: string;
+    name: string | null;
+    sector: string | null;
+    selection_mode: string;
+    score: number;
+    rank: number;
+    market_regime: string;
+    market_state: string;
+    signal_price: number;
+    horizons: Record<number, {
+      status: string;
+      return_pct: number | null;
+      reason: string | null;
+    }>;
+  }>;
+}
+
 export interface IntradayExpandingSector {
   sector: string;
   symbol_count: number;
@@ -1648,6 +1691,10 @@ export function fetchMainlineOutcomeSummary() {
 
 export function fetchResearchSignalLedger() {
   return request<ResearchSignalLedger>("/market/research-signal-ledger");
+}
+
+export function fetchHistoricalSignalReplay() {
+  return request<HistoricalSignalReplay>("/market/research-signal-replay");
 }
 
 export function fetchSectorOverview() {

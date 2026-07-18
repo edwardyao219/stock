@@ -5,7 +5,7 @@ from decimal import Decimal
 from math import ceil
 from threading import Lock
 from time import monotonic
-from typing import Annotated
+from typing import Annotated, Literal
 
 import pandas as pd
 from fastapi import APIRouter, Depends, Query
@@ -31,7 +31,10 @@ from services.engine.news.repository import (
     snapshot_to_report,
     store_message_snapshot,
 )
-from services.engine.research_signal_ledger import evaluate_research_signal_ledger
+from services.engine.research_signal_ledger import (
+    evaluate_historical_signal_replay,
+    evaluate_research_signal_ledger,
+)
 from services.engine.review.sector_replay import replay_sector_month
 from services.engine.sector.names import canonical_sector_name as _canonical_sector_name
 from services.engine.tracking.mainline import (
@@ -326,6 +329,47 @@ class ResearchSignalLedgerResponse(BaseModel):
     execution_outcomes: dict[str, dict[int, ResearchSignalSummaryHorizonResponse]]
     execution_cohorts: list[ResearchSignalExecutionCohortResponse] = Field(default_factory=list)
     signals: list[ResearchSignalLedgerItemResponse] = Field(default_factory=list)
+
+
+class HistoricalReplaySignalResponse(BaseModel):
+    source_type: Literal["historical_replay"]
+    signal_date: str
+    symbol: str
+    name: str | None
+    sector: str | None
+    selection_mode: str
+    score: float
+    rank: int
+    market_regime: str
+    market_state: str
+    signal_price: float
+    horizons: dict[int, ResearchSignalHorizonResponse]
+
+
+class HistoricalSignalReplayResponse(BaseModel):
+    source_type: Literal["historical_replay"]
+    cache_version: str
+    policy_eligible: Literal[False]
+    research_sample_sufficient: bool
+    policy_label: str
+    available_snapshot_count: int
+    source_snapshot_count: int
+    evaluated_snapshot_count: int
+    excluded_snapshot_count: int
+    exclusion_reasons: dict[str, int] = Field(default_factory=dict)
+    candidate_exclusion_reasons: dict[str, int] = Field(default_factory=dict)
+    signal_count: int
+    start_date: str | None
+    end_date: str | None
+    covered_month_count: int
+    minimum_sample_count: int
+    horizons: dict[int, ResearchSignalSummaryHorizonResponse]
+    breakdown_horizon: int
+    selection_modes: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
+    market_regimes: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
+    market_states: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
+    sectors: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
+    recent_signals: list[HistoricalReplaySignalResponse] = Field(default_factory=list)
 
 
 class IntradayMarketTurnResponse(BaseModel):
@@ -1988,6 +2032,20 @@ def get_research_signal_ledger(
 ) -> ResearchSignalLedgerResponse:
     return ResearchSignalLedgerResponse(
         **evaluate_research_signal_ledger(db, current_time=now_local(), limit=limit)
+    )
+
+
+@router.get("/research-signal-replay", response_model=HistoricalSignalReplayResponse)
+def get_historical_signal_replay(
+    db: DbSession,
+    snapshot_limit: Annotated[int, Query(ge=1, le=500)] = 120,
+) -> HistoricalSignalReplayResponse:
+    return HistoricalSignalReplayResponse(
+        **evaluate_historical_signal_replay(
+            db,
+            current_time=now_local(),
+            snapshot_limit=snapshot_limit,
+        )
     )
 
 

@@ -5,10 +5,11 @@ from datetime import date, datetime, timedelta
 from statistics import fmean
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.shared.models import (
+    CandidateDiscoverySnapshot,
     DailyBar,
     PaperOrder,
     PaperPosition,
@@ -20,10 +21,20 @@ from services.shared.models import (
 HORIZONS = (1, 3, 5, 10)
 MIN_SAMPLES_FOR_POLICY = 30
 STARTUP_STAGES = {"starting", "accelerating"}
+HISTORICAL_REPLAY_CACHE_VERSION = "candidate-v5-startup-signal"
+HISTORICAL_REPLAY_CANDIDATE_LIMIT = 15
+HISTORICAL_REPLAY_SNAPSHOT_LIMIT = 120
 
 
 def _plain_datetime(value: datetime) -> datetime:
     return value.replace(tzinfo=None) if value.tzinfo is not None else value
+
+
+def _parse_iso_date(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(value).split("T", maxsplit=1)[0])
+    except (TypeError, ValueError):
+        return None
 
 
 def record_research_signals(db: Session, signals: list[dict[str, Any]]) -> int:
@@ -216,14 +227,16 @@ def _daily_cutoff(current_time: datetime) -> date:
 
 def _horizon_result(
     *,
-    row: ResearchSignalLedger,
+    symbol: str,
+    signal_date: date,
+    signal_price: float,
     horizon: int,
     open_dates: list[date],
-    bars_by_key: dict[tuple[str, date], DailyBar],
+    bars_by_key: dict[tuple[str, date], Any],
     daily_cutoff: date,
     current_date: date,
 ) -> dict[str, Any]:
-    future_dates = [item for item in open_dates if item > row.signal_date]
+    future_dates = [item for item in open_dates if item > signal_date]
     target_date = future_dates[horizon - 1] if len(future_dates) >= horizon else None
     result: dict[str, Any] = {
         "horizon": horizon,
@@ -246,7 +259,7 @@ def _horizon_result(
             ),
         }
     period_dates = future_dates[:horizon]
-    period_bars = [bars_by_key.get((row.symbol, item)) for item in period_dates]
+    period_bars = [bars_by_key.get((symbol, item)) for item in period_dates]
     if any(item is None for item in period_bars):
         return {**result, "status": "unavailable", "reason": "missing_daily_bar"}
     if any(item.is_suspended for item in period_bars if item is not None):
@@ -258,15 +271,257 @@ def _horizon_result(
     ):
         return {**result, "status": "unavailable", "reason": "incomplete_ohlc"}
     complete_bars = [item for item in period_bars if item is not None]
-    gains = [float(item.high) / row.signal_price - 1 for item in complete_bars]
-    drawdowns = [float(item.low) / row.signal_price - 1 for item in complete_bars]
+    gains = [float(item.high) / signal_price - 1 for item in complete_bars]
+    drawdowns = [float(item.low) / signal_price - 1 for item in complete_bars]
     return {
         **result,
         "status": "completed",
         "reason": None,
-        "return_pct": round(float(complete_bars[-1].close) / row.signal_price - 1, 6),
+        "return_pct": round(float(complete_bars[-1].close) / signal_price - 1, 6),
         "max_gain_pct": round(max(0.0, *gains), 6),
         "max_drawdown_pct": round(min(0.0, *drawdowns), 6),
+    }
+
+
+def _historical_replay_breakdown(
+    signals: list[dict[str, Any]],
+    field: str,
+    *,
+    horizon: int = 3,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, list[float]] = defaultdict(list)
+    for signal in signals:
+        result = signal["horizons"][horizon]
+        if result["status"] == "completed" and result["return_pct"] is not None:
+            grouped[str(signal.get(field) or "未分类")].append(float(result["return_pct"]))
+    return [
+        {
+            "key": key,
+            "sample_count": len(values),
+            "minimum_sample_count": MIN_SAMPLES_FOR_POLICY,
+            "eligible_for_policy": False,
+            "avg_return_pct": round(fmean(values), 6),
+            "win_rate": round(sum(value > 0 for value in values) / len(values), 6),
+        }
+        for key, values in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0]))
+    ]
+
+
+def evaluate_historical_signal_replay(
+    db: Session,
+    *,
+    current_time: datetime,
+    snapshot_limit: int = HISTORICAL_REPLAY_SNAPSHOT_LIMIT,
+    recent_signal_limit: int = 25,
+) -> dict[str, Any]:
+    """Evaluate cached walk-forward discoveries without writing to the real signal ledger."""
+    current_time = _plain_datetime(current_time)
+    available_snapshot_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(CandidateDiscoverySnapshot)
+            .where(CandidateDiscoverySnapshot.cache_version == HISTORICAL_REPLAY_CACHE_VERSION)
+            .where(CandidateDiscoverySnapshot.candidate_limit == HISTORICAL_REPLAY_CANDIDATE_LIMIT)
+            .where(CandidateDiscoverySnapshot.include_fundamentals.is_(False))
+        )
+        or 0
+    )
+    snapshots = list(
+        db.execute(
+            select(CandidateDiscoverySnapshot)
+            .where(CandidateDiscoverySnapshot.cache_version == HISTORICAL_REPLAY_CACHE_VERSION)
+            .where(CandidateDiscoverySnapshot.candidate_limit == HISTORICAL_REPLAY_CANDIDATE_LIMIT)
+            .where(CandidateDiscoverySnapshot.include_fundamentals.is_(False))
+            .order_by(CandidateDiscoverySnapshot.signal_date.desc())
+            .limit(snapshot_limit)
+        ).scalars()
+    )
+    snapshot_open_dates = (
+        list(
+            db.execute(
+                select(TradingCalendar.trade_date)
+                .where(TradingCalendar.is_open.is_(True))
+                .where(
+                    TradingCalendar.trade_date >= min(row.signal_date for row in snapshots),
+                    TradingCalendar.trade_date <= max(row.next_trade_date for row in snapshots),
+                )
+                .order_by(TradingCalendar.trade_date)
+            ).scalars()
+        )
+        if snapshots
+        else []
+    )
+    next_open_date = dict(zip(snapshot_open_dates, snapshot_open_dates[1:], strict=False))
+    exclusion_reasons: Counter[str] = Counter()
+    accepted: list[tuple[CandidateDiscoverySnapshot, dict[str, Any]]] = []
+    for snapshot in snapshots:
+        discovery = snapshot.discovery_json
+        if not isinstance(discovery, dict):
+            exclusion_reasons["invalid_discovery"] += 1
+            continue
+        feature_date = _parse_iso_date(discovery.get("feature_date"))
+        requested_feature_date = _parse_iso_date(discovery.get("requested_feature_date"))
+        if next_open_date.get(snapshot.signal_date) != snapshot.next_trade_date:
+            exclusion_reasons["invalid_next_trade_date"] += 1
+            continue
+        if feature_date != snapshot.signal_date:
+            exclusion_reasons["feature_date_mismatch"] += 1
+            continue
+        if (
+            "requested_feature_date" in discovery
+            and requested_feature_date != snapshot.signal_date
+        ):
+            exclusion_reasons["requested_feature_date_mismatch"] += 1
+            continue
+        accepted.append((snapshot, discovery))
+
+    cutoff = _daily_cutoff(current_time)
+    first_signal_date = min((row.signal_date for row, _ in accepted), default=None)
+    open_dates = (
+        list(
+            db.execute(
+                select(TradingCalendar.trade_date)
+                .where(TradingCalendar.is_open.is_(True))
+                .where(TradingCalendar.trade_date >= first_signal_date)
+                .order_by(TradingCalendar.trade_date)
+            ).scalars()
+        )
+        if first_signal_date
+        else []
+    )
+    candidates: list[dict[str, Any]] = []
+    needed_bar_keys: set[tuple[str, date]] = set()
+    for snapshot, discovery in accepted:
+        future_dates = [item for item in open_dates if item > snapshot.signal_date][: max(HORIZONS)]
+        seen_symbols: set[str] = set()
+        for rank, item in enumerate(discovery.get("candidates") or [], start=1):
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("symbol") or "").strip()
+            selection_mode = str(item.get("selection_mode") or "").strip()
+            if not symbol or not selection_mode or symbol in seen_symbols:
+                continue
+            seen_symbols.add(symbol)
+            candidate = {
+                "source_type": "historical_replay",
+                "signal_date": snapshot.signal_date,
+                "symbol": symbol,
+                "name": str(item.get("name") or "").strip() or None,
+                "sector": str(item.get("sector") or "").strip() or None,
+                "selection_mode": selection_mode,
+                "score": float(item.get("score") or 0.0),
+                "rank": rank,
+                "market_regime": str(discovery.get("market_regime") or "unknown"),
+                "market_state": (
+                    str(discovery["market_turn"].get("key") or "unknown")
+                    if isinstance(discovery.get("market_turn"), dict)
+                    else "unknown"
+                ),
+            }
+            candidates.append(candidate)
+            needed_bar_keys.add((symbol, snapshot.signal_date))
+            needed_bar_keys.update(
+                (symbol, item_date) for item_date in future_dates if item_date <= cutoff
+            )
+
+    bars_by_key: dict[tuple[str, date], Any] = {}
+    symbols = {symbol for symbol, _ in needed_bar_keys}
+    if symbols and first_signal_date and first_signal_date <= cutoff:
+        bar_rows = db.execute(
+            select(
+                DailyBar.symbol,
+                DailyBar.trade_date,
+                DailyBar.high,
+                DailyBar.low,
+                DailyBar.close,
+                DailyBar.is_suspended,
+            ).where(
+                DailyBar.symbol.in_(symbols),
+                DailyBar.trade_date >= first_signal_date,
+                DailyBar.trade_date <= cutoff,
+            )
+            .execution_options(stream_results=True, yield_per=2000)
+        )
+        bars_by_key = {
+            (bar.symbol, bar.trade_date): bar
+            for bar in bar_rows
+            if (bar.symbol, bar.trade_date) in needed_bar_keys
+        }
+
+    candidate_exclusion_reasons: Counter[str] = Counter()
+    signals: list[dict[str, Any]] = []
+    for candidate in candidates:
+        signal_date = candidate["signal_date"]
+        if signal_date > cutoff:
+            candidate_exclusion_reasons["unclosed_signal_date"] += 1
+            continue
+        signal_bar = bars_by_key.get((candidate["symbol"], signal_date))
+        if signal_bar is None or not signal_bar.close or float(signal_bar.close) <= 0:
+            candidate_exclusion_reasons["missing_signal_close"] += 1
+            continue
+        if signal_bar.is_suspended:
+            candidate_exclusion_reasons["suspended_signal_date"] += 1
+            continue
+        signal_price = float(signal_bar.close)
+        signals.append(
+            {
+                **candidate,
+                "signal_date": signal_date.isoformat(),
+                "signal_price": signal_price,
+                "horizons": {
+                    horizon: _horizon_result(
+                        symbol=candidate["symbol"],
+                        signal_date=signal_date,
+                        signal_price=signal_price,
+                        horizon=horizon,
+                        open_dates=open_dates,
+                        bars_by_key=bars_by_key,
+                        daily_cutoff=cutoff,
+                        current_date=current_time.date(),
+                    )
+                    for horizon in HORIZONS
+                },
+            }
+        )
+
+    summary = _summary(signals)
+    research_sample_sufficient = bool(summary[3]["eligible_for_policy"])
+    for item in summary.values():
+        item["eligible_for_policy"] = False
+    accepted_dates = sorted({row.signal_date for row, _ in accepted})
+    covered_month_count = len({item.strftime("%Y-%m") for item in accepted_dates})
+    return {
+        "source_type": "historical_replay",
+        "cache_version": HISTORICAL_REPLAY_CACHE_VERSION,
+        "policy_eligible": False,
+        "research_sample_sufficient": research_sample_sufficient,
+        "policy_label": (
+            "历史回放达到研究门槛，仍禁止替代真实信号结论"
+            if research_sample_sufficient
+            else "历史回放样本不足，仅用于研究参考"
+        ),
+        "available_snapshot_count": available_snapshot_count,
+        "source_snapshot_count": len(snapshots),
+        "evaluated_snapshot_count": len(accepted),
+        "excluded_snapshot_count": len(snapshots) - len(accepted),
+        "exclusion_reasons": dict(exclusion_reasons),
+        "candidate_exclusion_reasons": dict(candidate_exclusion_reasons),
+        "signal_count": len(signals),
+        "start_date": accepted_dates[0].isoformat() if accepted_dates else None,
+        "end_date": accepted_dates[-1].isoformat() if accepted_dates else None,
+        "covered_month_count": covered_month_count,
+        "minimum_sample_count": MIN_SAMPLES_FOR_POLICY,
+        "horizons": summary,
+        "breakdown_horizon": 3,
+        "selection_modes": _historical_replay_breakdown(signals, "selection_mode"),
+        "market_regimes": _historical_replay_breakdown(signals, "market_regime"),
+        "market_states": _historical_replay_breakdown(signals, "market_state"),
+        "sectors": _historical_replay_breakdown(signals, "sector"),
+        "recent_signals": sorted(
+            signals,
+            key=lambda item: (item["signal_date"], -int(item["rank"])),
+            reverse=True,
+        )[:recent_signal_limit],
     }
 
 
@@ -336,8 +591,8 @@ def _breakdowns(signals: list[dict[str, Any]], horizon: int = 3) -> dict[str, li
             {
                 "key": key,
                 "sample_count": len(values),
-                "minimum_sample_count": MIN_SAMPLES_FOR_POLICY,
-                "eligible_for_policy": len(values) >= MIN_SAMPLES_FOR_POLICY,
+            "minimum_sample_count": MIN_SAMPLES_FOR_POLICY,
+            "eligible_for_policy": len(values) >= MIN_SAMPLES_FOR_POLICY,
                 "avg_return_pct": round(fmean(values), 6),
                 "win_rate": round(sum(value > 0 for value in values) / len(values), 6),
             }
@@ -629,7 +884,9 @@ def evaluate_research_signal_ledger(
                 "execution": executions[row.id],
                 "horizons": {
                     horizon: _horizon_result(
-                        row=row,
+                        symbol=row.symbol,
+                        signal_date=row.signal_date,
+                        signal_price=row.signal_price,
                         horizon=horizon,
                         open_dates=open_dates,
                         bars_by_key=bars_by_key,

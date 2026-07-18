@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from services.shared.database import Base
 from services.shared.models import (
+    CandidateDiscoverySnapshot,
     DailyBar,
     PaperOrder,
     PaperPosition,
@@ -223,6 +224,21 @@ def test_market_api_exposes_research_signal_ledger_report() -> None:
     assert report.horizons[3].minimum_sample_count == 30
     assert report.execution_funnel.planned_count == 0
     assert report.execution_funnel.closed_count == 0
+
+
+def test_market_api_exposes_historical_replay_separately() -> None:
+    from apps.api.app.routers.market import get_historical_signal_replay
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        report = get_historical_signal_replay(db)
+
+    assert report.source_type == "historical_replay"
+    assert report.policy_eligible is False
+    assert report.signal_count == 0
+    assert report.available_snapshot_count == 0
+    assert report.horizons[3].minimum_sample_count == 30
 
 
 def test_daily_candidate_signal_builder_requires_current_feature_date_and_close_price() -> None:
@@ -503,3 +519,247 @@ def test_research_signal_ledger_compares_executed_missed_and_research_only_outco
     assert formal["groups"]["executed"]["avg_return_pct"] == 0.3
     assert formal["groups"]["not_entered"]["avg_return_pct"] == 0.05
     assert formal["comparable"] is False
+
+
+def test_historical_signal_replay_uses_only_exact_canonical_snapshots() -> None:
+    from services.engine.research_signal_ledger import (
+        evaluate_historical_signal_replay,
+        evaluate_research_signal_ledger,
+        record_research_signals,
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 1)
+    trade_dates = [signal_date + timedelta(days=index) for index in range(4)]
+    with Session(engine) as db:
+        db.add_all([TradingCalendar(trade_date=item, is_open=True) for item in trade_dates])
+        db.add_all(
+            [
+                _bar("600001", trade_dates[0], "10"),
+                _bar("600001", trade_dates[1], "11"),
+                _bar("600001", trade_dates[2], "12"),
+                _bar("600001", trade_dates[3], "13"),
+                CandidateDiscoverySnapshot(
+                    cache_version="candidate-v5-startup-signal",
+                    signal_date=trade_dates[0],
+                    next_trade_date=trade_dates[1],
+                    candidate_limit=15,
+                    include_fundamentals=False,
+                    discovery_json={
+                        "feature_date": trade_dates[0].isoformat(),
+                        "requested_feature_date": trade_dates[0].isoformat(),
+                        "market_regime": "range",
+                        "market_turn": {"key": "watch_repair"},
+                        "candidates": [
+                            {
+                                "symbol": "600001",
+                                "name": "回放样本",
+                                "sector": "半导体",
+                                "selection_mode": "formal_strategy",
+                                "score": 88,
+                            }
+                        ],
+                    },
+                ),
+                CandidateDiscoverySnapshot(
+                    cache_version="candidate-v5-startup-signal",
+                    signal_date=trade_dates[1],
+                    next_trade_date=trade_dates[2],
+                    candidate_limit=15,
+                    include_fundamentals=False,
+                    discovery_json={
+                        "feature_date": trade_dates[0].isoformat(),
+                        "candidates": [{"symbol": "600099", "selection_mode": "observation"}],
+                    },
+                ),
+                CandidateDiscoverySnapshot(
+                    cache_version="candidate-v5-startup-signal",
+                    signal_date=trade_dates[2],
+                    next_trade_date=trade_dates[3],
+                    candidate_limit=15,
+                    include_fundamentals=False,
+                    discovery_json={
+                        "feature_date": trade_dates[2].isoformat(),
+                        "requested_feature_date": "invalid-date",
+                        "candidates": [{"symbol": "600098", "selection_mode": "observation"}],
+                    },
+                ),
+                CandidateDiscoverySnapshot(
+                    cache_version="candidate-v5-startup-signal",
+                    signal_date=trade_dates[0],
+                    next_trade_date=trade_dates[2],
+                    candidate_limit=15,
+                    include_fundamentals=False,
+                    discovery_json={
+                        "feature_date": trade_dates[0].isoformat(),
+                        "candidates": [{"symbol": "600097", "selection_mode": "observation"}],
+                    },
+                ),
+            ]
+        )
+        record_research_signals(
+            db,
+            [
+                {
+                    "source": "daily_candidate_discovery",
+                    "signal_type": "daily_formal_strategy",
+                    "signal_time": datetime(2026, 7, 1, 15, 5),
+                    "symbol": "600888",
+                    "signal_price": 10,
+                }
+            ],
+        )
+        db.commit()
+
+        replay = evaluate_historical_signal_replay(
+            db,
+            current_time=datetime(2026, 7, 10, 16),
+        )
+        real = evaluate_research_signal_ledger(
+            db,
+            current_time=datetime(2026, 7, 10, 16),
+        )
+
+    assert replay["source_type"] == "historical_replay"
+    assert replay["source_snapshot_count"] == 4
+    assert replay["evaluated_snapshot_count"] == 1
+    assert replay["excluded_snapshot_count"] == 3
+    assert replay["exclusion_reasons"] == {
+        "feature_date_mismatch": 1,
+        "invalid_next_trade_date": 1,
+        "requested_feature_date_mismatch": 1,
+    }
+    assert replay["signal_count"] == 1
+    assert replay["covered_month_count"] == 1
+    assert replay["horizons"][3]["avg_return_pct"] == 0.3
+    assert replay["selection_modes"][0]["key"] == "formal_strategy"
+    assert replay["recent_signals"][0]["signal_price"] == 10.0
+    assert replay["recent_signals"][0]["source_type"] == "historical_replay"
+    assert real["signal_count"] == 1
+
+
+def test_historical_signal_replay_classifies_unclosed_suspended_and_missing_prices() -> None:
+    from services.engine.research_signal_ledger import evaluate_historical_signal_replay
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 1)
+    next_date = date(2026, 7, 2)
+    with Session(engine) as db:
+        db.add_all(
+            [
+                TradingCalendar(trade_date=signal_date, is_open=True),
+                TradingCalendar(trade_date=next_date, is_open=True),
+                _bar("600001", signal_date, "10"),
+                _bar("600001", next_date, "11", suspended=True),
+                CandidateDiscoverySnapshot(
+                    cache_version="candidate-v5-startup-signal",
+                    signal_date=signal_date,
+                    next_trade_date=next_date,
+                    candidate_limit=15,
+                    include_fundamentals=False,
+                    discovery_json={
+                        "feature_date": signal_date.isoformat(),
+                        "candidates": [
+                            {"symbol": "600001", "selection_mode": "formal_strategy"},
+                            {"symbol": "600002", "selection_mode": "observation"},
+                        ],
+                    },
+                ),
+            ]
+        )
+        db.commit()
+
+        intraday = evaluate_historical_signal_replay(
+            db,
+            current_time=datetime(2026, 7, 2, 14, 50),
+        )
+        closed = evaluate_historical_signal_replay(
+            db,
+            current_time=datetime(2026, 7, 2, 16),
+        )
+
+    assert intraday["candidate_exclusion_reasons"] == {"missing_signal_close": 1}
+    assert intraday["horizons"][1]["waiting_count"] == 1
+    assert intraday["recent_signals"][0]["horizons"][1]["reason"] == "awaiting_closed_daily_bar"
+    assert closed["horizons"][1]["unavailable_count"] == 1
+    assert closed["recent_signals"][0]["horizons"][1]["reason"] == "suspended"
+
+
+def test_historical_signal_replay_rejects_an_isolated_non_next_trade_date() -> None:
+    from services.engine.research_signal_ledger import evaluate_historical_signal_replay
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    trade_dates = [date(2026, 7, day) for day in (1, 2, 3)]
+    with Session(engine) as db:
+        db.add_all([TradingCalendar(trade_date=item, is_open=True) for item in trade_dates])
+        db.add(
+            CandidateDiscoverySnapshot(
+                cache_version="candidate-v5-startup-signal",
+                signal_date=trade_dates[0],
+                next_trade_date=trade_dates[2],
+                candidate_limit=15,
+                include_fundamentals=False,
+                discovery_json={
+                    "feature_date": trade_dates[0].isoformat(),
+                    "candidates": [{"symbol": "600001", "selection_mode": "observation"}],
+                },
+            )
+        )
+        db.commit()
+
+        replay = evaluate_historical_signal_replay(
+            db,
+            current_time=datetime(2026, 7, 10, 16),
+        )
+
+    assert replay["evaluated_snapshot_count"] == 0
+    assert replay["exclusion_reasons"] == {"invalid_next_trade_date": 1}
+
+
+def test_historical_signal_replay_never_marks_mature_samples_policy_eligible() -> None:
+    from services.engine.research_signal_ledger import evaluate_historical_signal_replay
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 1)
+    trade_dates = [signal_date + timedelta(days=index) for index in range(4)]
+    symbols = [f"60{index:04d}" for index in range(30)]
+    with Session(engine) as db:
+        db.add_all([TradingCalendar(trade_date=item, is_open=True) for item in trade_dates])
+        db.add_all(
+            [
+                _bar(symbol, trade_date, str(10 + date_index))
+                for symbol in symbols
+                for date_index, trade_date in enumerate(trade_dates)
+            ]
+        )
+        db.add(
+            CandidateDiscoverySnapshot(
+                cache_version="candidate-v5-startup-signal",
+                signal_date=trade_dates[0],
+                next_trade_date=trade_dates[1],
+                candidate_limit=15,
+                include_fundamentals=False,
+                discovery_json={
+                    "feature_date": trade_dates[0].isoformat(),
+                    "candidates": [
+                        {"symbol": symbol, "selection_mode": "formal_strategy"}
+                        for symbol in symbols
+                    ],
+                },
+            )
+        )
+        db.commit()
+
+        replay = evaluate_historical_signal_replay(
+            db,
+            current_time=datetime(2026, 7, 10, 16),
+        )
+
+    assert replay["research_sample_sufficient"] is True
+    assert replay["policy_eligible"] is False
+    assert replay["horizons"][3]["eligible_for_policy"] is False
+    assert replay["selection_modes"][0]["eligible_for_policy"] is False

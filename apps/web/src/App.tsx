@@ -17,6 +17,7 @@ import {
   CandidateReplayEffectReport,
   ConfirmedMainlineOutcome,
   MainlineOutcomeSummary,
+  HistoricalSignalReplay,
   ResearchSignalLedger,
   DataHealth,
   addManualStock,
@@ -26,6 +27,7 @@ import {
   fetchCandles,
   fetchConfirmedMainlineOutcomes,
   fetchMainlineOutcomeSummary,
+  fetchHistoricalSignalReplay,
   fetchResearchSignalLedger,
   fetchDataHealth,
   fetchIntradayMarketTurn,
@@ -1382,6 +1384,8 @@ export function App() {
     useState<MainlineOutcomeSummary | null>(null);
   const [researchSignalLedger, setResearchSignalLedger] =
     useState<ResearchSignalLedger | null>(null);
+  const [historicalSignalReplay, setHistoricalSignalReplay] =
+    useState<HistoricalSignalReplay | null>(null);
   const [intradayCandidates, setIntradayCandidates] = useState<IntradayCandidateList | null>(null);
   const [intradaySnapshots, setIntradaySnapshots] =
     useState<IntradayCandidateSnapshotList | null>(null);
@@ -1765,6 +1769,14 @@ export function App() {
     }
   }
 
+  async function loadHistoricalSignalReplay() {
+    try {
+      setHistoricalSignalReplay(await fetchHistoricalSignalReplay());
+    } catch {
+      setHistoricalSignalReplay(null);
+    }
+  }
+
   async function loadIntradayCandidates(refreshQuotes = false) {
     try {
       setIntradayCandidates(
@@ -1896,6 +1908,7 @@ export function App() {
     loadMarketOverview();
     loadIntradayMarketTurn();
     loadConfirmedMainlineOutcomes();
+    loadHistoricalSignalReplay();
     loadIntradayCandidates();
     loadSectorOverview();
     loadSectorCatalysts();
@@ -3762,7 +3775,7 @@ export function App() {
             {confirmedMainlineOutcomes.length ? (
               <div className="sector-catalyst-list">
                 {confirmedMainlineOutcomes.slice(0, 6).map((item) => (
-                  <div className="sector-catalyst-item" key={`${item.signal_date}-${item.sector}`}>
+                  <div className="sector-catalyst-item" key={`${item.signal_date}-${item.sector}-${item.signal_type}-${item.leader_symbol}`}>
                     <span>
                       <strong>{item.sector} / {item.signal_type === "confirmed_mainline" ? "主线确认" : "强启动对照"}</strong>
                       <em>{item.leader_symbol}</em>
@@ -3849,6 +3862,67 @@ export function App() {
                       ? researchSignalLedger.sectors.slice(0, 3).map((item) => `${item.key} 样本${item.sample_count} / ${pct(item.avg_return_pct)}`).join("；")
                       : "等待成熟样本"}
                   </span>
+                </div>
+              </div>
+            ) : null}
+            {historicalSignalReplay ? (
+              <div className="historical-signal-replay">
+                <div className="snapshot-review-head">
+                  <strong>历史回放（独立样本）</strong>
+                  <small>{historicalSignalReplay.policy_label}</small>
+                </div>
+                <div className="historical-replay-overview">
+                  <span>
+                    快照 {historicalSignalReplay.evaluated_snapshot_count}/{historicalSignalReplay.source_snapshot_count}
+                    {historicalSignalReplay.available_snapshot_count > historicalSignalReplay.source_snapshot_count
+                      ? `（库内${historicalSignalReplay.available_snapshot_count}）`
+                      : ""}
+                  </span>
+                  <span>信号 {historicalSignalReplay.signal_count}</span>
+                  <span>覆盖 {historicalSignalReplay.start_date ?? "-"} 至 {historicalSignalReplay.end_date ?? "-"}</span>
+                  <span>月份 {historicalSignalReplay.covered_month_count}</span>
+                  <span>排除快照 {historicalSignalReplay.excluded_snapshot_count}</span>
+                </div>
+                <div className="historical-replay-horizons">
+                  {[1, 3, 5, 10].map((horizon) => {
+                    const item = historicalSignalReplay.horizons[horizon];
+                    return item ? (
+                      <div key={horizon}>
+                        <span>{horizon}日</span>
+                        <strong className={(item.avg_return_pct ?? 0) >= 0 ? "up" : "down"}>{pct(item.avg_return_pct)}</strong>
+                        <small>成熟 {item.completed_count} / 胜率 {pct(item.win_rate)}</small>
+                        <small>等待 {item.waiting_count} / 异常 {item.unavailable_count}</small>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+                <div className="research-signal-breakdown">
+                  <span>
+                    类型 {historicalSignalReplay.selection_modes.length
+                      ? historicalSignalReplay.selection_modes.slice(0, 3).map((item) => `${researchSignalTypeLabel(`daily_${item.key}`)} ${item.sample_count}/${pct(item.avg_return_pct)}`).join("；")
+                      : "等待成熟样本"}
+                  </span>
+                  <span>
+                    市场 {historicalSignalReplay.market_regimes.length
+                      ? historicalSignalReplay.market_regimes.slice(0, 3).map((item) => `${marketRegimeLabel(item.key)} ${item.sample_count}/${pct(item.avg_return_pct)}`).join("；")
+                      : "等待成熟样本"}
+                  </span>
+                  <span>
+                    板块 {historicalSignalReplay.sectors.length
+                      ? historicalSignalReplay.sectors.slice(0, 3).map((item) => `${item.key} ${item.sample_count}/${pct(item.avg_return_pct)}`).join("；")
+                      : "等待成熟样本"}
+                  </span>
+                </div>
+                <div className="historical-replay-recent">
+                  {historicalSignalReplay.recent_signals.slice(0, 3).map((item) => {
+                    const result = item.horizons[3];
+                    return (
+                      <span key={`${item.signal_date}-${item.symbol}`}>
+                        <strong>{item.signal_date} {item.symbol} {item.name ?? ""}</strong>
+                        <small>{researchSignalTypeLabel(`daily_${item.selection_mode}`)} / {item.sector ?? "未分类"} / 3日 {result?.status === "completed" ? pct(result.return_pct) : "等待"}</small>
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
