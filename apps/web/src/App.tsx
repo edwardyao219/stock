@@ -1295,6 +1295,12 @@ function lateMarketTurnHealthText(value: Record<string, unknown> | undefined) {
   }[status] ?? "未确认";
 }
 
+function lateMarketTurnHealthDetail(value: Record<string, unknown> | undefined) {
+  const coverage = value?.coverage_ratio;
+  if (typeof coverage === "number") return `覆盖 ${(coverage * 100).toFixed(0)}%`;
+  return String(value?.message ?? "未记录").replace("尾盘市场快照", "");
+}
+
 function uiText(value: string | null | undefined) {
   return cleanDisplayText(value);
 }
@@ -2577,7 +2583,7 @@ export function App() {
                         <span>调度健康 {String(afterCloseStatus.scheduler_health?.state ?? "正常") === "failed" ? "需人工处理" : String(afterCloseStatus.scheduler_health?.state ?? "正常") === "completed" ? "正常" : "恢复中"}</span>
                         <span>市场阶段 {marketRegimeText(afterCloseStatus.market_regime)} / 风险 {afterCloseStatus.market_regime_risk_level ?? "未记录"}</span>
                         <span className={`late-market-turn-health ${String(afterCloseStatus.late_market_turn_health?.status ?? "missing")}`}>
-                          尾盘快照 {lateMarketTurnHealthText(afterCloseStatus.late_market_turn_health)} / {String(afterCloseStatus.late_market_turn_health?.message ?? "未记录")}
+                          尾盘快照 {lateMarketTurnHealthText(afterCloseStatus.late_market_turn_health)} / {lateMarketTurnHealthDetail(afterCloseStatus.late_market_turn_health)}
                         </span>
                         <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>
                         <span>Tushare证据</span>
