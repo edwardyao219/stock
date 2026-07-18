@@ -3720,6 +3720,7 @@ export function App() {
                       <span>{label}</span>
                       <strong className={(item?.avg_return_pct ?? 0) >= 0 ? "up" : "down"}>{pct(item?.avg_return_pct)}</strong>
                       <small>样本 {item?.sample_count ?? 0} / 胜率 {pct(item?.win_rate)}{item?.eligible_for_policy ? "" : " / 仅观察"}</small>
+                      <small>{mainlineOutcomeSummary.phase_market_states[key]?.[0] ? `${outcomeMarketStateLabel(mainlineOutcomeSummary.phase_market_states[key][0].key)} 样本${mainlineOutcomeSummary.phase_market_states[key][0].sample_count}` : "市场状态样本等待"}</small>
                     </div>
                   );
                 })}
