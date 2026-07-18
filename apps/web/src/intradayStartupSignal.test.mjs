@@ -20,6 +20,8 @@ for (const field of [
   "market_context_label",
   "regime_transition_summary",
   "is_sufficient_samples",
+  "history_health",
+  "eligible_days",
 ]) {
   assert(api.includes(field), `启动效果类型缺少 ${field}`);
 }
@@ -32,8 +34,10 @@ assert(app.includes("{horizon}日验证"), "盘中复盘需要显示各期限验
 assert(app.includes("market_context_label"), "启动效果需要显示信号发生时的市场环境");
 assert(app.includes("阶段切换回看"), "启动效果需要展示市场阶段切换回看");
 assert(app.includes("仅观察"), "阶段切换统计必须明确仅观察");
+assert(app.includes("历史数据门禁"), "启动效果需要展示历史数据门禁结果");
 assert(styles.includes(".startup-outcome-list"), "启动效果列表需要独立且直观的排版");
 assert(styles.includes(".regime-transition-table"), "阶段切换回看需要紧凑表格排版");
+assert(styles.includes(".history-health-strip"), "历史数据门禁需要独立且紧凑的排版");
 assert(
   /\.intraday-watch-strip\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s.test(
     mobileStyles,

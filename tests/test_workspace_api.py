@@ -8,6 +8,7 @@ from apps.api.app.routers.workspace import (
     IntradayCandidateSnapshotListResponse,
     ManualStockRequest,
     _early_hot_sector_quote_coverage,
+    _intraday_history_health,
     _intraday_snapshots_for_points,
     _recent_intraday_trade_dates,
     _sustained_startup_sectors,
@@ -1346,6 +1347,7 @@ def test_list_intraday_candidate_snapshots_includes_startup_outcomes(monkeypatch
         payload = list_intraday_candidate_snapshots(db=db, pool_name="experiment")
 
     assert payload["startup_outcomes"]["signal_count"] == 1
+    assert payload["history_health"]["window_days"] == 20
     validated = IntradayCandidateSnapshotListResponse.model_validate(payload)
     assert validated.startup_outcomes.signal_count == 1
     assert (
@@ -1430,8 +1432,19 @@ def test_recent_intraday_trade_dates_require_ready_market_coverage() -> None:
         db.commit()
 
         result = _recent_intraday_trade_dates(db, datetime(2026, 1, 22, 16), limit=20)
+        health = _intraday_history_health(db, datetime(2026, 1, 22, 16), limit=20)
 
     assert result == [date(2026, 1, 22), date(2026, 1, 19)]
+    assert health == {
+        "window_days": 20,
+        "observed_days": 4,
+        "eligible_days": 2,
+        "missing_quote_days": 0,
+        "missing_market_snapshot_days": 0,
+        "low_coverage_days": 1,
+        "not_ready_days": 1,
+        "eligible_dates": [date(2026, 1, 22), date(2026, 1, 19)],
+    }
 
 
 def test_list_intraday_candidate_snapshots_handles_timezone_aware_now(monkeypatch) -> None:

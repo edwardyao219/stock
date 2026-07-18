@@ -482,12 +482,23 @@ class IntradayStartupOutcomeReportResponse(BaseModel):
     outcomes: list[IntradayStartupOutcomeResponse]
 
 
+class IntradayHistoryHealthResponse(BaseModel):
+    window_days: int
+    observed_days: int
+    eligible_days: int
+    missing_quote_days: int
+    missing_market_snapshot_days: int
+    low_coverage_days: int
+    not_ready_days: int
+
+
 class IntradayCandidateSnapshotListResponse(BaseModel):
     trade_date: str
     pool_name: str
     snapshots: list[IntradayCandidateSnapshotResponse]
     learning: list[IntradaySnapshotLearningResponse] = []
     learning_summary: IntradaySnapshotLearningSummaryResponse | None = None
+    history_health: IntradayHistoryHealthResponse
     startup_outcomes: IntradayStartupOutcomeReportResponse
 
 
@@ -931,7 +942,7 @@ def _fixed_intraday_snapshot_points_for_day(value: datetime) -> list[tuple[str, 
     ]
 
 
-def _recent_intraday_trade_dates(db: Session, current_time: datetime, limit: int) -> list:
+def _intraday_history_health(db: Session, current_time: datetime, limit: int) -> dict:
     quote_dates = set(
         db.execute(
             select(RealtimeQuote.trade_date)
@@ -947,21 +958,41 @@ def _recent_intraday_trade_dates(db: Session, current_time: datetime, limit: int
             IntradayMarketTurnSnapshot.snapshot_time.desc(),
         )
     ).scalars()
-    eligible_dates: list[date] = []
-    seen_dates: set[date] = set()
+    latest_snapshots: dict[date, IntradayMarketTurnSnapshot] = {}
     for snapshot in snapshots:
-        if snapshot.trade_date in seen_dates:
-            continue
-        seen_dates.add(snapshot.trade_date)
-        if (
-            snapshot.trade_date in quote_dates
-            and snapshot.coverage_ratio >= 0.80
-            and (snapshot.state_json or {}).get("data_ready")
-        ):
-            eligible_dates.append(snapshot.trade_date)
-            if len(eligible_dates) >= max(1, limit):
-                break
-    return eligible_dates
+        latest_snapshots.setdefault(snapshot.trade_date, snapshot)
+
+    observed_dates = sorted(quote_dates | set(latest_snapshots), reverse=True)[: max(1, limit)]
+    eligible_dates: list[date] = []
+    exclusion_counts = {
+        "missing_quote_days": 0,
+        "missing_market_snapshot_days": 0,
+        "low_coverage_days": 0,
+        "not_ready_days": 0,
+    }
+    for trade_date in observed_dates:
+        snapshot = latest_snapshots.get(trade_date)
+        if trade_date not in quote_dates:
+            exclusion_counts["missing_quote_days"] += 1
+        elif snapshot is None:
+            exclusion_counts["missing_market_snapshot_days"] += 1
+        elif snapshot.coverage_ratio < 0.80:
+            exclusion_counts["low_coverage_days"] += 1
+        elif not (snapshot.state_json or {}).get("data_ready"):
+            exclusion_counts["not_ready_days"] += 1
+        else:
+            eligible_dates.append(trade_date)
+    return {
+        "window_days": max(1, limit),
+        "observed_days": len(observed_dates),
+        "eligible_days": len(eligible_dates),
+        **exclusion_counts,
+        "eligible_dates": eligible_dates,
+    }
+
+
+def _recent_intraday_trade_dates(db: Session, current_time: datetime, limit: int) -> list:
+    return _intraday_history_health(db, current_time, limit)["eligible_dates"]
 
 
 _SUPPORTIVE_INTRADAY_STATES = {"gap_down_repair", "strong_continuation", "pullback_repair"}
@@ -1148,7 +1179,8 @@ def list_intraday_candidate_snapshots(
     current_time = now_local()
     historical_learning: list[dict] = []
     snapshot_days: list[list[dict]] = []
-    trade_dates = _recent_intraday_trade_dates(db, current_time, lookback_days)
+    history_health = _intraday_history_health(db, current_time, lookback_days)
+    trade_dates = history_health["eligible_dates"]
     for trade_date in trade_dates:
         if trade_date == current_time.date():
             continue
@@ -1203,6 +1235,9 @@ def list_intraday_candidate_snapshots(
             all_learning,
             sample_days=len(trade_dates),
         ),
+        "history_health": {
+            key: value for key, value in history_health.items() if key != "eligible_dates"
+        },
         "startup_outcomes": build_intraday_startup_outcomes(
             db,
             snapshot_days,

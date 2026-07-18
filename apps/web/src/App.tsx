@@ -4948,6 +4948,21 @@ export function App() {
                     );
                   })}
                 </div>
+                <div className="history-health-strip">
+                  <span>历史数据门禁</span>
+                  <strong>
+                    合格 {intradaySnapshots.history_health.eligible_days} / {intradaySnapshots.history_health.observed_days} 日
+                  </strong>
+                  <small>窗口 {intradaySnapshots.history_health.window_days} 日</small>
+                  {[
+                    ["缺报价", intradaySnapshots.history_health.missing_quote_days],
+                    ["缺市场快照", intradaySnapshots.history_health.missing_market_snapshot_days],
+                    ["覆盖不足", intradaySnapshots.history_health.low_coverage_days],
+                    ["未就绪", intradaySnapshots.history_health.not_ready_days],
+                  ].filter(([, count]) => count).map(([label, count]) => (
+                    <small key={label}>{label} {count} 日</small>
+                  ))}
+                </div>
                 {([1, 3, 5] as const).some(
                   (horizon) => intradaySnapshots.startup_outcomes.regime_transition_summary[horizon]?.length,
                 ) ? (

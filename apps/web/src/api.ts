@@ -734,12 +734,23 @@ export interface IntradayStartupOutcomeReport {
   outcomes: IntradayStartupOutcome[];
 }
 
+export interface IntradayHistoryHealth {
+  window_days: number;
+  observed_days: number;
+  eligible_days: number;
+  missing_quote_days: number;
+  missing_market_snapshot_days: number;
+  low_coverage_days: number;
+  not_ready_days: number;
+}
+
 export interface IntradayCandidateSnapshotList {
   trade_date: string;
   pool_name: string;
   snapshots: IntradayCandidateSnapshot[];
   learning: IntradaySnapshotLearning[];
   learning_summary: IntradaySnapshotLearningSummary | null;
+  history_health: IntradayHistoryHealth;
   startup_outcomes: IntradayStartupOutcomeReport;
 }
 

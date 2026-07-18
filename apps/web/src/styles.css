@@ -1034,6 +1034,30 @@ button {
   margin: 2px 0;
 }
 
+.history-health-strip {
+  align-items: center;
+  border-bottom: 1px solid #e1e8ef;
+  color: #475569;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 7px 10px;
+}
+
+.history-health-strip span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.history-health-strip strong {
+  font-size: 13px;
+}
+
+.history-health-strip small {
+  color: #64748b;
+  font-size: 12px;
+}
+
 .regime-transition-table {
   border-bottom: 1px solid #e1e8ef;
   display: grid;
