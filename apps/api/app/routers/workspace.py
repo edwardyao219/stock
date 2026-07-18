@@ -476,6 +476,8 @@ class IntradayRegimeTransitionSummaryResponse(BaseModel):
 
 
 class IntradayStartupOutcomeReportResponse(BaseModel):
+    observed_day_count: int
+    signal_day_count: int
     signal_count: int
     completed_count: int
     waiting_count: int

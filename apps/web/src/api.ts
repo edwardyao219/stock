@@ -725,6 +725,8 @@ export interface IntradayRegimeTransitionSummary {
 }
 
 export interface IntradayStartupOutcomeReport {
+  observed_day_count: number;
+  signal_day_count: number;
   signal_count: number;
   completed_count: number;
   waiting_count: number;

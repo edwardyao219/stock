@@ -4958,7 +4958,7 @@ export function App() {
                     <span>启动效果</span>
                     <strong>{intradaySnapshots.startup_outcomes.signal_count} 个信号</strong>
                     <small>
-                      完整验证 {intradaySnapshots.startup_outcomes.completed_count} / 等待 {intradaySnapshots.startup_outcomes.waiting_count}
+                      观察 {intradaySnapshots.startup_outcomes.observed_day_count} 日 / 信号 {intradaySnapshots.startup_outcomes.signal_day_count} 日 / 完整验证 {intradaySnapshots.startup_outcomes.completed_count} / 等待 {intradaySnapshots.startup_outcomes.waiting_count}
                       {intradaySnapshots.startup_outcomes.unavailable_count
                         ? ` / 无数据 ${intradaySnapshots.startup_outcomes.unavailable_count}`
                         : ""}

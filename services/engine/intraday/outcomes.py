@@ -207,8 +207,18 @@ def build_intraday_startup_outcomes(
     current_time: datetime,
 ) -> dict[str, Any]:
     signals = _first_startup_signals(snapshot_days)
+    observed_day_count = len(
+        {
+            datetime.fromisoformat(str(snapshot["as_of"])).date()
+            for day in snapshot_days
+            for snapshot in day
+            if snapshot.get("as_of")
+        }
+    )
     if not signals:
         return {
+            "observed_day_count": observed_day_count,
+            "signal_day_count": 0,
             "signal_count": 0,
             "completed_count": 0,
             "waiting_count": 0,
@@ -326,6 +336,8 @@ def build_intraday_startup_outcomes(
         key = str(outcome["market_context"])
         context_counts[key] = context_counts.get(key, 0) + 1
     return {
+        "observed_day_count": observed_day_count,
+        "signal_day_count": len(signal_dates),
         "signal_count": len(outcomes),
         "completed_count": completed_count,
         "waiting_count": waiting_count,

@@ -1311,6 +1311,8 @@ def test_list_intraday_candidate_snapshots_includes_startup_outcomes(monkeypatch
         captured["snapshot_days"] = snapshot_days
         captured["current_time"] = current_time
         return {
+            "observed_day_count": 1,
+            "signal_day_count": 1,
             "signal_count": 1,
             "completed_count": 0,
             "waiting_count": 1,
