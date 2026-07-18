@@ -3519,3 +3519,6 @@ class _Session:
 
     def commit(self):
         return None
+
+    def execute(self, _statement):
+        return SimpleNamespace(scalars=lambda: [])

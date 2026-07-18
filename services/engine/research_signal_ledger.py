@@ -147,6 +147,60 @@ def build_intraday_market_turn_signals(
     return signals
 
 
+def build_daily_candidate_signals(
+    *,
+    discovery: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    signal_time: datetime,
+    prices_by_symbol: dict[str, float],
+) -> list[dict[str, Any]]:
+    """Capture an after-close candidate batch only when it uses that day's features."""
+    feature_date = str(discovery.get("feature_date") or "")
+    requested_feature_date = str(discovery.get("requested_feature_date") or "")
+    signal_date = _plain_datetime(signal_time).date().isoformat()
+    if feature_date != signal_date or requested_feature_date != signal_date:
+        return []
+    market_turn = discovery.get("market_turn")
+    market_state = (
+        str(market_turn.get("key") or "unknown") if isinstance(market_turn, dict) else "unknown"
+    )
+    market_regime = str(discovery.get("market_regime") or "unknown")
+    signals: list[dict[str, Any]] = []
+    for rank, candidate in enumerate(candidates, start=1):
+        symbol = str(candidate.get("symbol") or "").strip()
+        selection_mode = str(candidate.get("selection_mode") or "").strip()
+        price = prices_by_symbol.get(symbol)
+        if not symbol or not selection_mode or price is None or price <= 0:
+            continue
+        signals.append(
+            {
+                "source": "daily_candidate_discovery",
+                "signal_type": f"daily_{selection_mode}",
+                "signal_time": signal_time,
+                "symbol": symbol,
+                "name": candidate.get("name"),
+                "sector": candidate.get("sector"),
+                "signal_price": price,
+                "market_regime": market_regime,
+                "market_state": market_state,
+                "executable": False,
+                "evidence": {
+                    "candidate_rank": rank,
+                    "candidate_score": candidate.get("score"),
+                    "selected_rule_id": candidate.get("selected_rule_id"),
+                    "selected_rule_name": candidate.get("selected_rule_name"),
+                    "selected_strategy_type": candidate.get("selected_strategy_type"),
+                    "startup_signal_score": candidate.get("startup_signal_score"),
+                    "startup_signal_label": candidate.get("startup_signal_label"),
+                    "reasons": list(candidate.get("reasons") or []),
+                    "risk_flags": list(candidate.get("risk_flags") or []),
+                    "next_trade_date": discovery.get("next_trade_date"),
+                },
+            }
+        )
+    return signals
+
+
 def _daily_cutoff(current_time: datetime) -> date:
     if (current_time.hour, current_time.minute) >= (15, 5):
         return current_time.date()

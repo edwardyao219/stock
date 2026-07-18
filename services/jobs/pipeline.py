@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 
 from services.collector.daily import sync_daily_market_data
 from services.collector.sync import sync_recent_tushare_sector_moneyflow
+from services.engine.research_signal_ledger import (
+    build_daily_candidate_signals,
+    record_research_signals,
+)
 from services.engine.review.mechanical import generate_daily_mechanical_review
 from services.engine.tracking.repository import (
     build_tracking_snapshot_payload,
@@ -17,7 +21,7 @@ from services.engine.tracking.repository import (
 )
 from services.engine.workspace.repository import load_stock_workspace_items
 from services.shared.database import SessionLocal
-from services.shared.models import ResearchPoolItem, Security, TradingCalendar
+from services.shared.models import DailyBar, ResearchPoolItem, Security, TradingCalendar
 from services.shared.time import now_local
 
 
@@ -964,10 +968,34 @@ def _discover_next_session_candidates_step(
             max_core_items=3,
         )
         discovery["star_candidates"] = star_candidates
+        discovery["next_trade_date"] = next_trade_date
         _apply_candidate_tier_tags(
             db,
             pool_names=("experiment", "experiment_star"),
             candidate_tiers=discovery["candidate_tiers"],
+        )
+        candidate_symbols = {
+            str(item.get("symbol") or "")
+            for item in discovery["candidates"]
+            if str(item.get("symbol") or "")
+        }
+        close_by_symbol = {
+            item.symbol: float(item.close)
+            for item in db.execute(
+                select(DailyBar)
+                .where(DailyBar.symbol.in_(candidate_symbols))
+                .where(DailyBar.trade_date == date.fromisoformat(trade_date))
+                .where(DailyBar.close.is_not(None))
+            ).scalars()
+        }
+        record_research_signals(
+            db,
+            build_daily_candidate_signals(
+                discovery=discovery,
+                candidates=list(discovery["candidates"]),
+                signal_time=datetime.combine(date.fromisoformat(trade_date), time(15, 5)),
+                prices_by_symbol=close_by_symbol,
+            ),
         )
         db.commit()
     requested_feature_date = discovery.get("requested_feature_date") or trade_date

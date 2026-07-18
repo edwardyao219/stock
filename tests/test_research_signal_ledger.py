@@ -215,3 +215,44 @@ def test_market_api_exposes_research_signal_ledger_report() -> None:
     assert report.signal_count == 0
     assert report.policy_status == "insufficient"
     assert report.horizons[3].minimum_sample_count == 30
+
+
+def test_daily_candidate_signal_builder_requires_current_feature_date_and_close_price() -> None:
+    from services.engine.research_signal_ledger import build_daily_candidate_signals
+
+    signal_time = datetime(2026, 7, 1, 15, 5)
+    discovery = {
+        "feature_date": "2026-07-01",
+        "requested_feature_date": "2026-07-01",
+        "market_regime": "range",
+        "market_turn": {"key": "range"},
+    }
+    signals = build_daily_candidate_signals(
+        discovery=discovery,
+        candidates=[
+            {
+                "symbol": "600001",
+                "name": "收盘候选",
+                "sector": "通信设备",
+                "selection_mode": "formal_strategy",
+                "score": 81.0,
+                "selected_rule_id": "R002",
+                "reasons": ["板块扩散"],
+                "risk_flags": [],
+            },
+            {"symbol": "600002", "selection_mode": "observation", "score": 70.0},
+        ],
+        signal_time=signal_time,
+        prices_by_symbol={"600001": 10.2},
+    )
+
+    assert len(signals) == 1
+    assert signals[0]["signal_type"] == "daily_formal_strategy"
+    assert signals[0]["signal_price"] == 10.2
+    assert signals[0]["evidence"]["candidate_score"] == 81.0
+    assert build_daily_candidate_signals(
+        discovery={**discovery, "feature_date": "2026-06-30"},
+        candidates=[{"symbol": "600001", "selection_mode": "formal_strategy", "score": 81.0}],
+        signal_time=signal_time,
+        prices_by_symbol={"600001": 10.2},
+    ) == []
