@@ -886,6 +886,55 @@ def test_after_close_recovery_claims_missing_normal_task_slot(monkeypatch) -> No
     assert "normal after-close task" in result["message"]
 
 
+def test_after_close_recovery_repairs_only_missing_market_regime(monkeypatch) -> None:
+    from datetime import datetime
+
+    released = []
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
+    monkeypatch.setattr(
+        tasks,
+        "read_after_close_status",
+        lambda trade_date: {"trade_date": trade_date, "status": "ok"},
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_after_close_recovery_lock",
+        lambda trade_date: ("recovery-token", "recovery-lock"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_release_after_close_recovery_lock",
+        lambda *args: released.append(args),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_recover_missing_market_regime_step",
+        lambda trade_date: pipeline.PipelineStepResult(
+            name="sync_market_regime",
+            status="ok",
+            detail=f"市场阶段 panic，风险 high。{trade_date}",
+            summary="市场阶段已补齐",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks,
+        "run_after_close_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("stage-only recovery must not run the full after-close session")
+        ),
+    )
+
+    result = tasks.run_after_close_safe_recovery_task()
+
+    assert result["status"] == "ok"
+    assert result["steps"][0]["name"] == "sync_market_regime"
+    assert result["message"] == "市场阶段已补齐"
+    assert released == [("recovery-lock", "recovery-token")]
+
+
 def test_after_close_recovery_stops_after_two_attempts(monkeypatch) -> None:
     from datetime import datetime
 

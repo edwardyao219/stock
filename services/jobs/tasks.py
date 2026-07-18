@@ -27,9 +27,12 @@ from services.engine.tracking.mainline import (
 )
 from services.jobs.celery_app import celery_app
 from services.jobs.pipeline import (
+    PipelineStepResult,
     _compute_features_for_date,
+    _daily_candidate_data_gate_step,
     _is_open_trade_date,
     _sync_daily_market_data_step,
+    _sync_market_regime_step,
     _sync_sector_moneyflow_step,
     prepare_next_trade_session,
     resolve_next_trade_date,
@@ -44,7 +47,11 @@ from services.jobs.status import (
 )
 from services.notifications.dispatcher import dispatch_monthly_trade_summary, dispatch_text
 from services.shared.database import SessionLocal
-from services.shared.models import IntradayMarketTurnSnapshot, Security
+from services.shared.models import (
+    IntradayMarketTurnSnapshot,
+    MarketRegimeDaily,
+    Security,
+)
 from services.shared.time import now_local
 
 _DAILY_TASK_LOCK_TTL_SECONDS = 6 * 60 * 60
@@ -136,6 +143,28 @@ def _dispatch_after_close_failure_alert(trade_date: str, stage: str, error: str)
     if acquired:
         title = "盘后恢复失败" if stage == "safe-recovery" else "盘后任务失败"
         dispatch_text(f"【{title}】{trade_date}：{error}")
+
+
+def _recover_missing_market_regime_step(trade_date: str) -> PipelineStepResult:
+    target_date = date.fromisoformat(trade_date)
+    with SessionLocal() as db:
+        if db.get(MarketRegimeDaily, target_date) is not None:
+            return PipelineStepResult(
+                name="sync_market_regime",
+                status="skipped",
+                detail="市场阶段已存在，无需恢复。",
+                summary="市场阶段已存在",
+            )
+    gate = _daily_candidate_data_gate_step(trade_date)
+    if gate.status != "ok":
+        return PipelineStepResult(
+            name="sync_market_regime",
+            status="skipped",
+            detail="候选数据门禁未通过，暂不补算市场阶段。",
+            summary="市场阶段等待数据",
+            details=gate.details,
+        )
+    return _sync_market_regime_step(trade_date)
 
 
 def _mainline_outcome_health(db) -> dict[str, object]:
@@ -797,10 +826,31 @@ def run_after_close_safe_recovery_task() -> dict[str, object]:
     trade_date = current_time.date().isoformat()
     existing = read_after_close_status(trade_date)
     if existing and existing.get("status") in {"ok", "warning"}:
+        token, lock_key = _acquire_after_close_recovery_lock(trade_date)
+        if not token:
+            return {
+                "trade_date": trade_date,
+                "status": "skipped",
+                "message": "market regime recovery already running",
+                "lock_key": lock_key,
+            }
+        try:
+            step = _recover_missing_market_regime_step(trade_date)
+        except Exception as exc:
+            return {
+                "trade_date": trade_date,
+                "status": "warning",
+                "message": f"market regime recovery failed: {type(exc).__name__}",
+            }
+        finally:
+            _release_after_close_recovery_lock(lock_key, token)
+        if step.status == "ok":
+            merge_after_close_status(trade_date, {"market_regime_recovery_status": "ok"})
         return {
             "trade_date": trade_date,
-            "status": "skipped",
-            "message": "after-close status already completed",
+            "status": "ok" if step.status == "ok" else "skipped",
+            "message": step.summary or step.detail,
+            "steps": [step.to_dict()],
         }
     if (
         existing
