@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.engine.features.market_regime import MarketRegimeSnapshot, classify_market_regime
+from services.engine.features.market_regime_repository import store_market_regime_daily
 from services.engine.features.market_turn import classify_verified_market_turn_state
 from services.engine.news.external_mapping import (
     build_external_challengers,
@@ -2842,6 +2843,11 @@ def discover_next_session_candidates(
         contexts = [context for context in contexts if not _is_growth_board_context(context)]
     learning_recommendations = _load_learning_recommendations(db, effective_feature_date)
     market_regime = _market_regime_snapshot(contexts, effective_feature_date)
+    if (
+        requested_feature_date is not None
+        and effective_feature_date.isoformat() == requested_feature_date
+    ):
+        store_market_regime_daily(db, market_regime)
     emotion_gate = _emotion_gate(market_regime)
     quality_snapshot = _market_quality_snapshot(contexts)
     participation_snapshot = _market_participation_snapshot(contexts)

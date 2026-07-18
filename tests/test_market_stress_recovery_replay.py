@@ -11,8 +11,8 @@ from services.engine.review import market_stress_recovery
 from services.engine.review.market_stress_recovery import replay_market_stress_recovery
 from services.shared.database import Base
 from services.shared.models import (
-    CandidateDiscoverySnapshot,
     DailyBar,
+    MarketRegimeDaily,
     TradingCalendar,
     TushareDatasetSyncReceipt,
 )
@@ -269,52 +269,32 @@ def test_replay_market_stress_recovery_splits_current_threshold_by_risk_start_re
     assert regimes["range"]["snapshot_count"] == 4
 
 
-def test_load_market_stress_recovery_regimes_rejects_conflicting_day_snapshots() -> None:
+def test_load_market_stress_recovery_regimes_uses_only_supported_daily_rows() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
 
     with Session(engine) as db:
         db.add_all(
             [
-                CandidateDiscoverySnapshot(
-                    cache_version="candidate-v5-startup-signal",
-                    signal_date=date(2026, 1, 2),
-                    next_trade_date=date(2026, 1, 5),
-                    candidate_limit=15,
-                    include_fundamentals=False,
-                    discovery_json={"feature_date": "2026-01-02", "market_regime": "panic"},
+                MarketRegimeDaily(
+                    trade_date=date(2026, 1, 2),
+                    regime="panic",
+                    trend_score=22.0,
+                    breadth_score=18.0,
+                    emotion_score=20.0,
+                    volatility_score=74.0,
+                    risk_level="high",
+                    source="test",
                 ),
-                CandidateDiscoverySnapshot(
-                    cache_version="candidate-v5-startup-signal",
-                    signal_date=date(2026, 1, 2),
-                    next_trade_date=date(2026, 1, 5),
-                    candidate_limit=20,
-                    include_fundamentals=False,
-                    discovery_json={"feature_date": "2026-01-02", "market_regime": "panic"},
-                ),
-                CandidateDiscoverySnapshot(
-                    cache_version="candidate-v5-startup-signal",
-                    signal_date=date(2026, 1, 5),
-                    next_trade_date=date(2026, 1, 6),
-                    candidate_limit=15,
-                    include_fundamentals=False,
-                    discovery_json={"feature_date": "2026-01-05", "market_regime": "range"},
-                ),
-                CandidateDiscoverySnapshot(
-                    cache_version="candidate-v5-startup-signal",
-                    signal_date=date(2026, 1, 5),
-                    next_trade_date=date(2026, 1, 6),
-                    candidate_limit=20,
-                    include_fundamentals=False,
-                    discovery_json={"feature_date": "2026-01-05", "market_regime": "rebound"},
-                ),
-                CandidateDiscoverySnapshot(
-                    cache_version="candidate-v5-startup-signal",
-                    signal_date=date(2026, 1, 6),
-                    next_trade_date=date(2026, 1, 7),
-                    candidate_limit=15,
-                    include_fundamentals=False,
-                    discovery_json={"feature_date": "2026-01-05", "market_regime": "weak_trend"},
+                MarketRegimeDaily(
+                    trade_date=date(2026, 1, 5),
+                    regime="unknown",
+                    trend_score=50.0,
+                    breadth_score=50.0,
+                    emotion_score=50.0,
+                    volatility_score=50.0,
+                    risk_level="unknown",
+                    source="test",
                 ),
             ]
         )

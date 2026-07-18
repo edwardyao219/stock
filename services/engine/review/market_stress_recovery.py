@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import defaultdict
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -10,18 +9,18 @@ from typing import Any
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from services.engine.backtest.walk_forward import CANDIDATE_DISCOVERY_CACHE_VERSION
 from services.engine.review.repository import INDEX_DAILY_BAR_SYMBOLS
 from services.shared.models import (
-    CandidateDiscoverySnapshot,
     DailyBar,
+    MarketRegimeDaily,
     TradingCalendar,
     TushareDatasetSyncReceipt,
 )
 
 RECOVERY_THRESHOLD_CONFIGS = ((1, 3), (2, 4), (2, 5))
-MARKET_STRESS_RECOVERY_CACHE_VERSION = "market-stress-recovery-v5"
+MARKET_STRESS_RECOVERY_CACHE_VERSION = "market-stress-recovery-v6"
 MARKET_STRESS_RECOVERY_CACHE_DIR = Path(".tmp/market-stress-recovery-cache")
+MARKET_REGIME_DATA_VERSION = "market-regime-daily-v1"
 MARKET_REGIME_ORDER = (
     "strong_trend",
     "rebound",
@@ -393,27 +392,16 @@ def load_market_stress_recovery_regimes(
     end_date: str,
 ) -> dict[str, str]:
     rows = db.execute(
-        select(CandidateDiscoverySnapshot.signal_date, CandidateDiscoverySnapshot.discovery_json)
-        .where(CandidateDiscoverySnapshot.cache_version == CANDIDATE_DISCOVERY_CACHE_VERSION)
-        .where(CandidateDiscoverySnapshot.signal_date >= date.fromisoformat(start_date))
-        .where(CandidateDiscoverySnapshot.signal_date <= date.fromisoformat(end_date))
+        select(MarketRegimeDaily.trade_date, MarketRegimeDaily.regime)
+        .where(MarketRegimeDaily.trade_date >= date.fromisoformat(start_date))
+        .where(MarketRegimeDaily.trade_date <= date.fromisoformat(end_date))
     ).all()
-    values_by_date: dict[str, set[str]] = defaultdict(set)
-    for signal_date, discovery in rows:
-        snapshot = (discovery or {}).get("market_regime_snapshot") or {}
-        feature_date = str(
-            (discovery or {}).get("feature_date") or snapshot.get("trade_date") or ""
-        )
-        if feature_date != signal_date.isoformat():
-            continue
-        regime = str((discovery or {}).get("market_regime") or snapshot.get("regime") or "")
+    regimes: dict[str, str] = {}
+    for trade_date, regime in rows:
+        regime = str(regime or "")
         if regime in MARKET_REGIMES:
-            values_by_date[signal_date.isoformat()].add(regime)
-    return {
-        trade_date: next(iter(regimes))
-        for trade_date, regimes in values_by_date.items()
-        if len(regimes) == 1
-    }
+            regimes[trade_date.isoformat()] = regime
+    return regimes
 
 
 def load_market_stress_recovery_snapshots(
@@ -508,8 +496,8 @@ def build_market_stress_recovery_report(
         "start_date": start_date,
         "end_date": end_date,
         "data_source": "daily_bars",
-        "market_regime_data_source": "candidate_discovery_snapshots",
-        "market_regime_cache_version": CANDIDATE_DISCOVERY_CACHE_VERSION,
+        "market_regime_data_source": "market_regime_daily",
+        "market_regime_cache_version": MARKET_REGIME_DATA_VERSION,
         "min_coverage_ratio": min_coverage_ratio,
         "first_trade_date": snapshots[0]["trade_date"] if snapshots else None,
         "last_trade_date": snapshots[-1]["trade_date"] if snapshots else None,
@@ -553,11 +541,10 @@ def load_or_build_market_stress_recovery_report(
     regime_snapshot_count, latest_regime_revision = db.execute(
         select(
             func.count(),
-            func.max(CandidateDiscoverySnapshot.updated_at),
+            func.max(MarketRegimeDaily.updated_at),
         )
-        .where(CandidateDiscoverySnapshot.cache_version == CANDIDATE_DISCOVERY_CACHE_VERSION)
-        .where(CandidateDiscoverySnapshot.signal_date >= date.fromisoformat(start_date))
-        .where(CandidateDiscoverySnapshot.signal_date <= date.fromisoformat(end_date))
+        .where(MarketRegimeDaily.trade_date >= date.fromisoformat(start_date))
+        .where(MarketRegimeDaily.trade_date <= date.fromisoformat(end_date))
     ).one()
     calendar_open_count, latest_calendar_date = db.execute(
         select(func.count(), func.max(TradingCalendar.trade_date))
@@ -573,7 +560,7 @@ def load_or_build_market_stress_recovery_report(
         "latest_trade_date": latest_trade_date.isoformat() if latest_trade_date else None,
         "latest_stock_count": latest_stock_count,
         "latest_revision": latest_revision.isoformat() if latest_revision else None,
-        "market_regime_cache_version": CANDIDATE_DISCOVERY_CACHE_VERSION,
+        "market_regime_cache_version": MARKET_REGIME_DATA_VERSION,
         "market_regime_snapshot_count": int(regime_snapshot_count),
         "latest_market_regime_revision": (
             latest_regime_revision.isoformat() if latest_regime_revision else None

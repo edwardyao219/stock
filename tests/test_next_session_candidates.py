@@ -15,6 +15,7 @@ from services.shared.database import Base
 from services.shared.models import (
     DailyBar,
     FundamentalSnapshot,
+    MarketRegimeDaily,
     ParameterRecommendation,
     ResearchPoolItem,
     Security,
@@ -212,11 +213,49 @@ def test_discover_next_session_candidates_falls_back_from_low_coverage_feature_d
             limit=10,
             min_universe_size=0,
         )
+        regimes = db.query(MarketRegimeDaily).all()
 
     assert result["feature_date"] == "2026-06-24"
     assert result["feature_coverage_ratio"] == 1.0
     assert result["requested_feature_date"] == "2026-06-25"
     assert len(result["candidates"]) == 3
+    assert regimes == []
+
+
+def test_discover_next_session_candidates_persists_regime_for_requested_feature_date() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    feature_date = date(2026, 6, 24)
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="000001",
+                    name="阶段样本",
+                    exchange="SZ",
+                    industry="PCB",
+                    is_active=True,
+                ),
+                _dated_bar("000001", feature_date),
+                _dated_feature("000001", feature_date),
+            ]
+        )
+        db.commit()
+
+        discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            min_universe_size=0,
+        )
+        db.commit()
+        regime = db.get(MarketRegimeDaily, feature_date)
+
+    assert regime is not None
+    assert regime.trade_date == feature_date
+    assert regime.source == "candidate_discovery"
 
 
 def test_effective_feature_date_reuses_session_feature_count_cache_without_future_dates() -> None:

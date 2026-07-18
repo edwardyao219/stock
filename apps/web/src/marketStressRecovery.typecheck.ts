@@ -7,8 +7,8 @@ const report = {
   start_date: "2024-01-01",
   end_date: "2026-07-16",
   data_source: "daily_bars",
-  market_regime_data_source: "candidate_discovery_snapshots",
-  market_regime_cache_version: "candidate-v5-startup-signal",
+  market_regime_data_source: "market_regime_daily",
+  market_regime_cache_version: "market-regime-daily-v1",
   min_coverage_ratio: 0.8,
   first_trade_date: "2024-01-02",
   last_trade_date: "2026-07-16",
@@ -76,7 +76,7 @@ const report = {
   cache: {
     hit: true,
     cache_key: "example",
-    version: "market-stress-recovery-v5",
+    version: "market-stress-recovery-v6",
   },
 } satisfies MarketStressRecoveryReplayReport;
 

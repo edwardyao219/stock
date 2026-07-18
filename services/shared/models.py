@@ -377,6 +377,21 @@ class LowDimensionalFeatureSnapshot(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class MarketRegimeDaily(Base):
+    __tablename__ = "market_regime_daily"
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    regime: Mapped[str] = mapped_column(String(32), index=True)
+    trend_score: Mapped[Optional[float]] = mapped_column(Float)
+    breadth_score: Mapped[Optional[float]] = mapped_column(Float)
+    emotion_score: Mapped[Optional[float]] = mapped_column(Float)
+    volatility_score: Mapped[Optional[float]] = mapped_column(Float)
+    risk_level: Mapped[Optional[str]] = mapped_column(String(16))
+    source: Mapped[str] = mapped_column(String(32), default="candidate_discovery")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class StockTrackingSnapshot(Base):
     __tablename__ = "stock_tracking_snapshots"
     __table_args__ = (
