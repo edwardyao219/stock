@@ -3730,7 +3730,12 @@ export function App() {
                 const confirmed = mainlineOutcomeSummary.phase_summaries.confirmed_mainline?.find((item) => item.horizon === 3);
                 const comparable = watch?.eligible_for_policy && confirmed?.eligible_for_policy;
                 const delta = (confirmed?.avg_return_pct ?? 0) - (watch?.avg_return_pct ?? 0);
-                return <small className="mainline-phase-delta">观察到确认的3日增量 {comparable ? `${pct(delta)} / ${delta >= 0 ? "确认优势待复核" : "确认优势未出现"}` : "样本不足，仅观察"}</small>;
+                const horizons = [1, 3, 5].map((horizon) => {
+                  const early = mainlineOutcomeSummary.phase_summaries.watch_mainline?.find((item) => item.horizon === horizon);
+                  const later = mainlineOutcomeSummary.phase_summaries.confirmed_mainline?.find((item) => item.horizon === horizon);
+                  return early?.eligible_for_policy && later?.eligible_for_policy && (later.avg_return_pct ?? 0) >= (early.avg_return_pct ?? 0);
+                });
+                return <small className="mainline-phase-delta">观察到确认的3日增量 {comparable ? `${pct(delta)} / ${horizons.every(Boolean) ? "三期限优势待复核" : delta >= 0 ? "确认优势待复核" : "确认优势未出现"}` : "样本不足，仅观察"}</small>;
               })()}
               </>
             ) : null}
