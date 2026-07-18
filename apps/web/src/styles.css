@@ -451,6 +451,10 @@ button {
   padding: 5px 8px;
 }
 
+.after-close-push-metrics .late-market-turn-health.ok { color: #15803d; }
+.after-close-push-metrics .late-market-turn-health.warning { color: #b45309; }
+.after-close-push-metrics .late-market-turn-health.missing { color: #b91c1c; }
+
 .post-close-review-board {
   display: grid;
   gap: 10px;
