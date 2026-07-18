@@ -282,6 +282,17 @@ class ResearchSignalExecutionFunnelResponse(BaseModel):
     closed_win_rate: float | None
 
 
+class ResearchSignalExecutionCohortResponse(BaseModel):
+    signal_type: str
+    market_regime: str
+    horizon: int
+    signal_count: int
+    eligible_group_count: int
+    comparable: bool
+    fully_comparable: bool
+    groups: dict[str, ResearchSignalSummaryHorizonResponse]
+
+
 class ResearchSignalLedgerItemResponse(BaseModel):
     id: int
     source: str
@@ -313,6 +324,7 @@ class ResearchSignalLedgerResponse(BaseModel):
     sectors: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
     execution_funnel: ResearchSignalExecutionFunnelResponse
     execution_outcomes: dict[str, dict[int, ResearchSignalSummaryHorizonResponse]]
+    execution_cohorts: list[ResearchSignalExecutionCohortResponse] = Field(default_factory=list)
     signals: list[ResearchSignalLedgerItemResponse] = Field(default_factory=list)
 
 

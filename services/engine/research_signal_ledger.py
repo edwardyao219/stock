@@ -491,6 +491,13 @@ def _execution_report(
     }
 
 
+def _execution_group_key(signal: dict[str, Any]) -> str | None:
+    status = str((signal.get("execution") or {}).get("status") or "")
+    if status in {"open", "closed"}:
+        return "executed"
+    return status if status in {"not_entered", "research_only"} else None
+
+
 def _execution_outcomes(signals: list[dict[str, Any]]) -> dict[str, dict[int, dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = {
         "executed": [],
@@ -498,12 +505,47 @@ def _execution_outcomes(signals: list[dict[str, Any]]) -> dict[str, dict[int, di
         "research_only": [],
     }
     for signal in signals:
-        status = str((signal.get("execution") or {}).get("status") or "")
-        if status in {"open", "closed"}:
-            grouped["executed"].append(signal)
-        elif status in grouped:
-            grouped[status].append(signal)
+        key = _execution_group_key(signal)
+        if key:
+            grouped[key].append(signal)
     return {key: _summary(items) for key, items in grouped.items()}
+
+
+def _execution_cohorts(signals: list[dict[str, Any]], horizon: int = 3) -> list[dict[str, Any]]:
+    cohorts: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for signal in signals:
+        cohorts[
+            (
+                str(signal.get("signal_type") or "unknown"),
+                str(signal.get("market_regime") or "unknown"),
+            )
+        ].append(signal)
+    rows = []
+    for (signal_type, market_regime), cohort_signals in cohorts.items():
+        grouped = {key: [] for key in ("executed", "not_entered", "research_only")}
+        for signal in cohort_signals:
+            key = _execution_group_key(signal)
+            if key:
+                grouped[key].append(signal)
+        summaries = {key: _summary(items)[horizon] for key, items in grouped.items()}
+        eligible_group_count = sum(
+            bool(summary["eligible_for_policy"]) for summary in summaries.values()
+        )
+        rows.append(
+            {
+                "signal_type": signal_type,
+                "market_regime": market_regime,
+                "horizon": horizon,
+                "signal_count": len(cohort_signals),
+                "eligible_group_count": eligible_group_count,
+                "comparable": eligible_group_count >= 2,
+                "fully_comparable": eligible_group_count == len(summaries),
+                "groups": summaries,
+            }
+        )
+    return sorted(rows, key=lambda item: (-int(item["signal_count"]), item["signal_type"]))
+
+
 def evaluate_research_signal_ledger(
     db: Session,
     *,
@@ -543,6 +585,7 @@ def evaluate_research_signal_ledger(
                 "closed_win_rate": None,
             },
             "execution_outcomes": _execution_outcomes([]),
+            "execution_cohorts": [],
             "signals": [],
         }
     first_signal_date = min(item.signal_date for item in rows)
@@ -610,5 +653,6 @@ def evaluate_research_signal_ledger(
         **breakdowns,
         "execution_funnel": execution_funnel,
         "execution_outcomes": _execution_outcomes(signals),
+        "execution_cohorts": _execution_cohorts(signals),
         "signals": signals,
     }

@@ -250,6 +250,16 @@ export interface ResearchSignalLedger {
     closed_win_rate: number | null;
   };
   execution_outcomes: Record<string, Record<number, ResearchSignalSummaryHorizon>>;
+  execution_cohorts: Array<{
+    signal_type: string;
+    market_regime: string;
+    horizon: number;
+    signal_count: number;
+    eligible_group_count: number;
+    comparable: boolean;
+    fully_comparable: boolean;
+    groups: Record<string, ResearchSignalSummaryHorizon>;
+  }>;
 }
 
 export interface IntradayExpandingSector {

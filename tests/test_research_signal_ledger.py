@@ -285,6 +285,7 @@ def test_research_signal_ledger_links_daily_signals_to_paper_execution() -> None
                     "signal_time": signal_time,
                     "symbol": "600001",
                     "signal_price": 10.0,
+                    "market_regime": "range",
                     "evidence": {"selected_rule_id": "R001"},
                 },
                 {
@@ -293,6 +294,7 @@ def test_research_signal_ledger_links_daily_signals_to_paper_execution() -> None
                     "signal_time": signal_time,
                     "symbol": "600002",
                     "signal_price": 10.0,
+                    "market_regime": "range",
                 },
                 {
                     "source": "daily_candidate_discovery",
@@ -300,6 +302,7 @@ def test_research_signal_ledger_links_daily_signals_to_paper_execution() -> None
                     "signal_time": signal_time,
                     "symbol": "600003",
                     "signal_price": 10.0,
+                    "market_regime": "range",
                     "evidence": {"selected_rule_id": "R001"},
                 },
             ],
@@ -419,6 +422,7 @@ def test_research_signal_ledger_compares_executed_missed_and_research_only_outco
                     "signal_time": signal_time,
                     "symbol": "600001",
                     "signal_price": 10.0,
+                    "market_regime": "range",
                     "evidence": {"selected_rule_id": "R001"},
                 },
                 {
@@ -427,6 +431,7 @@ def test_research_signal_ledger_compares_executed_missed_and_research_only_outco
                     "signal_time": signal_time,
                     "symbol": "600002",
                     "signal_price": 10.0,
+                    "market_regime": "range",
                 },
                 {
                     "source": "daily_candidate_discovery",
@@ -434,6 +439,7 @@ def test_research_signal_ledger_compares_executed_missed_and_research_only_outco
                     "signal_time": signal_time,
                     "symbol": "600003",
                     "signal_price": 10.0,
+                    "market_regime": "range",
                     "evidence": {"selected_rule_id": "R001"},
                 },
             ],
@@ -490,3 +496,10 @@ def test_research_signal_ledger_compares_executed_missed_and_research_only_outco
     assert comparison["research_only"][3]["avg_return_pct"] == -0.1
     assert comparison["executed"][3]["sample_count"] == 1
     assert comparison["executed"][3]["eligible_for_policy"] is False
+    cohorts = report["execution_cohorts"]
+    assert len(cohorts) == 2
+    formal = next(item for item in cohorts if item["signal_type"] == "daily_formal_strategy")
+    assert formal["market_regime"] == "range"
+    assert formal["groups"]["executed"]["avg_return_pct"] == 0.3
+    assert formal["groups"]["not_entered"]["avg_return_pct"] == 0.05
+    assert formal["comparable"] is False

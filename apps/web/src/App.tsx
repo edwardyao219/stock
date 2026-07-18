@@ -247,6 +247,19 @@ function marketRegimeLabel(value: string) {
   }[value] ?? "未知";
 }
 
+function researchSignalTypeLabel(value: string) {
+  return {
+    daily_formal_strategy: "正式候选",
+    daily_observation: "观察候选",
+    daily_potential_watch: "潜力观察",
+    daily_exploration: "探索候选",
+    startup_starting: "刚启动",
+    startup_accelerating: "加速中",
+    watch_mainline: "主线观察",
+    confirmed_mainline: "主线确认",
+  }[value] ?? "其他信号";
+}
+
 function price(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return value.toFixed(2);
@@ -3821,6 +3834,11 @@ export function App() {
                       </span>
                     );
                   })}
+                  {researchSignalLedger.execution_cohorts.slice(0, 3).map((cohort) => (
+                    <span key={`${cohort.signal_type}-${cohort.market_regime}`}>
+                      分层 {researchSignalTypeLabel(cohort.signal_type)} / {marketRegimeLabel(cohort.market_regime)} / 已执行{cohort.groups.executed.sample_count} / 未成交{cohort.groups.not_entered.sample_count} / 纯观察{cohort.groups.research_only.sample_count} / {cohort.comparable ? "可比较" : "样本不足"}
+                    </span>
+                  ))}
                   <span>
                     类型 {researchSignalLedger.signal_types.length
                       ? researchSignalLedger.signal_types.slice(0, 3).map((item) => `${item.key} 样本${item.sample_count} / ${pct(item.avg_return_pct)}`).join("；")
