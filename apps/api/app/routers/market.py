@@ -499,6 +499,7 @@ class DataHealthResponse(BaseModel):
     market_regime: str | None
     market_regime_updated_at: datetime | None
     candidate_block_reasons: list[str] = Field(default_factory=list)
+    late_market_turn_20d: dict[str, int] = Field(default_factory=dict)
     issues: list[DataHealthIssueResponse] = Field(default_factory=list)
 
 

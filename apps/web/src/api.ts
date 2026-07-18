@@ -267,6 +267,7 @@ export interface DataHealth {
   market_regime: string | null;
   market_regime_updated_at: string | null;
   candidate_block_reasons: string[];
+  late_market_turn_20d: Record<string, number>;
   issues: DataHealthIssue[];
 }
 

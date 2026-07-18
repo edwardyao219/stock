@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from services.shared.models import (
     DailyBar,
+    IntradayMarketTurnSnapshot,
     MarketRegimeDaily,
     Security,
     StockFeatureDaily,
@@ -56,6 +57,7 @@ class DailyDataHealthReport:
     market_regime: str | None
     market_regime_updated_at: datetime | None
     candidate_block_reasons: list[str] = field(default_factory=list)
+    late_market_turn_20d: dict[str, int] = field(default_factory=dict)
     issues: list[DataHealthIssue] = field(default_factory=list)
 
 
@@ -471,6 +473,21 @@ def inspect_daily_data_health(
             )
         )
 
+    latest_turns: dict[date, IntradayMarketTurnSnapshot] = {}
+    for snapshot in db.execute(
+        select(IntradayMarketTurnSnapshot).order_by(
+            IntradayMarketTurnSnapshot.trade_date.desc(),
+            IntradayMarketTurnSnapshot.snapshot_time.desc(),
+        )
+    ).scalars():
+        latest_turns.setdefault(snapshot.trade_date, snapshot)
+        if len(latest_turns) >= 20:
+            break
+    late_market_turn_20d = {"observed_days": len(latest_turns), "healthy_days": 0}
+    for snapshot in latest_turns.values():
+        if snapshot.coverage_ratio >= 0.80 and (snapshot.state_json or {}).get("data_ready"):
+            late_market_turn_20d["healthy_days"] += 1
+
     return DailyDataHealthReport(
         trade_date=target_date,
         status=_status(issues),
@@ -488,6 +505,7 @@ def inspect_daily_data_health(
         eligible_daily_bar_count=eligible_daily_bar_count,
         daily_coverage_ratio=round(daily_coverage_ratio, 6),
         candidate_generation_allowed=not candidate_block_reasons,
+        late_market_turn_20d=late_market_turn_20d,
         market_regime=market_regime_row.regime if market_regime_row else None,
         market_regime_updated_at=market_regime_row.updated_at if market_regime_row else None,
         candidate_block_reasons=candidate_block_reasons,
