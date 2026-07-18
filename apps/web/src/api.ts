@@ -209,6 +209,7 @@ export interface MainlineOutcomeBreakdownRow {
 
 export interface ResearchSignalSummaryHorizon {
   horizon: number;
+  sample_count: number;
   signal_count: number;
   completed_count: number;
   waiting_count: number;
@@ -248,6 +249,7 @@ export interface ResearchSignalLedger {
     closed_avg_pnl_pct: number | null;
     closed_win_rate: number | null;
   };
+  execution_outcomes: Record<string, Record<number, ResearchSignalSummaryHorizon>>;
 }
 
 export interface IntradayExpandingSector {

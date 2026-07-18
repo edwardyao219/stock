@@ -278,6 +278,7 @@ def _summary(signals: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
         returns = [float(item["return_pct"]) for item in completed]
         summary[horizon] = {
             "horizon": horizon,
+            "sample_count": len(completed),
             "signal_count": len(results),
             "completed_count": len(completed),
             "waiting_count": sum(item["status"] == "waiting" for item in results),
@@ -488,6 +489,21 @@ def _execution_report(
             else None
         ),
     }
+
+
+def _execution_outcomes(signals: list[dict[str, Any]]) -> dict[str, dict[int, dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {
+        "executed": [],
+        "not_entered": [],
+        "research_only": [],
+    }
+    for signal in signals:
+        status = str((signal.get("execution") or {}).get("status") or "")
+        if status in {"open", "closed"}:
+            grouped["executed"].append(signal)
+        elif status in grouped:
+            grouped[status].append(signal)
+    return {key: _summary(items) for key, items in grouped.items()}
 def evaluate_research_signal_ledger(
     db: Session,
     *,
@@ -526,6 +542,7 @@ def evaluate_research_signal_ledger(
                 "closed_avg_pnl_pct": None,
                 "closed_win_rate": None,
             },
+            "execution_outcomes": _execution_outcomes([]),
             "signals": [],
         }
     first_signal_date = min(item.signal_date for item in rows)
@@ -592,5 +609,6 @@ def evaluate_research_signal_ledger(
         "breakdown_horizon": 3,
         **breakdowns,
         "execution_funnel": execution_funnel,
+        "execution_outcomes": _execution_outcomes(signals),
         "signals": signals,
     }

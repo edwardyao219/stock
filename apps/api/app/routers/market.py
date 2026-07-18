@@ -230,6 +230,7 @@ class ResearchSignalHorizonResponse(BaseModel):
 
 class ResearchSignalSummaryHorizonResponse(BaseModel):
     horizon: int
+    sample_count: int
     signal_count: int
     completed_count: int
     waiting_count: int
@@ -311,6 +312,7 @@ class ResearchSignalLedgerResponse(BaseModel):
     market_states: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
     sectors: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
     execution_funnel: ResearchSignalExecutionFunnelResponse
+    execution_outcomes: dict[str, dict[int, ResearchSignalSummaryHorizonResponse]]
     signals: list[ResearchSignalLedgerItemResponse] = Field(default_factory=list)
 
 

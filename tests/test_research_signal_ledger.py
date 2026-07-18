@@ -383,3 +383,110 @@ def test_research_signal_ledger_links_daily_signals_to_paper_execution() -> None
     assert by_symbol["600002"]["execution"]["status"] == "research_only"
     assert by_symbol["600003"]["execution"]["status"] == "not_entered"
     assert by_symbol["600003"]["execution"]["order_reason"] == "高开超过计划上限"
+
+
+def test_research_signal_ledger_compares_executed_missed_and_research_only_outcomes() -> None:
+    from services.engine.research_signal_ledger import (
+        evaluate_research_signal_ledger,
+        record_research_signals,
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 1)
+    signal_time = datetime(2026, 7, 1, 15, 5)
+    target_dates = [date(2026, 7, day) for day in (2, 3, 4)]
+    with Session(engine) as db:
+        db.add(TradingCalendar(trade_date=signal_date, is_open=True))
+        db.add_all([TradingCalendar(trade_date=item, is_open=True) for item in target_dates])
+        for symbol, closes in {
+            "600001": ("11", "12", "13"),
+            "600002": ("9", "9", "9"),
+            "600003": ("10.2", "10.3", "10.5"),
+        }.items():
+            db.add_all(
+                [
+                    _bar(symbol, trade_date, close)
+                    for trade_date, close in zip(target_dates, closes, strict=True)
+                ]
+            )
+        record_research_signals(
+            db,
+            [
+                {
+                    "source": "daily_candidate_discovery",
+                    "signal_type": "daily_formal_strategy",
+                    "signal_time": signal_time,
+                    "symbol": "600001",
+                    "signal_price": 10.0,
+                    "evidence": {"selected_rule_id": "R001"},
+                },
+                {
+                    "source": "daily_candidate_discovery",
+                    "signal_type": "daily_observation",
+                    "signal_time": signal_time,
+                    "symbol": "600002",
+                    "signal_price": 10.0,
+                },
+                {
+                    "source": "daily_candidate_discovery",
+                    "signal_type": "daily_formal_strategy",
+                    "signal_time": signal_time,
+                    "symbol": "600003",
+                    "signal_price": 10.0,
+                    "evidence": {"selected_rule_id": "R001"},
+                },
+            ],
+        )
+        db.add_all(
+            [
+                TradePlan(
+                    id=1,
+                    plan_date=signal_date,
+                    trade_date=target_dates[0],
+                    symbol="600001",
+                    rule_id="R001",
+                    strategy_type="swing",
+                    entry_condition_json={},
+                    position_size=Decimal("0.1"),
+                    status="executed",
+                ),
+                TradePlan(
+                    id=2,
+                    plan_date=signal_date,
+                    trade_date=target_dates[0],
+                    symbol="600003",
+                    rule_id="R001",
+                    strategy_type="swing",
+                    entry_condition_json={},
+                    position_size=Decimal("0.1"),
+                    status="planned",
+                ),
+                PaperPosition(
+                    account_id=1,
+                    trade_plan_id=1,
+                    symbol="600001",
+                    rule_id="R001",
+                    strategy_type="swing",
+                    entry_date=target_dates[0],
+                    entry_price=Decimal("11"),
+                    quantity=100,
+                    highest_price=Decimal("13"),
+                    lowest_price=Decimal("10.5"),
+                    status="open",
+                ),
+            ]
+        )
+        db.commit()
+
+        report = evaluate_research_signal_ledger(
+            db,
+            current_time=datetime(2026, 7, 10, 16, 0),
+        )
+
+    comparison = report["execution_outcomes"]
+    assert comparison["executed"][3]["avg_return_pct"] == 0.3
+    assert comparison["not_entered"][3]["avg_return_pct"] == 0.05
+    assert comparison["research_only"][3]["avg_return_pct"] == -0.1
+    assert comparison["executed"][3]["sample_count"] == 1
+    assert comparison["executed"][3]["eligible_for_policy"] is False

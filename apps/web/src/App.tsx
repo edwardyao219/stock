@@ -3809,6 +3809,18 @@ export function App() {
                   <span>
                     入场滑点 {pct(researchSignalLedger.execution_funnel.avg_entry_slippage_pct)} / 纸面收益 {pct(researchSignalLedger.execution_funnel.closed_avg_pnl_pct)} / 胜率 {pct(researchSignalLedger.execution_funnel.closed_win_rate)}
                   </span>
+                  {[
+                    ["executed", "已执行"],
+                    ["not_entered", "未成交"],
+                    ["research_only", "纯观察"],
+                  ].map(([key, label]) => {
+                    const item = researchSignalLedger.execution_outcomes[key]?.[3];
+                    return (
+                      <span key={key}>
+                        {label}3日 样本{item?.sample_count ?? 0} / 均值 {pct(item?.avg_return_pct)} / 胜率 {pct(item?.win_rate)}{item?.eligible_for_policy ? "" : " / 仅观察"}
+                      </span>
+                    );
+                  })}
                   <span>
                     类型 {researchSignalLedger.signal_types.length
                       ? researchSignalLedger.signal_types.slice(0, 3).map((item) => `${item.key} 样本${item.sample_count} / ${pct(item.avg_return_pct)}`).join("；")
