@@ -688,6 +688,22 @@ def _market_regime_snapshot(
     )
 
 
+def sync_market_regime_daily(
+    db: Session,
+    *,
+    feature_date: date,
+) -> MarketRegimeSnapshot:
+    contexts = load_feature_contexts(
+        db,
+        feature_date=feature_date.isoformat(),
+        include_fundamentals=False,
+    )
+    contexts = [context for context in contexts if not _is_growth_board_context(context)]
+    snapshot = _market_regime_snapshot(contexts, feature_date)
+    store_market_regime_daily(db, snapshot, source="after_close_feature_sync")
+    return snapshot
+
+
 def _emotion_gate(snapshot: MarketRegimeSnapshot) -> dict[str, Any]:
     notes: list[str] = []
     state = "neutral"

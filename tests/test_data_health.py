@@ -11,6 +11,7 @@ from services.engine.features.health import (
 from services.shared.database import Base
 from services.shared.models import (
     DailyBar,
+    MarketRegimeDaily,
     Security,
     StockFeatureDaily,
     TushareCyqPerf,
@@ -202,6 +203,47 @@ def test_inspect_daily_data_health_flags_amount_and_feature_anomalies() -> None:
     assert "daily_amount_missing_high" in issue_codes
     assert "amount_ratio_5d_too_low" in issue_codes
     assert "amount_volume_multiplier_mixed" in issue_codes
+
+
+def test_inspect_daily_data_health_reports_missing_market_regime() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    trade_date = date(2026, 7, 13)
+
+    with sessionmaker(bind=engine)() as db:
+        db.add(
+            Security(symbol="000001", name="样本", exchange="SZ", is_active=True, is_st=False)
+        )
+        db.add(_daily_bar("000001", trade_date, amount="1000000000"))
+        db.add(
+            StockFeatureDaily(
+                symbol="000001",
+                trade_date=trade_date,
+                features={"amount_ratio_5d": 1.0, "volume_confirmation_score": 60.0},
+            )
+        )
+        db.commit()
+
+        missing = inspect_daily_data_health(db, trade_date=trade_date)
+        db.add(
+            MarketRegimeDaily(
+                trade_date=trade_date,
+                regime="range",
+                trend_score=50.0,
+                breadth_score=50.0,
+                emotion_score=50.0,
+                volatility_score=50.0,
+                risk_level="medium",
+                source="test",
+            )
+        )
+        db.commit()
+        present = inspect_daily_data_health(db, trade_date=trade_date)
+
+    assert missing.market_regime is None
+    assert "market_regime_missing" in {issue.code for issue in missing.issues}
+    assert present.market_regime == "range"
+    assert "market_regime_missing" not in {issue.code for issue in present.issues}
 
 
 def test_inspect_daily_data_health_blocks_candidates_below_daily_coverage_threshold() -> None:

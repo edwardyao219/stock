@@ -1581,6 +1581,16 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
     )
     monkeypatch.setattr(
         pipeline,
+        "_sync_market_regime_step",
+        lambda trade_date: pipeline.PipelineStepResult(
+            name="sync_market_regime",
+            status="ok",
+            detail=f"regime:{trade_date}",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        pipeline,
         "_discover_next_session_candidates_step",
         lambda trade_date, next_trade_date, limit, use_learning_adjustments: (
             pipeline.PipelineStepResult(
@@ -1605,6 +1615,7 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         "sync_sector_moneyflow",
         "prepare_market_feature_universe",
         "validate_daily_candidate_data",
+        "sync_market_regime",
         "discover_next_session_candidates",
         "record_tracking_snapshots",
         "run_daily_paper_simulation",
@@ -1614,12 +1625,13 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         "prewarm_candidate_replay_effect",
         "generate_daily_review",
     ]
-    assert result.steps[4].detail == "candidates:2026-06-25:False"
-    assert result.steps[5].detail == "tracking:2026-06-24:200"
+    assert result.steps[4].detail == "regime:2026-06-24"
+    assert result.steps[5].detail == "candidates:2026-06-25:False"
+    assert result.steps[6].detail == "tracking:2026-06-24:200"
     assert captured["full_sync"] == ("2026-06-24", True, True)
     assert captured["sync_daily"] is False
     assert captured["execute_entries"] is True
-    assert result.steps[7].detail == "reviews"
+    assert result.steps[8].detail == "reviews"
     assert result.steps[-1].detail == "daily"
     assert result.steps[-2].detail == "prewarm:2026-06-24"
 

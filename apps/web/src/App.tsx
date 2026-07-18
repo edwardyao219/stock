@@ -722,6 +722,20 @@ function dataHealthStatusText(health: DataHealth | null) {
   return "需要关注";
 }
 
+function marketRegimeText(regime: string | null | undefined) {
+  return (
+    {
+      strong_trend: "强趋势",
+      weak_trend: "弱趋势",
+      range: "震荡",
+      panic: "恐慌",
+      rebound: "反弹确认",
+      rebound_unconfirmed: "反弹未确认",
+      unknown: "未知",
+    }[regime ?? ""] ?? "阶段缺口"
+  );
+}
+
 function latestIndexDate(overview: MarketOverview | null) {
   const dates = (overview?.indexes ?? [])
     .map((item) => item.quote_date)
@@ -4771,7 +4785,7 @@ export function App() {
               <strong>{dataHealthStatusText(dataHealth)}</strong>
               <small>
                 {dataHealth?.trade_date ?? "暂无日期"} / 日线 {dataHealth?.daily_bar_count ?? 0}
-                {" "} / 特征 {dataHealth?.feature_count ?? 0}
+                {" "} / 特征 {dataHealth?.feature_count ?? 0} / 阶段 {marketRegimeText(dataHealth?.market_regime)}
               </small>
             </div>
             <div className="data-health-metrics">

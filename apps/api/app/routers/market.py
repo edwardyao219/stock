@@ -496,6 +496,8 @@ class DataHealthResponse(BaseModel):
     eligible_daily_bar_count: int
     daily_coverage_ratio: float
     candidate_generation_allowed: bool
+    market_regime: str | None
+    market_regime_updated_at: datetime | None
     candidate_block_reasons: list[str] = Field(default_factory=list)
     issues: list[DataHealthIssueResponse] = Field(default_factory=list)
 

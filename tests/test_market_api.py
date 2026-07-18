@@ -23,6 +23,7 @@ from services.shared.models import (
     DailyBar,
     IntradayMarketTurnSnapshot,
     MarketMessageSnapshot,
+    MarketRegimeDaily,
     RealtimeQuote,
     SectorDaily,
     SectorFeatureDaily,
@@ -1111,6 +1112,18 @@ def test_get_data_health_returns_daily_feature_diagnostics() -> None:
                 symbol="002156",
                 trade_date=date(2026, 6, 30),
                 features={"amount_ratio_5d": 0.92, "volume_confirmation_score": 63},
+            )
+        )
+        db.add(
+            MarketRegimeDaily(
+                trade_date=date(2026, 6, 30),
+                regime="range",
+                trend_score=50.0,
+                breadth_score=50.0,
+                emotion_score=50.0,
+                volatility_score=50.0,
+                risk_level="medium",
+                source="test",
             )
         )
         db.commit()

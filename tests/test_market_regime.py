@@ -7,7 +7,11 @@ from services.engine.features.market_regime import classify_market_regime
 from services.engine.features.market_regime_repository import (
     backfill_market_regime_daily_from_candidate_snapshots,
 )
-from services.engine.research_pool.candidates import _passes_market_regime_gate
+from services.engine.research_pool import candidates as candidate_module
+from services.engine.research_pool.candidates import (
+    _passes_market_regime_gate,
+    sync_market_regime_daily,
+)
 from services.shared.database import Base
 from services.shared.models import CandidateDiscoverySnapshot, MarketRegimeDaily
 
@@ -46,6 +50,35 @@ def test_unconfirmed_rebound_allows_only_high_quality_observation() -> None:
         regime="rebound_unconfirmed",
         selection_mode="observation",
     )
+
+
+def test_sync_market_regime_daily_writes_requested_feature_date(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    feature_date = date(2026, 6, 24)
+    monkeypatch.setattr(
+        candidate_module,
+        "load_feature_contexts",
+        lambda *_args, **_kwargs: [
+            {
+                "symbol": "000001",
+                "trend_score": 78.0,
+                "return_1d": 0.03,
+                "return_5d": 0.08,
+                "volume_confirmation_score": 66.0,
+                "volatility_score": 42.0,
+            }
+        ],
+    )
+
+    with Session(engine) as db:
+        sync_market_regime_daily(db, feature_date=feature_date)
+        db.commit()
+        regime = db.get(MarketRegimeDaily, feature_date)
+
+    assert regime is not None
+    assert regime.trade_date == feature_date
+    assert regime.source == "after_close_feature_sync"
 
 
 def test_backfill_market_regime_daily_accepts_only_exact_consistent_snapshots() -> None:

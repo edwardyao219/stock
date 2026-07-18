@@ -535,6 +535,21 @@ def _daily_candidate_data_gate_step(trade_date: str) -> PipelineStepResult:
     )
 
 
+def _sync_market_regime_step(trade_date: str) -> PipelineStepResult:
+    from services.engine.research_pool.candidates import sync_market_regime_daily
+
+    with SessionLocal() as db:
+        snapshot = sync_market_regime_daily(db, feature_date=date.fromisoformat(trade_date))
+        db.commit()
+    detail = f"市场阶段 {snapshot.regime}，风险 {snapshot.risk_level}。"
+    return PipelineStepResult(
+        name="sync_market_regime",
+        status="ok",
+        detail=detail,
+        summary="市场阶段已更新",
+    )
+
+
 def _load_star_symbols(db: Session) -> list[str]:
     try:
         rows = db.execute(
@@ -1220,6 +1235,7 @@ def run_after_close_session(
     if candidate_data_ready:
         steps.extend(
             [
+                _run_step("sync_market_regime", lambda: _sync_market_regime_step(trade_date)),
                 _run_step(
                     "discover_next_session_candidates",
                     lambda: (

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from statistics import median
 from typing import Any
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from services.shared.models import (
     DailyBar,
+    MarketRegimeDaily,
     Security,
     StockFeatureDaily,
     TushareCyqPerf,
@@ -52,6 +53,8 @@ class DailyDataHealthReport:
     eligible_daily_bar_count: int
     daily_coverage_ratio: float
     candidate_generation_allowed: bool
+    market_regime: str | None
+    market_regime_updated_at: datetime | None
     candidate_block_reasons: list[str] = field(default_factory=list)
     issues: list[DataHealthIssue] = field(default_factory=list)
 
@@ -247,6 +250,7 @@ def inspect_daily_data_health(
     bars = _daily_bars(db, target_date)
     previous_bars = _daily_bars(db, previous_date)
     feature_rows = _features(db, target_date)
+    market_regime_row = db.get(MarketRegimeDaily, target_date) if target_date else None
     eligible_symbols = set(
         db.execute(
             select(Security.symbol)
@@ -300,7 +304,6 @@ def inspect_daily_data_health(
         candidate_block_reasons.append(
             f"有效样本成交额缺失 {eligible_amount_missing_ratio:.1%}，达到 1% 门槛。"
         )
-
     issues: list[DataHealthIssue] = []
     if target_date is None:
         issues.append(
@@ -322,6 +325,17 @@ def inspect_daily_data_health(
                 "feature_count",
                 0,
                 1,
+            )
+        )
+    if feature_rows and market_regime_row is None:
+        issues.append(
+            _issue(
+                "market_regime_missing",
+                "warning",
+                "市场阶段缺口：当日特征已完成，但阶段记录尚未生成。",
+                "market_regime_daily",
+                None,
+                None,
             )
         )
     has_distribution_sample = len(bars) >= MIN_DISTRIBUTION_SAMPLE_SIZE
@@ -452,6 +466,8 @@ def inspect_daily_data_health(
         eligible_daily_bar_count=eligible_daily_bar_count,
         daily_coverage_ratio=round(daily_coverage_ratio, 6),
         candidate_generation_allowed=not candidate_block_reasons,
+        market_regime=market_regime_row.regime if market_regime_row else None,
+        market_regime_updated_at=market_regime_row.updated_at if market_regime_row else None,
         candidate_block_reasons=candidate_block_reasons,
         issues=issues,
     )

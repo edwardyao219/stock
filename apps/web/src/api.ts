@@ -264,6 +264,8 @@ export interface DataHealth {
   eligible_daily_bar_count: number;
   daily_coverage_ratio: number;
   candidate_generation_allowed: boolean;
+  market_regime: string | null;
+  market_regime_updated_at: string | null;
   candidate_block_reasons: string[];
   issues: DataHealthIssue[];
 }
