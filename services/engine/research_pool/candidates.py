@@ -291,6 +291,8 @@ class NextSessionCandidate:
     reasons: list[str]
     risk_flags: list[str]
     matched_rules: list[CandidateStrategyMatch]
+    moneyflow_support_score: float | None = None
+    sector_fund_flow_score: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -2743,6 +2745,8 @@ def _build_candidate(
         reasons=reasons,
         risk_flags=_risk_flags(context),
         matched_rules=matches,
+        moneyflow_support_score=_optional_float(context, "moneyflow_support_score"),
+        sector_fund_flow_score=_optional_float(context, "sector_fund_flow_score"),
     )
 
 

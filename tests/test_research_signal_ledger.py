@@ -227,7 +227,10 @@ def test_market_api_exposes_research_signal_ledger_report() -> None:
 
 
 def test_market_api_exposes_historical_replay_separately() -> None:
-    from apps.api.app.routers.market import get_historical_signal_replay
+    from apps.api.app.routers.market import (
+        HistoricalReplaySignalResponse,
+        get_historical_signal_replay,
+    )
 
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -246,6 +249,16 @@ def test_market_api_exposes_historical_replay_separately() -> None:
     assert report.stability.validation_attribution.sample_count == 0
     assert report.stability.validation_attribution.market_state_coverage_ratio == 0.0
     assert report.stability.validation_attribution.selection_modes == []
+    assert report.stability.validation_attribution.market_participation_known_count == 0
+    assert report.stability.validation_attribution.stock_moneyflow_known_count == 0
+    assert report.stability.validation_attribution.market_participation_bands == []
+    assert report.stability.validation_attribution.stock_moneyflow_bands == []
+    assert {
+        "market_participation_score",
+        "market_liquidity_score",
+        "moneyflow_support_score",
+        "sector_fund_flow_score",
+    } <= HistoricalReplaySignalResponse.model_fields.keys()
 
 
 def test_market_api_reuses_historical_replay_cache_by_database_limit_and_date(
@@ -593,6 +606,10 @@ def test_historical_signal_replay_uses_only_exact_canonical_snapshots() -> None:
                         "requested_feature_date": trade_dates[0].isoformat(),
                         "market_regime": "range",
                         "market_turn": {"key": "watch_repair"},
+                        "market_participation_snapshot": {
+                            "participation_score": 42,
+                            "liquidity_score": 47,
+                        },
                         "candidates": [
                             {
                                 "symbol": "600001",
@@ -600,6 +617,8 @@ def test_historical_signal_replay_uses_only_exact_canonical_snapshots() -> None:
                                 "sector": "半导体",
                                 "selection_mode": "formal_strategy",
                                 "score": 88,
+                                "moneyflow_support_score": 62,
+                                "sector_fund_flow_score": 58,
                             }
                         ],
                     },
@@ -678,6 +697,10 @@ def test_historical_signal_replay_uses_only_exact_canonical_snapshots() -> None:
     assert replay["selection_modes"][0]["key"] == "formal_strategy"
     assert replay["recent_signals"][0]["signal_price"] == 10.0
     assert replay["recent_signals"][0]["source_type"] == "historical_replay"
+    assert replay["recent_signals"][0]["market_participation_score"] == 42.0
+    assert replay["recent_signals"][0]["market_liquidity_score"] == 47.0
+    assert replay["recent_signals"][0]["moneyflow_support_score"] == 62.0
+    assert replay["recent_signals"][0]["sector_fund_flow_score"] == 58.0
     assert real["signal_count"] == 1
 
 
@@ -817,6 +840,10 @@ def _replay_stability_signal(
     market_state: str = "watch_repair",
     score: float = 80.0,
     rank: int = 1,
+    market_participation_score: float | None = None,
+    market_liquidity_score: float | None = None,
+    moneyflow_support_score: float | None = None,
+    sector_fund_flow_score: float | None = None,
 ) -> dict[str, object]:
     return {
         "signal_date": signal_date.isoformat(),
@@ -826,6 +853,10 @@ def _replay_stability_signal(
         "sector": sector,
         "score": score,
         "rank": rank,
+        "market_participation_score": market_participation_score,
+        "market_liquidity_score": market_liquidity_score,
+        "moneyflow_support_score": moneyflow_support_score,
+        "sector_fund_flow_score": sector_fund_flow_score,
         "horizons": {
             3: {
                 "status": "completed",
@@ -936,6 +967,10 @@ def test_historical_replay_stability_attributes_recent_return_drag() -> None:
                     return_pct=recent_return,
                     score=85,
                     rank=2,
+                    market_participation_score=35,
+                    market_liquidity_score=40,
+                    moneyflow_support_score=38,
+                    sector_fund_flow_score=42,
                 ),
                 _replay_stability_signal(
                     signal_date,
@@ -945,6 +980,8 @@ def test_historical_replay_stability_attributes_recent_return_drag() -> None:
                     market_state="unknown",
                     score=75,
                     rank=5,
+                    market_participation_score=50,
+                    market_liquidity_score=52,
                 ),
                 _replay_stability_signal(
                     signal_date,
@@ -955,6 +992,8 @@ def test_historical_replay_stability_attributes_recent_return_drag() -> None:
                     market_state="unknown",
                     score=55,
                     rank=10,
+                    market_participation_score=70,
+                    market_liquidity_score=72,
                 ),
             ]
         )
@@ -976,3 +1015,25 @@ def test_historical_replay_stability_attributes_recent_return_drag() -> None:
     assert attribution["rank_bands"][0]["key"] == "1-3"
     assert attribution["score_bands"][0]["key"] == "80+"
     assert attribution["sectors"][0]["key"] == "半导体"
+    assert attribution["market_participation_known_count"] == 36
+    assert attribution["market_participation_coverage_ratio"] == 1.0
+    assert attribution["stock_moneyflow_known_count"] == 12
+    assert attribution["stock_moneyflow_coverage_ratio"] == 0.333333
+    assert attribution["sector_moneyflow_known_count"] == 12
+    assert attribution["sector_moneyflow_coverage_ratio"] == 0.333333
+    assert attribution["market_participation_bands"][0]["key"] == "<40"
+    assert attribution["market_liquidity_bands"][0]["key"] == "<45"
+    assert {item["key"] for item in attribution["market_participation_bands"]} == {
+        "<40",
+        "40-54",
+        "68+",
+    }
+    assert {item["key"] for item in attribution["market_liquidity_bands"]} == {
+        "<45",
+        "45-54",
+        "68+",
+    }
+    assert attribution["stock_moneyflow_bands"][0]["key"] == "<45"
+    assert attribution["stock_moneyflow_bands"][0]["sample_share"] == 0.333333
+    assert attribution["stock_moneyflow_bands"][0]["return_contribution_pct"] == -0.006667
+    assert attribution["sector_moneyflow_bands"][0]["key"] == "<45"

@@ -349,6 +349,10 @@ class HistoricalReplaySignalResponse(BaseModel):
     rank: int
     market_regime: str
     market_state: str
+    market_participation_score: float | None
+    market_liquidity_score: float | None
+    moneyflow_support_score: float | None
+    sector_fund_flow_score: float | None
     signal_price: float
     horizons: dict[int, ResearchSignalHorizonResponse]
 
@@ -389,11 +393,31 @@ class HistoricalReplayAttributionResponse(BaseModel):
     signal_day_count: int
     market_state_known_count: int
     market_state_coverage_ratio: float
+    market_participation_known_count: int
+    market_participation_coverage_ratio: float
+    market_liquidity_known_count: int
+    market_liquidity_coverage_ratio: float
+    stock_moneyflow_known_count: int
+    stock_moneyflow_coverage_ratio: float
+    sector_moneyflow_known_count: int
+    sector_moneyflow_coverage_ratio: float
     selection_modes: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
     market_regimes: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
     market_states: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
     rank_bands: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
     score_bands: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
+    market_participation_bands: list[HistoricalReplayAttributionItemResponse] = Field(
+        default_factory=list
+    )
+    market_liquidity_bands: list[HistoricalReplayAttributionItemResponse] = Field(
+        default_factory=list
+    )
+    stock_moneyflow_bands: list[HistoricalReplayAttributionItemResponse] = Field(
+        default_factory=list
+    )
+    sector_moneyflow_bands: list[HistoricalReplayAttributionItemResponse] = Field(
+        default_factory=list
+    )
     sectors: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
 
 

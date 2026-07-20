@@ -2049,6 +2049,15 @@ export function App() {
   const replay20d = replayHorizonMetric(lowDimensionalReplay, 20);
   const replayCapitalCurve20d = capitalCurveView(lowDimensionalReplay, 20);
   const replayDefensiveValidationRows = defensiveValidationRows(lowDimensionalReplay);
+  const historicalFundingAttribution =
+    historicalSignalReplay?.stability.validation_attribution;
+  const historicalFundingAttributionReady = Boolean(
+    historicalFundingAttribution
+    && historicalFundingAttribution.market_participation_coverage_ratio >= 0.8
+    && historicalFundingAttribution.market_liquidity_coverage_ratio >= 0.8
+    && historicalFundingAttribution.stock_moneyflow_coverage_ratio >= 0.8
+    && historicalFundingAttribution.sector_moneyflow_coverage_ratio >= 0.8
+  );
   const replayMetricCards: Array<[string, ReplayReturnSummary | null]> = [
     ["5日", replay5d],
     ["10日", replay10d],
@@ -3978,6 +3987,14 @@ export function App() {
                     ) : (
                       <div className="historical-attribution-coverage warning">暂无成熟样本 / 覆盖待评估</div>
                     )}
+                    {historicalSignalReplay.stability.validation_attribution.sample_count ? (
+                      <div className={`historical-attribution-coverage ${historicalFundingAttributionReady ? "ok" : "warning"}`}>
+                        市场量能覆盖 {historicalSignalReplay.stability.validation_attribution.market_participation_known_count}/{historicalSignalReplay.stability.validation_attribution.sample_count}（{ratioPct(historicalSignalReplay.stability.validation_attribution.market_participation_coverage_ratio)}） / 流动性覆盖 {historicalSignalReplay.stability.validation_attribution.market_liquidity_known_count}/{historicalSignalReplay.stability.validation_attribution.sample_count}（{ratioPct(historicalSignalReplay.stability.validation_attribution.market_liquidity_coverage_ratio)}） / 个股资金覆盖 {historicalSignalReplay.stability.validation_attribution.stock_moneyflow_known_count}/{historicalSignalReplay.stability.validation_attribution.sample_count}（{ratioPct(historicalSignalReplay.stability.validation_attribution.stock_moneyflow_coverage_ratio)}） / 板块资金覆盖 {historicalSignalReplay.stability.validation_attribution.sector_moneyflow_known_count}/{historicalSignalReplay.stability.validation_attribution.sample_count}（{ratioPct(historicalSignalReplay.stability.validation_attribution.sector_moneyflow_coverage_ratio)}）
+                        {historicalFundingAttributionReady
+                          ? " / 可用于分层研究"
+                          : " / 量能或资金证据积累中"}
+                      </div>
+                    ) : null}
                     <div className="historical-attribution-grid">
                       <div>
                         <strong>候选类型拖累</strong>
@@ -3996,9 +4013,13 @@ export function App() {
                         {[
                           { prefix: "环境", item: historicalSignalReplay.stability.validation_attribution.market_regimes.find((item) => item.return_contribution_pct < 0) },
                           { prefix: "状态", item: historicalSignalReplay.stability.validation_attribution.market_states.find((item) => item.return_contribution_pct < 0) },
+                          { prefix: "市场参与", item: historicalSignalReplay.stability.validation_attribution.market_participation_bands.find((item) => item.return_contribution_pct < 0) },
+                          { prefix: "市场流动性", item: historicalSignalReplay.stability.validation_attribution.market_liquidity_bands.find((item) => item.return_contribution_pct < 0) },
+                          { prefix: "个股资金", item: historicalSignalReplay.stability.validation_attribution.stock_moneyflow_coverage_ratio >= 0.8 ? historicalSignalReplay.stability.validation_attribution.stock_moneyflow_bands.find((item) => item.return_contribution_pct < 0) : undefined },
+                          { prefix: "板块资金", item: historicalSignalReplay.stability.validation_attribution.sector_moneyflow_coverage_ratio >= 0.8 ? historicalSignalReplay.stability.validation_attribution.sector_moneyflow_bands.find((item) => item.return_contribution_pct < 0) : undefined },
                         ].map(({ prefix, item }) => item ? (
                           <span key={`${prefix}-${item.key}`}>
-                            <b>{prefix}{prefix === "环境" ? marketRegimeLabel(item.key) : item.key === "unknown" ? "状态缺失" : outcomeMarketStateLabel(item.key)}</b>
+                            <b>{prefix === "环境" ? `环境${marketRegimeLabel(item.key)}` : prefix === "状态" ? item.key === "unknown" ? "状态缺失" : `状态${outcomeMarketStateLabel(item.key)}` : `${prefix}${item.key}`}</b>
                             <small>均值 {pct(item.avg_return_pct)} / 对近期均值贡献 {pct(item.return_contribution_pct)} / 占比 {ratioPct(item.sample_share)} / 胜率 {pct(item.win_rate)} / {item.sample_count}条 {item.signal_day_count}日{item.research_sample_sufficient ? "" : " / 样本不足"}</small>
                           </span>
                         ) : null)}

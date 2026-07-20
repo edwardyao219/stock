@@ -414,7 +414,7 @@ def _historical_validation_attribution(
     ]
     sample_count = len(completed)
 
-    def group_key(signal: dict[str, Any], dimension: str) -> str:
+    def group_key(signal: dict[str, Any], dimension: str) -> str | None:
         if dimension == "rank_bands":
             rank = int(signal.get("rank") or 0)
             return "1-3" if rank <= 3 else "4-8" if rank <= 8 else "9-15"
@@ -425,12 +425,39 @@ def _historical_validation_attribution(
             if score >= 70:
                 return "70-79"
             return "60-69" if score >= 60 else "<60"
+        if dimension in {
+            "market_participation_bands",
+            "market_liquidity_bands",
+            "stock_moneyflow_bands",
+            "sector_moneyflow_bands",
+        }:
+            field = {
+                "market_participation_bands": "market_participation_score",
+                "market_liquidity_bands": "market_liquidity_score",
+                "stock_moneyflow_bands": "moneyflow_support_score",
+                "sector_moneyflow_bands": "sector_fund_flow_score",
+            }[dimension]
+            value = signal.get(field)
+            if value is None:
+                return None
+            score = float(value)
+            low_cutoff = 40.0 if dimension == "market_participation_bands" else 45.0
+            high_cutoff = 68.0 if dimension.startswith("market_") else 60.0
+            if score < low_cutoff:
+                return f"<{int(low_cutoff)}"
+            if dimension.startswith("market_") and score < 55.0:
+                return f"{int(low_cutoff)}-54"
+            if score >= high_cutoff:
+                return f"{int(high_cutoff)}+"
+            return f"55-{int(high_cutoff - 1)}" if dimension.startswith("market_") else "45-59"
         return str(signal.get(dimension) or "未分类")
 
     def rows(dimension: str) -> list[dict[str, Any]]:
         groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for signal in completed:
-            groups[group_key(signal, dimension)].append(signal)
+            key = group_key(signal, dimension)
+            if key is not None:
+                groups[key].append(signal)
         result = []
         for key, group in groups.items():
             returns = [float(item["horizons"][horizon]["return_pct"]) for item in group]
@@ -463,6 +490,14 @@ def _historical_validation_attribution(
         not in {"", "unknown", "未分类"}
         for signal in completed
     )
+
+    def known_count(field: str) -> int:
+        return sum(signal.get(field) is not None for signal in completed)
+
+    market_participation_known_count = known_count("market_participation_score")
+    market_liquidity_known_count = known_count("market_liquidity_score")
+    stock_moneyflow_known_count = known_count("moneyflow_support_score")
+    sector_moneyflow_known_count = known_count("sector_fund_flow_score")
     return {
         "horizon": horizon,
         "sample_count": sample_count,
@@ -471,11 +506,39 @@ def _historical_validation_attribution(
         "market_state_coverage_ratio": (
             round(known_market_states / sample_count, 6) if sample_count else 0.0
         ),
+        "market_participation_known_count": market_participation_known_count,
+        "market_participation_coverage_ratio": (
+            round(market_participation_known_count / sample_count, 6)
+            if sample_count
+            else 0.0
+        ),
+        "market_liquidity_known_count": market_liquidity_known_count,
+        "market_liquidity_coverage_ratio": (
+            round(market_liquidity_known_count / sample_count, 6)
+            if sample_count
+            else 0.0
+        ),
+        "stock_moneyflow_known_count": stock_moneyflow_known_count,
+        "stock_moneyflow_coverage_ratio": (
+            round(stock_moneyflow_known_count / sample_count, 6)
+            if sample_count
+            else 0.0
+        ),
+        "sector_moneyflow_known_count": sector_moneyflow_known_count,
+        "sector_moneyflow_coverage_ratio": (
+            round(sector_moneyflow_known_count / sample_count, 6)
+            if sample_count
+            else 0.0
+        ),
         "selection_modes": rows("selection_mode"),
         "market_regimes": rows("market_regime"),
         "market_states": rows("market_state"),
         "rank_bands": rows("rank_bands"),
         "score_bands": rows("score_bands"),
+        "market_participation_bands": rows("market_participation_bands"),
+        "market_liquidity_bands": rows("market_liquidity_bands"),
+        "stock_moneyflow_bands": rows("stock_moneyflow_bands"),
+        "sector_moneyflow_bands": rows("sector_moneyflow_bands"),
         "sectors": rows("sector"),
     }
 
@@ -636,6 +699,11 @@ def evaluate_historical_signal_replay(
     needed_bar_keys: set[tuple[str, date]] = set()
     for snapshot, discovery in accepted:
         future_dates = [item for item in open_dates if item > snapshot.signal_date][: max(HORIZONS)]
+        market_participation = (
+            discovery.get("market_participation_snapshot")
+            if isinstance(discovery.get("market_participation_snapshot"), dict)
+            else {}
+        )
         seen_symbols: set[str] = set()
         for rank, item in enumerate(discovery.get("candidates") or [], start=1):
             if not isinstance(item, dict):
@@ -659,6 +727,26 @@ def evaluate_historical_signal_replay(
                     str(discovery["market_turn"].get("key") or "unknown")
                     if isinstance(discovery.get("market_turn"), dict)
                     else "unknown"
+                ),
+                "market_participation_score": (
+                    float(market_participation["participation_score"])
+                    if market_participation.get("participation_score") is not None
+                    else None
+                ),
+                "market_liquidity_score": (
+                    float(market_participation["liquidity_score"])
+                    if market_participation.get("liquidity_score") is not None
+                    else None
+                ),
+                "moneyflow_support_score": (
+                    float(item["moneyflow_support_score"])
+                    if item.get("moneyflow_support_score") is not None
+                    else None
+                ),
+                "sector_fund_flow_score": (
+                    float(item["sector_fund_flow_score"])
+                    if item.get("sector_fund_flow_score") is not None
+                    else None
                 ),
             }
             candidates.append(candidate)

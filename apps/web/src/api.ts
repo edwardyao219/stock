@@ -311,6 +311,10 @@ export interface HistoricalSignalReplay {
     rank: number;
     market_regime: string;
     market_state: string;
+    market_participation_score: number | null;
+    market_liquidity_score: number | null;
+    moneyflow_support_score: number | null;
+    sector_fund_flow_score: number | null;
     signal_price: number;
     horizons: Record<number, {
       status: string;
@@ -356,11 +360,23 @@ export interface HistoricalReplayAttribution {
   signal_day_count: number;
   market_state_known_count: number;
   market_state_coverage_ratio: number;
+  market_participation_known_count: number;
+  market_participation_coverage_ratio: number;
+  market_liquidity_known_count: number;
+  market_liquidity_coverage_ratio: number;
+  stock_moneyflow_known_count: number;
+  stock_moneyflow_coverage_ratio: number;
+  sector_moneyflow_known_count: number;
+  sector_moneyflow_coverage_ratio: number;
   selection_modes: HistoricalReplayAttributionItem[];
   market_regimes: HistoricalReplayAttributionItem[];
   market_states: HistoricalReplayAttributionItem[];
   rank_bands: HistoricalReplayAttributionItem[];
   score_bands: HistoricalReplayAttributionItem[];
+  market_participation_bands: HistoricalReplayAttributionItem[];
+  market_liquidity_bands: HistoricalReplayAttributionItem[];
+  stock_moneyflow_bands: HistoricalReplayAttributionItem[];
+  sector_moneyflow_bands: HistoricalReplayAttributionItem[];
   sectors: HistoricalReplayAttributionItem[];
 }
 

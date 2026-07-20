@@ -105,7 +105,11 @@ def test_discover_next_session_candidates_writes_strong_candidates_to_pool() -> 
                 ),
                 _bar("000001"),
                 _bar("000002"),
-                _feature("000001"),
+                _feature(
+                    "000001",
+                    moneyflow_support_score=61,
+                    sector_fund_flow_score=72,
+                ),
                 _feature("000002", overheat_score=90),
             ]
         )
@@ -128,6 +132,8 @@ def test_discover_next_session_candidates_writes_strong_candidates_to_pool() -> 
     assert result["candidates"][0]["day_change_pct"] == 0.05
     assert result["candidates"][0]["trend_score"] == 78.0
     assert result["candidates"][0]["relative_strength_score"] == 72.0
+    assert result["candidates"][0]["moneyflow_support_score"] == 61.0
+    assert result["candidates"][0]["sector_fund_flow_score"] == 72.0
     assert result["candidates"][0]["volume_confirmation_score"] == 66.0
     assert result["candidates"][0]["price_volume_trend_score"] is None
     assert result["candidates"][0]["return_20d"] == 0.16

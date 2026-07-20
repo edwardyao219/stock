@@ -8,6 +8,10 @@ for (const field of [
   "validation_attribution",
   "return_contribution_pct",
   "market_state_coverage_ratio",
+  "market_participation_coverage_ratio",
+  "stock_moneyflow_coverage_ratio",
+  "market_participation_bands",
+  "market_liquidity_bands",
 ]) {
   if (!api.includes(field)) throw new Error(`历史回放归因接口缺少：${field}`);
 }
@@ -16,6 +20,10 @@ for (const text of [
   "近期亏损归因",
   "市场状态覆盖",
   "市场环境拖累",
+  "市场量能覆盖",
+  "个股资金覆盖",
+  "市场参与",
+  "市场流动性",
   "对近期均值贡献",
   "占比",
   "胜率",
@@ -38,9 +46,16 @@ if (!app.includes("historicalSignalReplay.stability.validation_attribution ?")) 
 for (const field of [
   "validation_attribution.market_regimes",
   "validation_attribution.market_states",
+  "validation_attribution.market_liquidity_coverage_ratio",
   "item.sample_share",
   "item.win_rate",
   "validation_attribution.sample_count ?",
 ]) {
   if (!app.includes(field)) throw new Error(`历史回放归因展示缺少：${field}`);
+}
+if (!app.includes("historicalFundingAttributionReady")) {
+  throw new Error("量能与资金覆盖必须全部达标后才能标记为可分层研究");
+}
+if (app.includes('<b>{prefix}{prefix === "环境"')) {
+  throw new Error("市场状态标签不能重复显示“状态状态缺失”");
 }
