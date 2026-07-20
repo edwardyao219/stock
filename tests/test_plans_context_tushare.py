@@ -4,7 +4,12 @@ from decimal import Decimal
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
-from services.engine.plans.context import build_strategy_context, load_sector_feature_map
+from services.engine.plans.context import (
+    _moneyflow_context,
+    build_strategy_context,
+    load_sector_feature_map,
+)
+from services.engine.plans.evidence import build_trade_evidence
 from services.engine.plans.repository import load_feature_contexts
 from services.shared.database import Base
 from services.shared.models import (
@@ -58,6 +63,75 @@ def _bar(symbol: str, trade_date: date) -> DailyBar:
         limit_down=Decimal("11.21"),
         is_suspended=False,
     )
+
+
+def test_moneyflow_support_score_uses_relative_net_flow_across_stock_sizes() -> None:
+    def row(net_amount: str, buy_amount: str) -> TushareMoneyflow:
+        return TushareMoneyflow(
+            ts_code="000001.SZ",
+            trade_date=date(2026, 7, 17),
+            buy_sm_amount=Decimal(buy_amount),
+            buy_md_amount=Decimal(buy_amount),
+            buy_lg_amount=Decimal(buy_amount),
+            buy_elg_amount=Decimal(buy_amount),
+            net_mf_amount=Decimal(net_amount),
+        )
+
+    positive = _moneyflow_context(row("100", "250"))
+    negative = _moneyflow_context(row("-100", "250"))
+    same_ratio_larger_stock = _moneyflow_context(row("1000", "2500"))
+    no_turnover = _moneyflow_context(row("100", "0"))
+
+    assert positive["moneyflow_support_score"] == 60.0
+    assert negative["moneyflow_support_score"] == 40.0
+    assert same_ratio_larger_stock["moneyflow_support_score"] == 60.0
+    assert no_turnover["moneyflow_support_score"] == 50.0
+
+
+def test_moneyflow_support_score_rejects_incomplete_or_invalid_buy_amounts() -> None:
+    incomplete = TushareMoneyflow(
+        ts_code="000001.SZ",
+        trade_date=date(2026, 7, 17),
+        buy_sm_amount=None,
+        buy_md_amount=Decimal("100"),
+        buy_lg_amount=Decimal("100"),
+        buy_elg_amount=Decimal("100"),
+        net_mf_amount=Decimal("-100"),
+    )
+    negative = TushareMoneyflow(
+        ts_code="000001.SZ",
+        trade_date=date(2026, 7, 17),
+        buy_sm_amount=Decimal("-100"),
+        buy_md_amount=Decimal("100"),
+        buy_lg_amount=Decimal("100"),
+        buy_elg_amount=Decimal("100"),
+        net_mf_amount=Decimal("-100"),
+    )
+
+    for row in (incomplete, negative):
+        context = _moneyflow_context(row)
+        evidence = build_trade_evidence({**context, "dc_net_amount_rate": -1.0})
+
+        assert context["moneyflow_buy_amount"] is None
+        assert context["moneyflow_support_score"] == 50.0
+        assert "dual_source_moneyflow_outflow" not in evidence["risk_flags"]
+
+
+def test_moneyflow_support_score_clips_extreme_relative_net_flow() -> None:
+    def score(net_amount: str) -> float:
+        row = TushareMoneyflow(
+            ts_code="000001.SZ",
+            trade_date=date(2026, 7, 17),
+            buy_sm_amount=Decimal("25"),
+            buy_md_amount=Decimal("25"),
+            buy_lg_amount=Decimal("25"),
+            buy_elg_amount=Decimal("25"),
+            net_mf_amount=Decimal(net_amount),
+        )
+        return _moneyflow_context(row)["moneyflow_support_score"]
+
+    assert score("1000") == 100.0
+    assert score("-1000") == 0.0
 
 
 def _daily_basic(

@@ -109,23 +109,30 @@ def _load_tushare_moneyflow(db: Session, ts_code: str, trade_date: date) -> dict
 
 
 def _moneyflow_context(row: TushareMoneyflow) -> dict[str, Any]:
-    gross_buy = sum(
-        value or 0
-        for value in [
-            row.buy_sm_amount,
-            row.buy_md_amount,
-            row.buy_lg_amount,
-            row.buy_elg_amount,
-        ]
+    buy_amounts = [
+        row.buy_sm_amount,
+        row.buy_md_amount,
+        row.buy_lg_amount,
+        row.buy_elg_amount,
+    ]
+    gross_buy_value = None
+    if all(value is not None and value >= 0 for value in buy_amounts):
+        gross_buy_value = sum(float(value) for value in buy_amounts if value is not None)
+    relative_net_flow = (
+        float(row.net_mf_amount) / gross_buy_value
+        if row.net_mf_amount is not None
+        and gross_buy_value is not None
+        and gross_buy_value > 0
+        else 0.0
     )
     return {
         "net_mf_amount": float(row.net_mf_amount) if row.net_mf_amount is not None else None,
-        "moneyflow_buy_amount": float(gross_buy) if gross_buy is not None else None,
+        "moneyflow_buy_amount": gross_buy_value,
         "moneyflow_support_score": max(
             0.0,
             min(
                 100.0,
-                50.0 + float(row.net_mf_amount or 0) / 20000000.0,
+                50.0 + relative_net_flow * 100.0,
             ),
         ),
     }
