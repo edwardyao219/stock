@@ -1294,6 +1294,37 @@ function afterCloseStatusTone(status: string | undefined) {
   return "unknown";
 }
 
+function afterCloseStepText(value: unknown) {
+  const labels: Record<string, string> = {
+    sync_daily_market_data: "同步行情",
+    sync_sector_moneyflow: "补齐板块资金",
+    prepare_market_feature_universe: "构建候选池",
+    validate_daily_candidate_data: "校验数据完整性",
+    sync_market_regime: "判断市场阶段",
+    discover_next_session_candidates: "筛选明日候选",
+    record_tracking_snapshots: "记录启动跟踪",
+    run_daily_paper_simulation: "更新模拟交易",
+    generate_paper_trading_review: "生成模拟复盘",
+    run_rule_regression: "回归验证规则",
+    generate_backtest_learning_review: "生成回测归因",
+    prewarm_candidate_replay_effect: "预热历史回放",
+    generate_daily_review: "生成每日复盘",
+  };
+  return labels[String(value ?? "")] ?? "等待下一步";
+}
+
+function afterCloseSchedulerText(status: AfterCloseStatus | null) {
+  const health = status?.scheduler_health;
+  const state = String(health?.state ?? "unknown");
+  if (state === "failed") return "需人工处理";
+  if (state === "completed") return "正常";
+  if (state !== "running") return "等待启动";
+  const heartbeat = health?.last_heartbeat_at;
+  return `运行中 / 当前 ${afterCloseStepText(health?.current_step)} / 心跳 ${
+    typeof heartbeat === "string" ? dateTimeText(heartbeat) : "-"
+  }`;
+}
+
 function afterCloseDingText(status: AfterCloseStatus | null) {
   const statuses = status?.dingtalk_statuses ?? [];
   if (!statuses.length) return "钉钉未记录";
@@ -2626,7 +2657,7 @@ export function App() {
                         <span>基础资金流 {afterCloseStatus.moneyflow_rows > 0 ? `${afterCloseStatus.moneyflow_rows} 条` : "未到"} / {afterCloseStatusLabel(afterCloseStatus.moneyflow_status)}</span>
                         <span>计划证据 {afterCloseStatus.plan_rows_refreshed}/{afterCloseStatus.existing_plans} / {afterCloseStatusLabel(afterCloseStatus.plan_refresh_status)}</span>
                         <span>资金更新 {dateTimeText(afterCloseStatus.moneyflow_updated_at)}</span>
-                        <span>调度健康 {String(afterCloseStatus.scheduler_health?.state ?? "正常") === "failed" ? "需人工处理" : String(afterCloseStatus.scheduler_health?.state ?? "正常") === "completed" ? "正常" : "恢复中"}</span>
+                        <span>调度健康 {afterCloseSchedulerText(afterCloseStatus)}</span>
                         <span>市场阶段 {marketRegimeText(afterCloseStatus.market_regime)} / 风险 {afterCloseStatus.market_regime_risk_level ?? "未记录"}</span>
                         <span className={`late-market-turn-health ${String(afterCloseStatus.late_market_turn_health?.status ?? "missing")}`}>
                           尾盘快照 {lateMarketTurnHealthText(afterCloseStatus.late_market_turn_health)} / {lateMarketTurnHealthDetail(afterCloseStatus.late_market_turn_health)}

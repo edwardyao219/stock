@@ -1225,69 +1225,67 @@ def run_after_close_session(
     full_market_sync: bool = False,
     safe_recovery: bool = False,
     suppress_candidate_notification: bool = False,
+    on_step_start: Callable[[str, tuple[PipelineStepResult, ...]], None] | None = None,
 ) -> DailyPipelineResult:
-    steps = []
+    steps: list[PipelineStepResult] = []
+
+    def run_step(name: str, fn: Callable[[], str | PipelineStepResult]) -> PipelineStepResult:
+        if on_step_start:
+            on_step_start(name, tuple(steps))
+        step = _run_step(name, fn)
+        steps.append(step)
+        return step
+
     if full_market_sync:
-        steps.append(
-            _run_step(
-                "sync_daily_market_data",
-                lambda: _sync_daily_market_data_step(
-                    trade_date,
-                    full_refresh=True,
-                    force=True,
-                ),
-            )
+        run_step(
+            "sync_daily_market_data",
+            lambda: _sync_daily_market_data_step(
+                trade_date,
+                full_refresh=True,
+                force=True,
+            ),
         )
-    steps.extend(
-        [
-            _run_step(
-                "sync_sector_moneyflow",
-                lambda: _sync_sector_moneyflow_step(trade_date),
-            ),
-            _run_step(
-                "prepare_market_feature_universe",
-                lambda: _prepare_market_feature_universe_step(
-                    trade_date,
-                    None,
-                    sync_daily=False,
-                ),
-            ),
-        ]
+    run_step(
+        "sync_sector_moneyflow",
+        lambda: _sync_sector_moneyflow_step(trade_date),
     )
-    candidate_gate = _run_step(
+    run_step(
+        "prepare_market_feature_universe",
+        lambda: _prepare_market_feature_universe_step(
+            trade_date,
+            None,
+            sync_daily=False,
+        ),
+    )
+    candidate_gate = run_step(
         "validate_daily_candidate_data",
         lambda: _daily_candidate_data_gate_step(trade_date),
     )
-    steps.append(candidate_gate)
     candidate_data_ready = candidate_gate.status == "ok"
     if candidate_data_ready:
-        steps.extend(
-            [
-                _run_step("sync_market_regime", lambda: _sync_market_regime_step(trade_date)),
-                _run_step(
-                    "discover_next_session_candidates",
-                    lambda: (
-                        _discover_next_session_candidates_step(
-                            trade_date,
-                            next_trade_date,
-                            limit,
-                            use_learning_adjustments,
-                            suppress_candidate_notification=True,
-                        )
-                        if suppress_candidate_notification
-                        else _discover_next_session_candidates_step(
-                            trade_date,
-                            next_trade_date,
-                            limit,
-                            use_learning_adjustments,
-                        )
-                    ),
-                ),
-                _run_step(
-                    "record_tracking_snapshots",
-                    lambda: _record_tracking_snapshots_step(trade_date, limit),
-                ),
-            ]
+        run_step("sync_market_regime", lambda: _sync_market_regime_step(trade_date))
+        run_step(
+            "discover_next_session_candidates",
+            lambda: (
+                _discover_next_session_candidates_step(
+                    trade_date,
+                    next_trade_date,
+                    limit,
+                    use_learning_adjustments,
+                    suppress_candidate_notification=True,
+                )
+                if suppress_candidate_notification
+                else _discover_next_session_candidates_step(
+                    trade_date,
+                    next_trade_date,
+                    limit,
+                    use_learning_adjustments,
+                )
+            ),
+        )
+        run_step(
+            "record_tracking_snapshots",
+            lambda: _record_tracking_snapshots_step(trade_date, limit),
         )
     else:
         steps.append(
@@ -1308,32 +1306,28 @@ def run_after_close_session(
             steps=steps,
         )
 
-    steps.extend(
-        [
-        _run_step(
-            "run_daily_paper_simulation",
-            lambda: _run_daily_paper_simulation_step(
-                trade_date,
-                account,
-                execute_entries=candidate_data_ready,
-            ),
+    run_step(
+        "run_daily_paper_simulation",
+        lambda: _run_daily_paper_simulation_step(
+            trade_date,
+            account,
+            execute_entries=candidate_data_ready,
         ),
-        _run_step(
-            "generate_paper_trading_review",
-            lambda: _generate_paper_reviews_step(trade_date),
-        ),
-        _run_step("run_rule_regression", lambda: _run_rule_regression_step(trade_date, limit)),
-        _run_step(
-            "generate_backtest_learning_review",
-            lambda: _generate_backtest_learning_step(trade_date),
-        ),
-        _run_step(
-            "prewarm_candidate_replay_effect",
-            lambda: _prewarm_candidate_replay_effect_step(trade_date),
-        ),
-        _run_step("generate_daily_review", lambda: _generate_daily_review_step(trade_date)),
-        ]
     )
+    run_step(
+        "generate_paper_trading_review",
+        lambda: _generate_paper_reviews_step(trade_date),
+    )
+    run_step("run_rule_regression", lambda: _run_rule_regression_step(trade_date, limit))
+    run_step(
+        "generate_backtest_learning_review",
+        lambda: _generate_backtest_learning_step(trade_date),
+    )
+    run_step(
+        "prewarm_candidate_replay_effect",
+        lambda: _prewarm_candidate_replay_effect_step(trade_date),
+    )
+    run_step("generate_daily_review", lambda: _generate_daily_review_step(trade_date))
     return DailyPipelineResult(
         trade_date=trade_date,
         next_trade_date=next_trade_date,

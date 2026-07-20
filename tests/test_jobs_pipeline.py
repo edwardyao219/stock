@@ -1211,9 +1211,13 @@ def test_after_close_task_writes_running_heartbeat_before_pipeline(monkeypatch) 
         def __exit__(self, exc_type, exc, tb):
             return False
 
+    def fake_run_after_close_session(*args, **kwargs):
+        kwargs["on_step_start"]("sync_daily_market_data", ())
+        return _Result()
+
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 30, 18, 0))
     monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-01")
-    monkeypatch.setattr(tasks, "run_after_close_session", lambda *args, **kwargs: _Result())
+    monkeypatch.setattr(tasks, "run_after_close_session", fake_run_after_close_session)
     monkeypatch.setattr(tasks, "SessionLocal", _Db)
     monkeypatch.setattr(tasks, "inspect_tushare_evidence_health", lambda *args: {})
     monkeypatch.setattr(tasks, "write_after_close_status", writes.append)
@@ -1223,6 +1227,8 @@ def test_after_close_task_writes_running_heartbeat_before_pipeline(monkeypatch) 
 
     assert writes[0]["status"] == "running"
     assert writes[0]["scheduler_health"]["state"] == "running"
+    assert writes[1]["scheduler_health"]["current_step"] == "sync_daily_market_data"
+    assert writes[1]["scheduler_health"]["completed_steps"] == []
     assert writes[-1]["scheduler_health"]["state"] == "completed"
 
 
@@ -1590,6 +1596,7 @@ def test_intraday_session_skips_outside_window(monkeypatch) -> None:
 
 def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatch) -> None:
     captured = {}
+    progress = []
 
     def fake_sync_daily(trade_date, *, full_refresh=False, force=False):
         captured["full_sync"] = (trade_date, full_refresh, force)
@@ -1692,6 +1699,9 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         account="default",
         use_learning_adjustments=False,
         full_market_sync=True,
+        on_step_start=lambda current_step, completed: progress.append(
+            (current_step, [step.name for step in completed])
+        ),
     )
 
     assert result.stage == "after_close"
@@ -1719,6 +1729,10 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
     assert result.steps[8].detail == "reviews"
     assert result.steps[-1].detail == "daily"
     assert result.steps[-2].detail == "prewarm:2026-06-24"
+    assert progress[0] == ("sync_daily_market_data", [])
+    assert progress[1] == ("sync_sector_moneyflow", ["sync_daily_market_data"])
+    assert progress[-1][0] == "generate_daily_review"
+    assert "run_rule_regression" in progress[-1][1]
 
 
 def test_after_close_session_blocks_candidates_when_daily_data_gate_fails(monkeypatch) -> None:

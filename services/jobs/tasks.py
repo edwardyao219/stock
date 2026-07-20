@@ -767,6 +767,33 @@ def send_monthly_trade_summary_task(month: str = "2026-06") -> dict[str, str]:
     }
 
 
+def _write_after_close_step_heartbeat(
+    trade_date: str,
+    next_trade_date: str,
+    current_step: str,
+    completed: tuple[PipelineStepResult, ...],
+    *,
+    recovery_attempts: int = 0,
+) -> None:
+    write_after_close_status(
+        {
+            "trade_date": trade_date,
+            "next_trade_date": next_trade_date,
+            "status": "running",
+            "message": "盘后任务正在执行",
+            "steps": [step.to_dict() for step in completed],
+            "scheduler_health": {
+                "state": "running",
+                "current_step": current_step,
+                "last_heartbeat_at": now_local().isoformat(),
+                "completed_steps": [step.name for step in completed if step.status != "failed"],
+                "missing_steps": [step.name for step in completed if step.status == "failed"],
+                "recovery_attempts": recovery_attempts,
+            },
+        }
+    )
+
+
 @celery_app.task(name="services.jobs.tasks.run_after_close_session_task")
 def run_after_close_session_task(force: bool = False) -> dict[str, object]:
     current_time = now_local()
@@ -808,6 +835,12 @@ def run_after_close_session_task(force: bool = False) -> dict[str, object]:
             today.isoformat(),
             next_trade_date,
             full_market_sync=True,
+            on_step_start=lambda current_step, completed: _write_after_close_step_heartbeat(
+                today.isoformat(),
+                next_trade_date,
+                current_step,
+                completed,
+            ),
         ).to_dict()
         sync_statuses: dict[str, str] = {}
         for step in result.get("steps") or []:
@@ -951,13 +984,21 @@ def run_after_close_safe_recovery_task() -> dict[str, object]:
         }
     recovery_attempts = prior_attempts + 1
     try:
+        next_trade_date = resolve_next_trade_date(trade_date)
         result = run_after_close_session(
             trade_date,
-            resolve_next_trade_date(trade_date),
+            next_trade_date,
             full_market_sync=True,
             safe_recovery=True,
             suppress_candidate_notification=bool(
                 isinstance(existing, dict) and existing.get("dingtalk_statuses")
+            ),
+            on_step_start=lambda current_step, completed: _write_after_close_step_heartbeat(
+                trade_date,
+                next_trade_date,
+                current_step,
+                completed,
+                recovery_attempts=recovery_attempts,
             ),
         ).to_dict()
         failed_steps = [
