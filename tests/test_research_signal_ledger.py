@@ -243,6 +243,9 @@ def test_market_api_exposes_historical_replay_separately() -> None:
     assert report.stability.train.sample_count == 0
     assert report.stability.validation.sample_count == 0
     assert report.stability.combinations == []
+    assert report.stability.validation_attribution.sample_count == 0
+    assert report.stability.validation_attribution.market_state_coverage_ratio == 0.0
+    assert report.stability.validation_attribution.selection_modes == []
 
 
 def test_market_api_reuses_historical_replay_cache_by_database_limit_and_date(
@@ -810,13 +813,19 @@ def _replay_stability_signal(
     selection_mode: str,
     sector: str,
     return_pct: float,
+    market_regime: str = "range",
+    market_state: str = "watch_repair",
+    score: float = 80.0,
+    rank: int = 1,
 ) -> dict[str, object]:
     return {
         "signal_date": signal_date.isoformat(),
         "selection_mode": selection_mode,
-        "market_regime": "range",
-        "market_state": "watch_repair",
+        "market_regime": market_regime,
+        "market_state": market_state,
         "sector": sector,
+        "score": score,
+        "rank": rank,
         "horizons": {
             3: {
                 "status": "completed",
@@ -908,3 +917,62 @@ def test_historical_replay_stability_rejects_many_stocks_from_too_few_days() -> 
     assert cohort["validation"]["signal_day_count"] == 1
     assert cohort["comparable"] is False
     assert cohort["stable_positive"] is False
+
+
+def test_historical_replay_stability_attributes_recent_return_drag() -> None:
+    from services.engine.research_signal_ledger import summarize_historical_replay_stability
+
+    signals = []
+    start = date(2026, 1, 1)
+    for day_index in range(40):
+        signal_date = start + timedelta(days=day_index)
+        recent_return = -0.02 if day_index >= 28 else 0.01
+        signals.extend(
+            [
+                _replay_stability_signal(
+                    signal_date,
+                    selection_mode="formal_strategy",
+                    sector="半导体",
+                    return_pct=recent_return,
+                    score=85,
+                    rank=2,
+                ),
+                _replay_stability_signal(
+                    signal_date,
+                    selection_mode="formal_strategy",
+                    sector="半导体",
+                    return_pct=-0.01 if day_index >= 28 else 0.01,
+                    market_state="unknown",
+                    score=75,
+                    rank=5,
+                ),
+                _replay_stability_signal(
+                    signal_date,
+                    selection_mode="observation",
+                    sector="中成药",
+                    return_pct=0.01,
+                    market_regime="panic",
+                    market_state="unknown",
+                    score=55,
+                    rank=10,
+                ),
+            ]
+        )
+
+    attribution = summarize_historical_replay_stability(signals)[
+        "validation_attribution"
+    ]
+
+    assert attribution["sample_count"] == 36
+    assert attribution["signal_day_count"] == 12
+    assert attribution["market_state_known_count"] == 12
+    assert attribution["market_state_coverage_ratio"] == 0.333333
+    formal = attribution["selection_modes"][0]
+    assert formal["key"] == "formal_strategy"
+    assert formal["sample_count"] == 24
+    assert formal["sample_share"] == 0.666667
+    assert formal["avg_return_pct"] == -0.015
+    assert formal["return_contribution_pct"] == -0.01
+    assert attribution["rank_bands"][0]["key"] == "1-3"
+    assert attribution["score_bands"][0]["key"] == "80+"
+    assert attribution["sectors"][0]["key"] == "半导体"

@@ -372,6 +372,31 @@ class HistoricalReplayStabilityCohortResponse(BaseModel):
     validation_delta_pct: float | None
 
 
+class HistoricalReplayAttributionItemResponse(BaseModel):
+    key: str
+    sample_count: int
+    signal_day_count: int
+    research_sample_sufficient: bool
+    sample_share: float
+    avg_return_pct: float
+    win_rate: float
+    return_contribution_pct: float
+
+
+class HistoricalReplayAttributionResponse(BaseModel):
+    horizon: int
+    sample_count: int
+    signal_day_count: int
+    market_state_known_count: int
+    market_state_coverage_ratio: float
+    selection_modes: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
+    market_regimes: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
+    market_states: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
+    rank_bands: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
+    score_bands: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
+    sectors: list[HistoricalReplayAttributionItemResponse] = Field(default_factory=list)
+
+
 class HistoricalReplayMonthlyMetricResponse(HistoricalReplayResearchMetricResponse):
     month: str
 
@@ -383,6 +408,7 @@ class HistoricalReplayStabilityResponse(BaseModel):
     validation_start_date: str | None
     train: HistoricalReplayResearchMetricResponse
     validation: HistoricalReplayResearchMetricResponse
+    validation_attribution: HistoricalReplayAttributionResponse
     selection_modes: list[HistoricalReplayStabilityCohortResponse] = Field(default_factory=list)
     market_regimes: list[HistoricalReplayStabilityCohortResponse] = Field(default_factory=list)
     market_states: list[HistoricalReplayStabilityCohortResponse] = Field(default_factory=list)

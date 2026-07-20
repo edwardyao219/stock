@@ -3960,6 +3960,76 @@ export function App() {
                       月度 {historicalSignalReplay.stability.monthly.slice(-4).map((item) => `${item.month} ${pct(item.avg_return_pct)} / ${item.signal_day_count}日`).join("；") || "暂无"}
                     </span>
                   </div>
+                  {historicalSignalReplay.stability.validation_attribution ? (
+                  <div className="historical-replay-attribution">
+                    <div className="snapshot-review-head">
+                      <strong>近期亏损归因</strong>
+                      <small>
+                        成熟 {historicalSignalReplay.stability.validation_attribution.sample_count} 条 / {historicalSignalReplay.stability.validation_attribution.signal_day_count} 个信号日 / 仅研究
+                      </small>
+                    </div>
+                    {historicalSignalReplay.stability.validation_attribution.sample_count ? (
+                      <div className={`historical-attribution-coverage ${historicalSignalReplay.stability.validation_attribution.market_state_coverage_ratio < 0.8 ? "warning" : "ok"}`}>
+                        市场状态覆盖 {historicalSignalReplay.stability.validation_attribution.market_state_known_count}/{historicalSignalReplay.stability.validation_attribution.sample_count}（{ratioPct(historicalSignalReplay.stability.validation_attribution.market_state_coverage_ratio)}）
+                        {historicalSignalReplay.stability.validation_attribution.market_state_coverage_ratio < 0.8
+                          ? " / 覆盖不足，不据此调参"
+                          : " / 可用于分层研究"}
+                      </div>
+                    ) : (
+                      <div className="historical-attribution-coverage warning">暂无成熟样本 / 覆盖待评估</div>
+                    )}
+                    <div className="historical-attribution-grid">
+                      <div>
+                        <strong>候选类型拖累</strong>
+                        {historicalSignalReplay.stability.validation_attribution.selection_modes
+                          .filter((item) => item.return_contribution_pct < 0)
+                          .slice(0, 3)
+                          .map((item) => (
+                            <span key={item.key}>
+                              <b>{researchSignalTypeLabel(`daily_${item.key}`)}</b>
+                              <small>均值 {pct(item.avg_return_pct)} / 对近期均值贡献 {pct(item.return_contribution_pct)} / 占比 {ratioPct(item.sample_share)} / 胜率 {pct(item.win_rate)} / {item.sample_count}条 {item.signal_day_count}日{item.research_sample_sufficient ? "" : " / 样本不足"}</small>
+                            </span>
+                          ))}
+                      </div>
+                      <div>
+                        <strong>市场环境拖累</strong>
+                        {[
+                          { prefix: "环境", item: historicalSignalReplay.stability.validation_attribution.market_regimes.find((item) => item.return_contribution_pct < 0) },
+                          { prefix: "状态", item: historicalSignalReplay.stability.validation_attribution.market_states.find((item) => item.return_contribution_pct < 0) },
+                        ].map(({ prefix, item }) => item ? (
+                          <span key={`${prefix}-${item.key}`}>
+                            <b>{prefix}{prefix === "环境" ? marketRegimeLabel(item.key) : item.key === "unknown" ? "状态缺失" : outcomeMarketStateLabel(item.key)}</b>
+                            <small>均值 {pct(item.avg_return_pct)} / 对近期均值贡献 {pct(item.return_contribution_pct)} / 占比 {ratioPct(item.sample_share)} / 胜率 {pct(item.win_rate)} / {item.sample_count}条 {item.signal_day_count}日{item.research_sample_sufficient ? "" : " / 样本不足"}</small>
+                          </span>
+                        ) : null)}
+                      </div>
+                      <div>
+                        <strong>排名与分数拖累</strong>
+                        {[
+                          { prefix: "排名", item: historicalSignalReplay.stability.validation_attribution.rank_bands.find((item) => item.return_contribution_pct < 0) },
+                          { prefix: "分数", item: historicalSignalReplay.stability.validation_attribution.score_bands.find((item) => item.return_contribution_pct < 0) },
+                        ].map(({ prefix, item }) => item ? (
+                          <span key={`${prefix}-${item.key}`}>
+                            <b>{prefix}{item.key}</b>
+                            <small>均值 {pct(item.avg_return_pct)} / 对近期均值贡献 {pct(item.return_contribution_pct)} / 占比 {ratioPct(item.sample_share)} / 胜率 {pct(item.win_rate)} / {item.sample_count}条 {item.signal_day_count}日{item.research_sample_sufficient ? "" : " / 样本不足"}</small>
+                          </span>
+                        ) : null)}
+                      </div>
+                      <div>
+                        <strong>板块拖累</strong>
+                        {historicalSignalReplay.stability.validation_attribution.sectors
+                          .filter((item) => item.return_contribution_pct < 0)
+                          .slice(0, 3)
+                          .map((item) => (
+                            <span key={item.key}>
+                              <b>{item.key}</b>
+                              <small>均值 {pct(item.avg_return_pct)} / 对近期均值贡献 {pct(item.return_contribution_pct)} / 占比 {ratioPct(item.sample_share)} / 胜率 {pct(item.win_rate)} / {item.sample_count}条 {item.signal_day_count}日{item.research_sample_sufficient ? "" : " / 样本不足"}</small>
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  </div>
+                  ) : null}
                 </div>
                 <div className="historical-replay-recent">
                   {historicalSignalReplay.recent_signals.slice(0, 3).map((item) => {

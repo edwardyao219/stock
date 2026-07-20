@@ -401,6 +401,85 @@ def _historical_stability_cohorts(
     return sorted(rows, key=sort_key)
 
 
+def _historical_validation_attribution(
+    signals: list[dict[str, Any]],
+    *,
+    horizon: int,
+) -> dict[str, Any]:
+    completed = [
+        signal
+        for signal in signals
+        if signal["horizons"][horizon]["status"] == "completed"
+        and signal["horizons"][horizon]["return_pct"] is not None
+    ]
+    sample_count = len(completed)
+
+    def group_key(signal: dict[str, Any], dimension: str) -> str:
+        if dimension == "rank_bands":
+            rank = int(signal.get("rank") or 0)
+            return "1-3" if rank <= 3 else "4-8" if rank <= 8 else "9-15"
+        if dimension == "score_bands":
+            score = float(signal.get("score") or 0.0)
+            if score >= 80:
+                return "80+"
+            if score >= 70:
+                return "70-79"
+            return "60-69" if score >= 60 else "<60"
+        return str(signal.get(dimension) or "未分类")
+
+    def rows(dimension: str) -> list[dict[str, Any]]:
+        groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for signal in completed:
+            groups[group_key(signal, dimension)].append(signal)
+        result = []
+        for key, group in groups.items():
+            returns = [float(item["horizons"][horizon]["return_pct"]) for item in group]
+            signal_day_count = len({str(item["signal_date"]) for item in group})
+            result.append(
+                {
+                    "key": key,
+                    "sample_count": len(group),
+                    "signal_day_count": signal_day_count,
+                    "research_sample_sufficient": (
+                        len(group) >= MIN_SAMPLES_FOR_POLICY
+                        and signal_day_count >= MIN_SIGNAL_DAYS_FOR_STABILITY
+                    ),
+                    "sample_share": round(len(group) / sample_count, 6),
+                    "avg_return_pct": round(fmean(returns), 6),
+                    "win_rate": round(
+                        sum(value > 0 for value in returns) / len(returns),
+                        6,
+                    ),
+                    "return_contribution_pct": round(sum(returns) / sample_count, 6),
+                }
+            )
+        return sorted(
+            result,
+            key=lambda item: (float(item["return_contribution_pct"]), str(item["key"])),
+        )
+
+    known_market_states = sum(
+        str(signal.get("market_state") or "").strip().lower()
+        not in {"", "unknown", "未分类"}
+        for signal in completed
+    )
+    return {
+        "horizon": horizon,
+        "sample_count": sample_count,
+        "signal_day_count": len({str(signal["signal_date"]) for signal in completed}),
+        "market_state_known_count": known_market_states,
+        "market_state_coverage_ratio": (
+            round(known_market_states / sample_count, 6) if sample_count else 0.0
+        ),
+        "selection_modes": rows("selection_mode"),
+        "market_regimes": rows("market_regime"),
+        "market_states": rows("market_state"),
+        "rank_bands": rows("rank_bands"),
+        "score_bands": rows("score_bands"),
+        "sectors": rows("sector"),
+    }
+
+
 def summarize_historical_replay_stability(
     signals: list[dict[str, Any]],
     *,
@@ -427,6 +506,10 @@ def summarize_historical_replay_stability(
         "validation_start_date": signal_dates[split_index] if validation_dates else None,
         "train": _historical_research_metrics(train_signals, horizon=horizon),
         "validation": _historical_research_metrics(validation_signals, horizon=horizon),
+        "validation_attribution": _historical_validation_attribution(
+            validation_signals,
+            horizon=horizon,
+        ),
         "selection_modes": _historical_stability_cohorts(
             train_signals,
             validation_signals,

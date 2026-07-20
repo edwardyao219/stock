@@ -292,6 +292,7 @@ export interface HistoricalSignalReplay {
     validation_start_date: string | null;
     train: HistoricalReplayResearchMetric;
     validation: HistoricalReplayResearchMetric;
+    validation_attribution?: HistoricalReplayAttribution;
     selection_modes: HistoricalReplayStabilityCohort[];
     market_regimes: HistoricalReplayStabilityCohort[];
     market_states: HistoricalReplayStabilityCohort[];
@@ -336,6 +337,31 @@ export interface HistoricalReplayStabilityCohort {
   comparable: boolean;
   stable_positive: boolean;
   validation_delta_pct: number | null;
+}
+
+export interface HistoricalReplayAttributionItem {
+  key: string;
+  sample_count: number;
+  signal_day_count: number;
+  research_sample_sufficient: boolean;
+  sample_share: number;
+  avg_return_pct: number;
+  win_rate: number;
+  return_contribution_pct: number;
+}
+
+export interface HistoricalReplayAttribution {
+  horizon: number;
+  sample_count: number;
+  signal_day_count: number;
+  market_state_known_count: number;
+  market_state_coverage_ratio: number;
+  selection_modes: HistoricalReplayAttributionItem[];
+  market_regimes: HistoricalReplayAttributionItem[];
+  market_states: HistoricalReplayAttributionItem[];
+  rank_bands: HistoricalReplayAttributionItem[];
+  score_bands: HistoricalReplayAttributionItem[];
+  sectors: HistoricalReplayAttributionItem[];
 }
 
 export interface IntradayExpandingSector {
