@@ -245,6 +245,41 @@ def test_market_api_exposes_historical_replay_separately() -> None:
     assert report.stability.combinations == []
 
 
+def test_market_api_reuses_historical_replay_cache_by_database_limit_and_date(
+    monkeypatch,
+) -> None:
+    from apps.api.app.routers import market
+
+    calls = {"count": 0}
+    current_time = {"value": datetime(2026, 7, 20, 16)}
+    evaluate = market.evaluate_historical_signal_replay
+
+    def counted_evaluate(db, *, current_time, snapshot_limit):
+        calls["count"] += 1
+        return evaluate(
+            db,
+            current_time=current_time,
+            snapshot_limit=snapshot_limit,
+        )
+
+    monkeypatch.setattr(market, "_HISTORICAL_REPLAY_CACHE", None, raising=False)
+    monkeypatch.setattr(market, "evaluate_historical_signal_replay", counted_evaluate)
+    monkeypatch.setattr(market, "now_local", lambda: current_time["value"])
+    monkeypatch.setattr(market, "monotonic", lambda: 1000.0)
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        first = market.get_historical_signal_replay(db, snapshot_limit=120)
+        second = market.get_historical_signal_replay(db, snapshot_limit=120)
+        market.get_historical_signal_replay(db, snapshot_limit=60)
+        current_time["value"] = datetime(2026, 7, 21, 9, 30)
+        market.get_historical_signal_replay(db, snapshot_limit=60)
+
+    assert first is second
+    assert calls["count"] == 3
+
+
 def test_daily_candidate_signal_builder_requires_current_feature_date_and_close_price() -> None:
     from services.engine.research_signal_ledger import build_daily_candidate_signals
 

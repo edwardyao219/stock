@@ -71,6 +71,13 @@ _SECTOR_CATALYST_LOCK = Lock()
 SECTOR_OVERVIEW_CACHE_SECONDS = 15.0
 _SECTOR_OVERVIEW_CACHE: tuple[float, int | None, "SectorOverviewResponse"] | None = None
 _SECTOR_OVERVIEW_LOCK = Lock()
+HISTORICAL_REPLAY_CACHE_SECONDS = 300.0
+_HISTORICAL_REPLAY_CACHE: tuple[
+    float,
+    tuple[int | None, int, date],
+    "HistoricalSignalReplayResponse",
+] | None = None
+_HISTORICAL_REPLAY_LOCK = Lock()
 SECTOR_FEATURE_MIN_COVERAGE_RATIO = 0.80
 MARKET_DAILY_MIN_COVERAGE_RATIO = DAILY_CANDIDATE_MIN_COVERAGE_RATIO
 MARKET_STRESS_RECOVERY_SNAPSHOTS = 2
@@ -2079,13 +2086,39 @@ def get_historical_signal_replay(
     db: DbSession,
     snapshot_limit: Annotated[int, Query(ge=1, le=500)] = 120,
 ) -> HistoricalSignalReplayResponse:
-    return HistoricalSignalReplayResponse(
-        **evaluate_historical_signal_replay(
-            db,
-            current_time=now_local(),
-            snapshot_limit=snapshot_limit,
+    global _HISTORICAL_REPLAY_CACHE
+    current_time = now_local()
+    try:
+        database_key = id(db.get_bind())
+    except Exception:
+        database_key = None
+    cache_key = (database_key, snapshot_limit, current_time.date())
+    current = monotonic()
+    if (
+        _HISTORICAL_REPLAY_CACHE is not None
+        and _HISTORICAL_REPLAY_CACHE[1] == cache_key
+        and current - _HISTORICAL_REPLAY_CACHE[0] <= HISTORICAL_REPLAY_CACHE_SECONDS
+    ):
+        return _HISTORICAL_REPLAY_CACHE[2]
+
+    with _HISTORICAL_REPLAY_LOCK:
+        current = monotonic()
+        if (
+            _HISTORICAL_REPLAY_CACHE is not None
+            and _HISTORICAL_REPLAY_CACHE[1] == cache_key
+            and current - _HISTORICAL_REPLAY_CACHE[0]
+            <= HISTORICAL_REPLAY_CACHE_SECONDS
+        ):
+            return _HISTORICAL_REPLAY_CACHE[2]
+        response = HistoricalSignalReplayResponse(
+            **evaluate_historical_signal_replay(
+                db,
+                current_time=current_time,
+                snapshot_limit=snapshot_limit,
+            )
         )
-    )
+        _HISTORICAL_REPLAY_CACHE = (monotonic(), cache_key, response)
+        return response
 
 
 @router.get("/overview", response_model=MarketOverviewResponse)
