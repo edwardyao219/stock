@@ -626,3 +626,124 @@ def test_tushare_stock_basic_sync_updates_security_industries(monkeypatch) -> No
         assert db.query(Security).filter(Security.symbol == "000001").one().industry == "银行"
         assert db.query(Security).filter(Security.symbol == "600519").one().industry == "白酒"
         assert db.query(Security).filter(Security.symbol == "000003").one().is_active is False
+
+
+def test_tushare_stock_basic_rejects_partial_response_before_deactivation(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    class PartialResponse:
+        fields = ["ts_code", "symbol", "name", "industry", "market", "list_date"]
+        items = [["000001.SZ", "000001", "平安银行", "银行", "主板", "19910403"]]
+        has_more = True
+        count = 2
+
+    monkeypatch.setattr(client, "query", lambda api_name, params=None: PartialResponse())
+
+    with Session(engine) as db:
+        db.add(Security(symbol="000003", name="仍在上市", exchange="SZ", is_active=True))
+        db.commit()
+
+        with pytest.raises(RuntimeError, match="incomplete"):
+            sync_tushare_stock_basic(db)
+        db.rollback()
+
+        assert db.query(Security).filter(Security.symbol == "000003").one().is_active is True
+
+
+def test_tushare_stock_basic_rejects_large_unexplained_universe_shrink(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    class TruncatedResponse:
+        fields = ["ts_code", "symbol", "name", "industry", "market", "list_date"]
+        items = [
+            [f"{index:06d}.SZ", f"{index:06d}", f"样本{index}", "银行", "主板", "20200101"]
+            for index in range(97)
+        ]
+        has_more = False
+        count = 97
+
+    monkeypatch.setattr(client, "query", lambda api_name, params=None: TruncatedResponse())
+
+    with Session(engine) as db:
+        db.add_all(
+            Security(
+                symbol=f"{index:06d}",
+                name=f"样本{index}",
+                exchange="SZ",
+                is_active=True,
+            )
+            for index in range(100)
+        )
+        db.commit()
+
+        with pytest.raises(RuntimeError, match="shrank too far"):
+            sync_tushare_stock_basic(db)
+        db.rollback()
+
+        assert db.query(Security).filter(Security.is_active.is_(True)).count() == 100
+
+
+def test_tushare_stock_basic_keeps_empty_industry_and_uncovered_exchange_active(
+    monkeypatch,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    class FakeResponse:
+        fields = ["ts_code", "symbol", "name", "industry", "market", "list_date"]
+        items = [["000001.SZ", "000001", "平安银行", "", "主板", "19910403"]]
+        has_more = False
+        count = 1
+
+    monkeypatch.setattr(client, "query", lambda api_name, params=None: FakeResponse())
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="000001",
+                    name="平安银行",
+                    exchange="SZ",
+                    industry="银行",
+                    is_active=True,
+                ),
+                Security(
+                    symbol="920001",
+                    name="北交样本",
+                    exchange="BJ",
+                    industry="元器件",
+                    is_active=True,
+                ),
+            ]
+        )
+        db.commit()
+
+        assert sync_tushare_stock_basic(db) == 1
+        db.commit()
+
+        sz_security = db.query(Security).filter(Security.symbol == "000001").one()
+        bj_security = db.query(Security).filter(Security.symbol == "920001").one()
+        assert sz_security.is_active is True
+        assert sz_security.industry == "银行"
+        assert bj_security.is_active is True
+
+
+def test_tushare_stock_basic_prefers_bj_ts_code_suffix_over_symbol_prefix(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    class FakeResponse:
+        fields = ["ts_code", "symbol", "name", "industry", "market", "list_date"]
+        items = [["920001.BJ", "920001", "北交样本", "元器件", "北交所", "20200101"]]
+        has_more = False
+        count = 1
+
+    monkeypatch.setattr(client, "query", lambda api_name, params=None: FakeResponse())
+
+    with Session(engine) as db:
+        assert sync_tushare_stock_basic(db) == 1
+        db.commit()
+
+        assert db.query(Security).filter(Security.symbol == "920001").one().exchange == "BJ"

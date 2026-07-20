@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import delete, update
+from sqlalchemy import delete, func, select, update
 
 from services.collector import tushare_proxy_client as client
 from services.collector.akshare_client import DailyBarRow
@@ -22,6 +22,8 @@ from services.shared.models import (
     TushareStkLimit,
 )
 from services.shared.upsert import upsert_rows
+
+STOCK_BASIC_MIN_ACTIVE_UNIVERSE_RATIO = 0.98
 
 
 def _date(value: Any) -> date:
@@ -435,51 +437,99 @@ def sync_tushare_stock_basic(db, *, list_status: str = "L") -> int:
             "fields": "ts_code,symbol,name,industry,market,list_date",
         },
     )
-    rows = []
-    for row in _rows(response.fields, response.items):
+    if getattr(response, "has_more", False):
+        raise RuntimeError("stock_basic response is incomplete: more pages are available")
+    response_rows = _rows(response.fields, response.items)
+    response_count = getattr(response, "count", None)
+    if response_count is not None and int(response_count) != len(response_rows):
+        raise RuntimeError("stock_basic response is incomplete: count does not match rows")
+
+    rows_with_industry = []
+    rows_without_industry = []
+    listed_symbols: list[str] = []
+    covered_exchanges: set[str] = set()
+    for row in response_rows:
         ts_code = str(row.get("ts_code") or "").strip()
         symbol = str(row.get("symbol") or "").strip()
         name = str(row.get("name") or "").strip()
         industry = str(row.get("industry") or "").strip()
         if not symbol and ts_code:
             symbol = ts_code.split(".", 1)[0]
-        if not symbol or not name:
+        if not symbol:
             continue
-        if not industry:
-            continue
-        rows.append(
-            {
-                "symbol": symbol,
-                "name": name,
-                "exchange": "SH"
-                if ts_code.endswith(".SH") or symbol.startswith(("6", "9"))
-                else "SZ"
-                if ts_code.endswith(".SZ") or symbol.startswith(("0", "2", "3"))
-                else "BJ"
-                if ts_code.endswith(".BJ") or symbol.startswith(("4", "8"))
-                else "UNKNOWN",
-                "list_date": _date(row.get("list_date")),
-                "industry": industry,
-                "is_st": "ST" in name.upper(),
-                "is_active": True,
-            }
+        exchange = (
+            "SH"
+            if ts_code.endswith(".SH")
+            else "SZ"
+            if ts_code.endswith(".SZ")
+            else "BJ"
+            if ts_code.endswith(".BJ")
+            else "BJ"
+            if symbol.startswith(("4", "8", "92"))
+            else "SH"
+            if symbol.startswith(("6", "9"))
+            else "SZ"
+            if symbol.startswith(("0", "2", "3"))
+            else "UNKNOWN"
         )
-    listed_symbols = [str(row["symbol"]) for row in rows]
-    if listed_symbols and list_status == "L":
+        listed_symbols.append(symbol)
+        if exchange != "UNKNOWN":
+            covered_exchanges.add(exchange)
+        if not name:
+            continue
+        security_row = {
+            "symbol": symbol,
+            "name": name,
+            "exchange": exchange,
+            "list_date": _date(row.get("list_date")),
+            "is_st": "ST" in name.upper(),
+            "is_active": True,
+        }
+        if industry:
+            rows_with_industry.append({**security_row, "industry": industry})
+        else:
+            rows_without_industry.append(security_row)
+
+    if listed_symbols and covered_exchanges and list_status == "L":
+        current_covered_count = db.execute(
+            select(func.count())
+            .select_from(Security)
+            .where(Security.is_active.is_(True))
+            .where(Security.exchange.in_(covered_exchanges))
+        ).scalar_one()
+        if (
+            current_covered_count
+            and len(listed_symbols)
+            < current_covered_count * STOCK_BASIC_MIN_ACTIVE_UNIVERSE_RATIO
+        ):
+            raise RuntimeError("stock_basic response is incomplete: active universe shrank too far")
         db.execute(
             update(Security)
             .where(Security.is_active.is_(True))
+            .where(Security.exchange.in_(covered_exchanges))
             .where(Security.symbol.not_in(listed_symbols))
             .values(is_active=False)
         )
     total = 0
     chunk_size = 500
-    for index in range(0, len(rows), chunk_size):
-        total += upsert_rows(
-            db,
-            Security,
-            rows[index : index + chunk_size],
-            update_columns=["name", "exchange", "list_date", "industry", "is_st", "is_active"],
-            constraint="uq_security_symbol",
-        )
+    row_groups = [
+        (
+            rows_with_industry,
+            ["name", "exchange", "list_date", "industry", "is_st", "is_active"],
+        ),
+        (
+            rows_without_industry,
+            ["name", "exchange", "list_date", "is_st", "is_active"],
+        ),
+    ]
+    for rows, update_columns in row_groups:
+        for index in range(0, len(rows), chunk_size):
+            total += upsert_rows(
+                db,
+                Security,
+                rows[index : index + chunk_size],
+                update_columns=update_columns,
+                constraint="uq_security_symbol",
+                index_elements=[Security.symbol],
+            )
     return total

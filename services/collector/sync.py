@@ -95,6 +95,31 @@ def sync_calendar_and_securities() -> list[CollectionResult]:
     ]
 
 
+def sync_current_tushare_securities(trade_date: str) -> CollectionResult:
+    with SessionLocal() as db:
+        try:
+            rows = sync_tushare_stock_basic(db)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            return CollectionResult(
+                source="tushare_proxy",
+                dataset="stock_basic",
+                trade_date=trade_date,
+                rows=0,
+                status="failed",
+                message=f"{type(exc).__name__}: {exc}",
+            )
+    return CollectionResult(
+        source="tushare_proxy",
+        dataset="stock_basic",
+        trade_date=trade_date,
+        rows=rows,
+        status="ok" if rows else "failed",
+        message="" if rows else "empty stock_basic response",
+    )
+
+
 def sync_index_daily_bars(
     start_date: str | None = None,
     end_date: str | None = None,

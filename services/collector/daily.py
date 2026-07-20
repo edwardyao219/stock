@@ -48,6 +48,7 @@ def sync_daily_market_data(
     try:
         from services.collector.sync import (
             sync_calendar_and_securities,
+            sync_current_tushare_securities,
             sync_index_daily_bars,
             sync_tushare_market_data_resumable,
         )
@@ -68,6 +69,8 @@ def sync_daily_market_data(
         results.extend(sync_calendar_and_securities())
     except Exception as exc:
         results.append(_failed_result("trading_calendar_and_securities", trade_date, exc))
+
+    results.append(sync_current_tushare_securities(compact_trade_date))
 
     try:
         results.extend(sync_index_daily_bars(end_date=compact_trade_date))
