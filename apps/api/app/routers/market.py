@@ -346,6 +346,44 @@ class HistoricalReplaySignalResponse(BaseModel):
     horizons: dict[int, ResearchSignalHorizonResponse]
 
 
+class HistoricalReplayResearchMetricResponse(BaseModel):
+    sample_count: int
+    signal_day_count: int
+    minimum_sample_count: int
+    minimum_signal_day_count: int
+    research_sample_sufficient: bool
+    avg_return_pct: float | None
+    win_rate: float | None
+
+
+class HistoricalReplayStabilityCohortResponse(BaseModel):
+    key: str
+    train: HistoricalReplayResearchMetricResponse
+    validation: HistoricalReplayResearchMetricResponse
+    comparable: bool
+    stable_positive: bool
+    validation_delta_pct: float | None
+
+
+class HistoricalReplayMonthlyMetricResponse(HistoricalReplayResearchMetricResponse):
+    month: str
+
+
+class HistoricalReplayStabilityResponse(BaseModel):
+    horizon: int
+    split_method: Literal["chronological_70_30"]
+    train_end_date: str | None
+    validation_start_date: str | None
+    train: HistoricalReplayResearchMetricResponse
+    validation: HistoricalReplayResearchMetricResponse
+    selection_modes: list[HistoricalReplayStabilityCohortResponse] = Field(default_factory=list)
+    market_regimes: list[HistoricalReplayStabilityCohortResponse] = Field(default_factory=list)
+    market_states: list[HistoricalReplayStabilityCohortResponse] = Field(default_factory=list)
+    sectors: list[HistoricalReplayStabilityCohortResponse] = Field(default_factory=list)
+    combinations: list[HistoricalReplayStabilityCohortResponse] = Field(default_factory=list)
+    monthly: list[HistoricalReplayMonthlyMetricResponse] = Field(default_factory=list)
+
+
 class HistoricalSignalReplayResponse(BaseModel):
     source_type: Literal["historical_replay"]
     cache_version: str
@@ -369,6 +407,7 @@ class HistoricalSignalReplayResponse(BaseModel):
     market_regimes: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
     market_states: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
     sectors: list[ResearchSignalBreakdownResponse] = Field(default_factory=list)
+    stability: HistoricalReplayStabilityResponse
     recent_signals: list[HistoricalReplaySignalResponse] = Field(default_factory=list)
 
 

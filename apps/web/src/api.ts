@@ -285,6 +285,20 @@ export interface HistoricalSignalReplay {
   market_regimes: ResearchSignalBreakdown[];
   market_states: ResearchSignalBreakdown[];
   sectors: ResearchSignalBreakdown[];
+  stability: {
+    horizon: number;
+    split_method: "chronological_70_30";
+    train_end_date: string | null;
+    validation_start_date: string | null;
+    train: HistoricalReplayResearchMetric;
+    validation: HistoricalReplayResearchMetric;
+    selection_modes: HistoricalReplayStabilityCohort[];
+    market_regimes: HistoricalReplayStabilityCohort[];
+    market_states: HistoricalReplayStabilityCohort[];
+    sectors: HistoricalReplayStabilityCohort[];
+    combinations: HistoricalReplayStabilityCohort[];
+    monthly: Array<HistoricalReplayResearchMetric & { month: string }>;
+  };
   recent_signals: Array<{
     source_type: "historical_replay";
     signal_date: string;
@@ -303,6 +317,25 @@ export interface HistoricalSignalReplay {
       reason: string | null;
     }>;
   }>;
+}
+
+export interface HistoricalReplayResearchMetric {
+  sample_count: number;
+  signal_day_count: number;
+  minimum_sample_count: number;
+  minimum_signal_day_count: number;
+  research_sample_sufficient: boolean;
+  avg_return_pct: number | null;
+  win_rate: number | null;
+}
+
+export interface HistoricalReplayStabilityCohort {
+  key: string;
+  train: HistoricalReplayResearchMetric;
+  validation: HistoricalReplayResearchMetric;
+  comparable: boolean;
+  stable_positive: boolean;
+  validation_delta_pct: number | null;
 }
 
 export interface IntradayExpandingSector {

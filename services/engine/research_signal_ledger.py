@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from statistics import fmean
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from services.shared.models import (
@@ -24,6 +24,7 @@ STARTUP_STAGES = {"starting", "accelerating"}
 HISTORICAL_REPLAY_CACHE_VERSION = "candidate-v5-startup-signal"
 HISTORICAL_REPLAY_CANDIDATE_LIMIT = 15
 HISTORICAL_REPLAY_SNAPSHOT_LIMIT = 120
+MIN_SIGNAL_DAYS_FOR_STABILITY = 10
 
 
 def _plain_datetime(value: datetime) -> datetime:
@@ -307,6 +308,165 @@ def _historical_replay_breakdown(
     ]
 
 
+def _historical_research_metrics(
+    signals: list[dict[str, Any]],
+    *,
+    horizon: int,
+) -> dict[str, Any]:
+    completed = [
+        signal
+        for signal in signals
+        if signal["horizons"][horizon]["status"] == "completed"
+        and signal["horizons"][horizon]["return_pct"] is not None
+    ]
+    returns = [float(signal["horizons"][horizon]["return_pct"]) for signal in completed]
+    signal_day_count = len({str(signal["signal_date"]) for signal in completed})
+    return {
+        "sample_count": len(completed),
+        "signal_day_count": signal_day_count,
+        "minimum_sample_count": MIN_SAMPLES_FOR_POLICY,
+        "minimum_signal_day_count": MIN_SIGNAL_DAYS_FOR_STABILITY,
+        "research_sample_sufficient": (
+            len(completed) >= MIN_SAMPLES_FOR_POLICY
+            and signal_day_count >= MIN_SIGNAL_DAYS_FOR_STABILITY
+        ),
+        "avg_return_pct": round(fmean(returns), 6) if returns else None,
+        "win_rate": (
+            round(sum(value > 0 for value in returns) / len(returns), 6)
+            if returns
+            else None
+        ),
+    }
+
+
+def _historical_stability_cohorts(
+    train_signals: list[dict[str, Any]],
+    validation_signals: list[dict[str, Any]],
+    *,
+    fields: tuple[str, ...],
+    horizon: int,
+) -> list[dict[str, Any]]:
+    def group(signals: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for signal in signals:
+            key = "|".join(str(signal.get(field) or "未分类") for field in fields)
+            grouped[key].append(signal)
+        return grouped
+
+    train_groups = group(train_signals)
+    validation_groups = group(validation_signals)
+    rows = []
+    for key in sorted(set(train_groups) | set(validation_groups)):
+        train = _historical_research_metrics(train_groups.get(key, []), horizon=horizon)
+        validation = _historical_research_metrics(
+            validation_groups.get(key, []),
+            horizon=horizon,
+        )
+        comparable = bool(
+            train["research_sample_sufficient"]
+            and validation["research_sample_sufficient"]
+        )
+        train_return = train["avg_return_pct"]
+        validation_return = validation["avg_return_pct"]
+        stable_positive = bool(
+            comparable
+            and train_return is not None
+            and validation_return is not None
+            and train_return > 0
+            and validation_return > 0
+        )
+        rows.append(
+            {
+                "key": key,
+                "train": train,
+                "validation": validation,
+                "comparable": comparable,
+                "stable_positive": stable_positive,
+                "validation_delta_pct": (
+                    round(float(validation_return) - float(train_return), 6)
+                    if train_return is not None and validation_return is not None
+                    else None
+                ),
+            }
+        )
+    def sort_key(item: dict[str, Any]) -> tuple[bool, bool, float, str]:
+        validation_return = item["validation"]["avg_return_pct"]
+        return (
+            not bool(item["stable_positive"]),
+            not bool(item["comparable"]),
+            -float(validation_return) if validation_return is not None else float("inf"),
+            str(item["key"]),
+        )
+
+    return sorted(rows, key=sort_key)
+
+
+def summarize_historical_replay_stability(
+    signals: list[dict[str, Any]],
+    *,
+    horizon: int = 3,
+) -> dict[str, Any]:
+    signal_dates = sorted({str(signal["signal_date"]) for signal in signals})
+    if len(signal_dates) >= 2:
+        split_index = max(1, min(len(signal_dates) - 1, int(len(signal_dates) * 0.7)))
+    else:
+        split_index = len(signal_dates)
+    train_dates = set(signal_dates[:split_index])
+    validation_dates = set(signal_dates[split_index:])
+    train_signals = [signal for signal in signals if str(signal["signal_date"]) in train_dates]
+    validation_signals = [
+        signal for signal in signals if str(signal["signal_date"]) in validation_dates
+    ]
+    monthly_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for signal in signals:
+        monthly_groups[str(signal["signal_date"])[:7]].append(signal)
+    return {
+        "horizon": horizon,
+        "split_method": "chronological_70_30",
+        "train_end_date": signal_dates[split_index - 1] if split_index else None,
+        "validation_start_date": signal_dates[split_index] if validation_dates else None,
+        "train": _historical_research_metrics(train_signals, horizon=horizon),
+        "validation": _historical_research_metrics(validation_signals, horizon=horizon),
+        "selection_modes": _historical_stability_cohorts(
+            train_signals,
+            validation_signals,
+            fields=("selection_mode",),
+            horizon=horizon,
+        ),
+        "market_regimes": _historical_stability_cohorts(
+            train_signals,
+            validation_signals,
+            fields=("market_regime",),
+            horizon=horizon,
+        ),
+        "market_states": _historical_stability_cohorts(
+            train_signals,
+            validation_signals,
+            fields=("market_state",),
+            horizon=horizon,
+        ),
+        "sectors": _historical_stability_cohorts(
+            train_signals,
+            validation_signals,
+            fields=("sector",),
+            horizon=horizon,
+        ),
+        "combinations": _historical_stability_cohorts(
+            train_signals,
+            validation_signals,
+            fields=("selection_mode", "market_regime"),
+            horizon=horizon,
+        ),
+        "monthly": [
+            {
+                "month": month,
+                **_historical_research_metrics(monthly_groups[month], horizon=horizon),
+            }
+            for month in sorted(monthly_groups)
+        ],
+    }
+
+
 def evaluate_historical_signal_replay(
     db: Session,
     *,
@@ -425,8 +585,12 @@ def evaluate_historical_signal_replay(
             )
 
     bars_by_key: dict[tuple[str, date], Any] = {}
-    symbols = {symbol for symbol, _ in needed_bar_keys}
-    if symbols and first_signal_date and first_signal_date <= cutoff:
+    symbols_by_date: dict[date, set[str]] = defaultdict(set)
+    for symbol, trade_date in needed_bar_keys:
+        symbols_by_date[trade_date].add(symbol)
+    bar_dates = sorted(symbols_by_date)
+    for start in range(0, len(bar_dates), 100):
+        date_batch = bar_dates[start : start + 100]
         bar_rows = db.execute(
             select(
                 DailyBar.symbol,
@@ -435,18 +599,23 @@ def evaluate_historical_signal_replay(
                 DailyBar.low,
                 DailyBar.close,
                 DailyBar.is_suspended,
-            ).where(
-                DailyBar.symbol.in_(symbols),
-                DailyBar.trade_date >= first_signal_date,
-                DailyBar.trade_date <= cutoff,
+            )
+            .where(
+                or_(
+                    *(
+                        and_(
+                            DailyBar.trade_date == trade_date,
+                            DailyBar.symbol.in_(symbols_by_date[trade_date]),
+                        )
+                        for trade_date in date_batch
+                    )
+                )
             )
             .execution_options(stream_results=True, yield_per=2000)
         )
-        bars_by_key = {
-            (bar.symbol, bar.trade_date): bar
-            for bar in bar_rows
-            if (bar.symbol, bar.trade_date) in needed_bar_keys
-        }
+        bars_by_key.update(
+            {(bar.symbol, bar.trade_date): bar for bar in bar_rows}
+        )
 
     candidate_exclusion_reasons: Counter[str] = Counter()
     signals: list[dict[str, Any]] = []
@@ -517,6 +686,7 @@ def evaluate_historical_signal_replay(
         "market_regimes": _historical_replay_breakdown(signals, "market_regime"),
         "market_states": _historical_replay_breakdown(signals, "market_state"),
         "sectors": _historical_replay_breakdown(signals, "sector"),
+        "stability": summarize_historical_replay_stability(signals),
         "recent_signals": sorted(
             signals,
             key=lambda item: (item["signal_date"], -int(item["rank"])),

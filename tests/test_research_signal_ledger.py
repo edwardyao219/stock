@@ -239,6 +239,10 @@ def test_market_api_exposes_historical_replay_separately() -> None:
     assert report.signal_count == 0
     assert report.available_snapshot_count == 0
     assert report.horizons[3].minimum_sample_count == 30
+    assert report.stability.split_method == "chronological_70_30"
+    assert report.stability.train.sample_count == 0
+    assert report.stability.validation.sample_count == 0
+    assert report.stability.combinations == []
 
 
 def test_daily_candidate_signal_builder_requires_current_feature_date_and_close_price() -> None:
@@ -763,3 +767,109 @@ def test_historical_signal_replay_never_marks_mature_samples_policy_eligible() -
     assert replay["policy_eligible"] is False
     assert replay["horizons"][3]["eligible_for_policy"] is False
     assert replay["selection_modes"][0]["eligible_for_policy"] is False
+
+
+def _replay_stability_signal(
+    signal_date: date,
+    *,
+    selection_mode: str,
+    sector: str,
+    return_pct: float,
+) -> dict[str, object]:
+    return {
+        "signal_date": signal_date.isoformat(),
+        "selection_mode": selection_mode,
+        "market_regime": "range",
+        "market_state": "watch_repair",
+        "sector": sector,
+        "horizons": {
+            3: {
+                "status": "completed",
+                "return_pct": return_pct,
+            }
+        },
+    }
+
+
+def test_historical_replay_stability_requires_positive_train_and_recent_segments() -> None:
+    from services.engine.research_signal_ledger import summarize_historical_replay_stability
+
+    signals = []
+    start = date(2026, 1, 1)
+    for day_index in range(40):
+        signal_date = start + timedelta(days=day_index)
+        is_recent = day_index >= 28
+        for _ in range(3):
+            signals.append(
+                _replay_stability_signal(
+                    signal_date,
+                    selection_mode="formal_strategy",
+                    sector="半导体",
+                    return_pct=0.01 if is_recent else 0.02,
+                )
+            )
+            signals.append(
+                _replay_stability_signal(
+                    signal_date,
+                    selection_mode="observation",
+                    sector="中成药",
+                    return_pct=-0.01 if is_recent else 0.02,
+                )
+            )
+            signals.append(
+                _replay_stability_signal(
+                    signal_date,
+                    selection_mode="potential_watch",
+                    sector="银行",
+                    return_pct=0.0 if is_recent else 0.01,
+                )
+            )
+
+    report = summarize_historical_replay_stability(signals)
+
+    assert report["split_method"] == "chronological_70_30"
+    assert report["train_end_date"] == "2026-01-28"
+    assert report["validation_start_date"] == "2026-01-29"
+    stable = next(
+        item for item in report["combinations"] if item["key"] == "formal_strategy|range"
+    )
+    unstable = next(
+        item for item in report["combinations"] if item["key"] == "observation|range"
+    )
+    assert stable["train"]["signal_day_count"] == 28
+    assert stable["validation"]["signal_day_count"] == 12
+    assert stable["comparable"] is True
+    assert stable["stable_positive"] is True
+    assert stable["validation_delta_pct"] == -0.01
+    assert unstable["comparable"] is True
+    assert unstable["stable_positive"] is False
+    assert [item["key"] for item in report["combinations"][:3]] == [
+        "formal_strategy|range",
+        "potential_watch|range",
+        "observation|range",
+    ]
+    assert len(report["monthly"]) == 2
+
+
+def test_historical_replay_stability_rejects_many_stocks_from_too_few_days() -> None:
+    from services.engine.research_signal_ledger import summarize_historical_replay_stability
+
+    signals = [
+        _replay_stability_signal(
+            date(2026, 1, 2) if index < 30 else date(2026, 7, 1),
+            selection_mode="formal_strategy",
+            sector="半导体",
+            return_pct=0.02,
+        )
+        for index in range(60)
+    ]
+
+    report = summarize_historical_replay_stability(signals)
+    cohort = report["combinations"][0]
+
+    assert cohort["train"]["sample_count"] == 30
+    assert cohort["validation"]["sample_count"] == 30
+    assert cohort["train"]["signal_day_count"] == 1
+    assert cohort["validation"]["signal_day_count"] == 1
+    assert cohort["comparable"] is False
+    assert cohort["stable_positive"] is False

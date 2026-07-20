@@ -1386,6 +1386,7 @@ export function App() {
     useState<ResearchSignalLedger | null>(null);
   const [historicalSignalReplay, setHistoricalSignalReplay] =
     useState<HistoricalSignalReplay | null>(null);
+  const [historicalSignalReplayLoading, setHistoricalSignalReplayLoading] = useState(false);
   const [intradayCandidates, setIntradayCandidates] = useState<IntradayCandidateList | null>(null);
   const [intradaySnapshots, setIntradaySnapshots] =
     useState<IntradayCandidateSnapshotList | null>(null);
@@ -1770,10 +1771,13 @@ export function App() {
   }
 
   async function loadHistoricalSignalReplay() {
+    setHistoricalSignalReplayLoading(true);
     try {
       setHistoricalSignalReplay(await fetchHistoricalSignalReplay());
     } catch {
       setHistoricalSignalReplay(null);
+    } finally {
+      setHistoricalSignalReplayLoading(false);
     }
   }
 
@@ -3913,6 +3917,50 @@ export function App() {
                       : "等待成熟样本"}
                   </span>
                 </div>
+                <div className="historical-replay-stability">
+                  <div className="snapshot-review-head">
+                    <strong>前段 / 近期稳定性</strong>
+                    <small>每段至少 {historicalSignalReplay.stability.train.minimum_sample_count} 条成熟信号且覆盖 {historicalSignalReplay.stability.train.minimum_signal_day_count} 个信号日</small>
+                  </div>
+                  <div className="historical-stability-grid">
+                    {[
+                      ["前段", historicalSignalReplay.stability.train, historicalSignalReplay.stability.train_end_date],
+                      ["近期", historicalSignalReplay.stability.validation, historicalSignalReplay.stability.validation_start_date],
+                    ].map(([label, metric, boundary]) => {
+                      const value = metric as typeof historicalSignalReplay.stability.train;
+                      const sufficient = value.research_sample_sufficient;
+                      return (
+                        <div key={String(label)}>
+                          <span>{String(label)} {String(boundary ?? "-")}</span>
+                          <strong className={sufficient ? (value.avg_return_pct ?? 0) >= 0 ? "up" : "down" : undefined}>
+                            {sufficient ? pct(value.avg_return_pct) : "样本不足"}
+                          </strong>
+                          <small>成熟 {value.sample_count} / {value.signal_day_count}日 / 胜率 {pct(value.win_rate)}</small>
+                        </div>
+                      );
+                    })}
+                    <div>
+                      <span>稳定正向组合</span>
+                      <strong>{historicalSignalReplay.stability.combinations.filter((item) => item.stable_positive).length}</strong>
+                      <small>可比较 {historicalSignalReplay.stability.combinations.filter((item) => item.comparable).length} / 仅研究</small>
+                    </div>
+                  </div>
+                  <div className="historical-stability-lines">
+                    <span>
+                      类型变化 {historicalSignalReplay.stability.selection_modes.filter((item) => item.comparable).length
+                        ? historicalSignalReplay.stability.selection_modes.filter((item) => item.comparable).slice(0, 3).map((item) => `${researchSignalTypeLabel(`daily_${item.key}`)} ${pct(item.train.avg_return_pct)}→${pct(item.validation.avg_return_pct)}`).join("；")
+                        : "样本不足"}
+                    </span>
+                    <span>
+                      双段正向 {historicalSignalReplay.stability.combinations.some((item) => item.stable_positive)
+                        ? historicalSignalReplay.stability.combinations.filter((item) => item.stable_positive).slice(0, 3).map((item) => `${researchSignalTypeLabel(`daily_${item.key.split("|")[0]}`)}×${marketRegimeLabel(item.key.split("|")[1])}`).join("；")
+                        : "暂无"}
+                    </span>
+                    <span>
+                      月度 {historicalSignalReplay.stability.monthly.slice(-4).map((item) => `${item.month} ${pct(item.avg_return_pct)} / ${item.signal_day_count}日`).join("；") || "暂无"}
+                    </span>
+                  </div>
+                </div>
                 <div className="historical-replay-recent">
                   {historicalSignalReplay.recent_signals.slice(0, 3).map((item) => {
                     const result = item.horizons[3];
@@ -3923,6 +3971,13 @@ export function App() {
                       </span>
                     );
                   })}
+                </div>
+              </div>
+            ) : historicalSignalReplayLoading ? (
+              <div className="historical-signal-replay">
+                <div className="snapshot-review-head">
+                  <strong>历史回放计算中</strong>
+                  <small>正在读取完整交易日和候选日线，真实信号账本不受影响。</small>
                 </div>
               </div>
             ) : null}
