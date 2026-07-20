@@ -6,7 +6,11 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from services.engine.plans.context import build_strategy_context, load_sector_feature_map
+from services.engine.plans.context import (
+    build_strategy_context,
+    load_sector_feature_map,
+    load_tushare_industry_moneyflow_map,
+)
 from services.engine.plans.repository import latest_feature_date
 from services.engine.research_pool.repository import list_pool_symbols
 from services.shared.models import DailyBar, Security, StockFeatureDaily, TradePlan
@@ -53,10 +57,33 @@ def _build_watch_plan_row(
         min(
             100.0,
             (_float(context, "route_score", 50.0) or 50.0) * 0.40
-            + (_float(context, "route_trend_score", _float(context, "trend_score", 50.0)) or 50.0) * 0.22
-            + (_float(context, "route_participation_score", _float(context, "volume_score", 50.0)) or 50.0) * 0.18
+            + (
+                _float(context, "route_trend_score", _float(context, "trend_score", 50.0))
+                or 50.0
+            )
+            * 0.22
+            + (
+                _float(
+                    context,
+                    "route_participation_score",
+                    _float(context, "volume_score", 50.0),
+                )
+                or 50.0
+            )
+            * 0.18
             + (_float(context, "sector_strength_score", 50.0) or 50.0) * 0.10
-            + (100.0 - (_float(context, "route_risk_score", _float(context, "risk_score", 50.0)) or 50.0)) * 0.10,
+            + (
+                100.0
+                - (
+                    _float(
+                        context,
+                        "route_risk_score",
+                        _float(context, "risk_score", 50.0),
+                    )
+                    or 50.0
+                )
+            )
+            * 0.10,
         ),
     )
 
@@ -121,9 +148,25 @@ def generate_watchlist_observation_plans(
         .where(Security.is_active.is_(True))
         .order_by(StockFeatureDaily.symbol)
     )
+    feature_rows = list(db.execute(stmt))
+    sector_codes = sorted(
+        {security.industry for _, security, _ in feature_rows if security.industry}
+    )
+    industry_moneyflow_map = load_tushare_industry_moneyflow_map(
+        db,
+        sector_codes,
+        parsed_feature_date,
+    )
     contexts = [
-        build_strategy_context(db, feature_row, security, bar, sector_feature_map)
-        for feature_row, security, bar in db.execute(stmt)
+        build_strategy_context(
+            db,
+            feature_row,
+            security,
+            bar,
+            sector_feature_map,
+            industry_moneyflow_map=industry_moneyflow_map,
+        )
+        for feature_row, security, bar in feature_rows
     ]
     rows = [
         _build_watch_plan_row(

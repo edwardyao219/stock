@@ -4,10 +4,13 @@ from decimal import Decimal
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
+from services.engine.backtest import repository as backtest_repository
+from services.engine.plans import watchlist
 from services.engine.plans.context import (
     _moneyflow_context,
     build_strategy_context,
     load_sector_feature_map,
+    load_tushare_industry_moneyflow_map,
 )
 from services.engine.plans.evidence import build_trade_evidence
 from services.engine.plans.repository import load_feature_contexts
@@ -253,7 +256,7 @@ def test_load_feature_contexts_batches_same_day_tushare_5000_evidence() -> None:
     assert "limit_event" not in context_by_symbol["000002"]
     assert "chip_cost_50pct" not in context_by_symbol["000002"]
     assert statements_by_table == {
-        "tushare_moneyflow_dc": 1,
+        "tushare_moneyflow_dc": 2,
         "tushare_limit_list_d": 1,
         "tushare_cyq_perf": 1,
     }
@@ -653,6 +656,262 @@ def test_build_strategy_context_deduplicates_industry_moneyflow_by_name() -> Non
 
     assert context["sector_fund_flow_net_amount"] == 500000000.0
     assert context["sector_fund_flow_rate"] == 3.5
+
+
+def test_local_industry_moneyflow_aggregates_same_day_stock_flow() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 17)
+
+    with Session(engine) as db:
+        first = _security("000001", exchange="SZ", industry="元器件")
+        second = _security("000002", exchange="SZ", industry="元器件")
+        unsupported_bj = _security("920001", exchange="BJ", industry="元器件")
+        first_bar = _bar("000001", signal_date)
+        second_bar = _bar("000002", signal_date)
+        unsupported_bj_bar = _bar("920001", signal_date)
+        first_bar.amount = Decimal("5000000")
+        second_bar.amount = Decimal("10000000")
+        db.add_all(
+            [
+                first,
+                second,
+                unsupported_bj,
+                first_bar,
+                second_bar,
+                unsupported_bj_bar,
+                TushareMoneyflowDc(
+                    ts_code="000001.SZ",
+                    trade_date=signal_date,
+                    net_amount=Decimal("100"),
+                ),
+                TushareMoneyflowDc(
+                    ts_code="000002.SZ",
+                    trade_date=signal_date,
+                    net_amount=Decimal("-25"),
+                ),
+                TushareMoneyflowDc(
+                    ts_code="000001.SZ",
+                    trade_date=date(2026, 7, 18),
+                    net_amount=Decimal("999999"),
+                ),
+                TushareMoneyflowIndDc(
+                    trade_date=signal_date,
+                    content_type="行业",
+                    ts_code="BK0001.DC",
+                    name="元件",
+                    net_amount=Decimal("-999999999"),
+                    net_amount_rate=Decimal("-99"),
+                ),
+            ]
+        )
+        db.commit()
+
+        context = load_tushare_industry_moneyflow_map(
+            db,
+            ["元器件"],
+            signal_date,
+        )["元器件"]
+
+    assert context["sector_fund_flow_source"] == "local_stock_moneyflow_dc"
+    assert context["sector_fund_flow_coverage_ratio"] == 1.0
+    assert context["sector_fund_flow_net_amount"] == 750000.0
+    assert context["sector_fund_flow_rate"] == 5.0
+    assert context["sector_fund_flow_score"] == 75.0
+
+
+def test_local_industry_moneyflow_falls_back_when_stock_coverage_is_incomplete() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 17)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("000001", exchange="SZ", industry="银行"),
+                _security("000002", exchange="SZ", industry="银行"),
+                _bar("000001", signal_date),
+                _bar("000002", signal_date),
+                TushareMoneyflowDc(
+                    ts_code="000001.SZ",
+                    trade_date=signal_date,
+                    net_amount=Decimal("100"),
+                ),
+                TushareMoneyflowIndDc(
+                    trade_date=signal_date,
+                    content_type="行业",
+                    ts_code="BK0002.DC",
+                    name="银行",
+                    net_amount=Decimal("500000000"),
+                    net_amount_rate=Decimal("3.5"),
+                ),
+            ]
+        )
+        db.commit()
+
+        context = load_tushare_industry_moneyflow_map(
+            db,
+            ["银行"],
+            signal_date,
+        )["银行"]
+
+    assert context["sector_fund_flow_source"] == "tushare_industry_moneyflow"
+    assert context["sector_fund_flow_net_amount"] == 500000000.0
+    assert context["sector_fund_flow_rate"] == 3.5
+    assert context["sector_fund_flow_score"] == 67.5
+
+
+def test_local_industry_moneyflow_uses_full_turnover_at_minimum_coverage() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 17)
+
+    with Session(engine) as db:
+        rows = []
+        for index in range(1, 51):
+            symbol = f"{index:06d}"
+            bar = _bar(symbol, signal_date)
+            bar.amount = Decimal("51000000" if index == 50 else "1000000")
+            rows.extend([_security(symbol, exchange="SZ", industry="银行"), bar])
+            if index < 50:
+                rows.append(
+                    TushareMoneyflowDc(
+                        ts_code=f"{symbol}.SZ",
+                        trade_date=signal_date,
+                        net_amount=Decimal("1"),
+                    )
+                )
+        db.add_all(rows)
+        db.commit()
+
+        context = load_tushare_industry_moneyflow_map(
+            db,
+            ["银行"],
+            signal_date,
+        )["银行"]
+
+    assert context["sector_fund_flow_coverage_ratio"] == 0.98
+    assert context["sector_fund_flow_net_amount"] == 490000.0
+    assert context["sector_fund_flow_rate"] == 0.49
+    assert context["sector_fund_flow_score"] == 52.45
+
+
+def test_local_industry_moneyflow_does_not_use_current_active_status_for_history() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 17)
+    inactive = _security("000002", exchange="SZ", industry="银行")
+    inactive.is_active = False
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("000001", exchange="SZ", industry="银行"),
+                inactive,
+                _bar("000001", signal_date),
+                _bar("000002", signal_date),
+                TushareMoneyflowDc(
+                    ts_code="000001.SZ",
+                    trade_date=signal_date,
+                    net_amount=Decimal("100"),
+                ),
+                TushareMoneyflowDc(
+                    ts_code="000002.SZ",
+                    trade_date=signal_date,
+                    net_amount=Decimal("-100"),
+                ),
+            ]
+        )
+        db.commit()
+
+        context = load_tushare_industry_moneyflow_map(
+            db,
+            ["银行"],
+            signal_date,
+        )["银行"]
+
+    assert context["sector_fund_flow_coverage_ratio"] == 1.0
+    assert context["sector_fund_flow_rate"] == 0.0
+    assert context["sector_fund_flow_score"] == 50.0
+
+
+def test_watchlist_batches_industry_moneyflow_for_same_date(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 17)
+    calls: list[tuple[list[str], date]] = []
+
+    def fake_load(_db, sector_codes, trade_date):
+        calls.append((list(sector_codes), trade_date))
+        return {"银行": {"sector_fund_flow_score": 60.0}}
+
+    monkeypatch.setattr(
+        watchlist,
+        "load_tushare_industry_moneyflow_map",
+        fake_load,
+        raising=False,
+    )
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("000001", exchange="SZ", industry="银行"),
+                _security("000002", exchange="SZ", industry="银行"),
+                _feature("000001", signal_date),
+                _feature("000002", signal_date),
+                _bar("000001", signal_date),
+                _bar("000002", signal_date),
+            ]
+        )
+        db.commit()
+
+        watchlist.generate_watchlist_observation_plans(
+            db=db,
+            plan_date=signal_date.isoformat(),
+            trade_date="2026-07-20",
+            feature_date=signal_date.isoformat(),
+            symbols=["000001", "000002"],
+        )
+
+    assert calls == [(["银行"], signal_date)]
+
+
+def test_multi_symbol_backtest_batches_industry_moneyflow_by_date(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 17)
+    calls: list[tuple[list[str], date]] = []
+
+    def fake_load(_db, sector_codes, trade_date):
+        calls.append((list(sector_codes), trade_date))
+        return {"银行": {"sector_fund_flow_score": 60.0}}
+
+    monkeypatch.setattr(
+        backtest_repository,
+        "load_tushare_industry_moneyflow_map",
+        fake_load,
+        raising=False,
+    )
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("000001", exchange="SZ", industry="银行"),
+                _security("000002", exchange="SZ", industry="银行"),
+                _feature("000001", signal_date),
+                _feature("000002", signal_date),
+                _bar("000001", signal_date),
+                _bar("000002", signal_date),
+            ]
+        )
+        db.commit()
+
+        backtest_repository.load_many_backtest_inputs(
+            db,
+            symbols=["000001", "000002"],
+            start_date=signal_date,
+            end_date=signal_date,
+        )
+
+    assert calls == [(["银行"], signal_date)]
 
 
 def test_build_strategy_context_uses_sector_breadth_and_momentum_from_sector_features() -> None:

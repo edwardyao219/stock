@@ -25,6 +25,10 @@ from services.shared.models import (
     TushareMoneyflowIndDc,
 )
 
+LOCAL_INDUSTRY_MONEYFLOW_MIN_COVERAGE_RATIO = 0.98
+TUSHARE_MONEYFLOW_AMOUNT_YUAN_MULTIPLIER = 10000.0
+TUSHARE_MONEYFLOW_DC_SUPPORTED_EXCHANGES = ("SH", "SZ")
+
 
 def load_sector_feature_map(db: Session, trade_date: date) -> dict[str, dict[str, Any]]:
     rows = list(
@@ -270,6 +274,7 @@ def _industry_moneyflow_priority_order() -> tuple[Any, ...]:
 
 def _industry_moneyflow_context(row: TushareMoneyflowIndDc) -> dict[str, Any]:
     return {
+        "sector_fund_flow_source": "tushare_industry_moneyflow",
         "sector_fund_flow_net_amount": (
             float(row.net_amount) if row.net_amount is not None else None
         ),
@@ -281,6 +286,84 @@ def _industry_moneyflow_context(row: TushareMoneyflowIndDc) -> dict[str, Any]:
             min(100.0, 50.0 + float(row.net_amount_rate or 0) * 5.0),
         ),
     }
+
+
+def _local_industry_moneyflow_map(
+    db: Session,
+    sector_codes: Sequence[str],
+    trade_date: date,
+) -> dict[str, dict[str, Any]]:
+    expected_rows = db.execute(
+        select(
+            Security.industry,
+            func.count(func.distinct(Security.symbol)),
+            func.sum(DailyBar.amount),
+        )
+        .select_from(Security)
+        .join(
+            DailyBar,
+            (DailyBar.symbol == Security.symbol) & (DailyBar.trade_date == trade_date),
+        )
+        .where(Security.exchange.in_(TUSHARE_MONEYFLOW_DC_SUPPORTED_EXCHANGES))
+        .where(Security.industry.in_(sector_codes))
+        .where(DailyBar.amount > 0)
+        .group_by(Security.industry)
+    ).all()
+    expected_by_sector = {
+        str(sector): (int(expected_count), float(traded_amount))
+        for sector, expected_count, traded_amount in expected_rows
+        if sector and expected_count and traded_amount
+    }
+    if not expected_by_sector:
+        return {}
+
+    aggregate_rows = db.execute(
+        select(
+            Security.industry,
+            func.sum(TushareMoneyflowDc.net_amount),
+            func.count(func.distinct(Security.symbol)),
+        )
+        .select_from(TushareMoneyflowDc)
+        .join(
+            Security,
+            Security.symbol == func.substr(TushareMoneyflowDc.ts_code, 1, 6),
+        )
+        .join(
+            DailyBar,
+            (DailyBar.symbol == Security.symbol) & (DailyBar.trade_date == trade_date),
+        )
+        .where(TushareMoneyflowDc.trade_date == trade_date)
+        .where(TushareMoneyflowDc.net_amount.is_not(None))
+        .where(Security.exchange.in_(TUSHARE_MONEYFLOW_DC_SUPPORTED_EXCHANGES))
+        .where(Security.industry.in_(sector_codes))
+        .where(DailyBar.amount > 0)
+        .group_by(Security.industry)
+    ).all()
+
+    result: dict[str, dict[str, Any]] = {}
+    for sector, net_amount, matched_count in aggregate_rows:
+        sector_name = str(sector or "")
+        expected_count, traded_amount_value = expected_by_sector.get(sector_name, (0, 0.0))
+        coverage_ratio = int(matched_count or 0) / expected_count if expected_count else 0.0
+        if (
+            coverage_ratio < LOCAL_INDUSTRY_MONEYFLOW_MIN_COVERAGE_RATIO
+            or net_amount is None
+            or traded_amount_value <= 0
+        ):
+            continue
+        net_amount_value = float(net_amount) * TUSHARE_MONEYFLOW_AMOUNT_YUAN_MULTIPLIER
+        net_amount_rate = net_amount_value / traded_amount_value * 100.0
+        result[sector_name] = {
+            "sector_fund_flow_source": "local_stock_moneyflow_dc",
+            "sector_fund_flow_coverage_ratio": round(coverage_ratio, 6),
+            "sector_fund_flow_net_amount": net_amount_value,
+            "sector_fund_flow_rate": net_amount_rate,
+            "sector_fund_flow_score": max(
+                0.0,
+                min(100.0, 50.0 + net_amount_rate * 5.0),
+            ),
+        }
+    return result
 
 
 def load_tushare_industry_moneyflow_map(
@@ -303,6 +386,7 @@ def load_tushare_industry_moneyflow_map(
     for row in rows:
         if row.name and row.name not in result:
             result[str(row.name)] = _industry_moneyflow_context(row)
+    result.update(_local_industry_moneyflow_map(db, unique_sector_codes, trade_date))
     return result
 
 
