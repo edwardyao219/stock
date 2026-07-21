@@ -573,10 +573,17 @@ function decisionReasons(
       shortFitText(fit),
     ];
   }
+  const availability = stock.plan_availability;
+  const gaps = availability.reason
+    .replace(/^.*当前缺口：/, "")
+    .replace(/。$/, "")
+    .split("；")
+    .filter((item) => item && item !== availability.reason)
+    .slice(0, 3);
   return [
+    availability.label,
+    ...(gaps.length ? gaps : [availability.reason]),
     `今日 ${pct(stock.day_change_pct)} / 5日 ${pct(stock.return_5d)} / 20日 ${pct(stock.return_20d)}`,
-    stock.industry ? `行业 ${stock.industry}` : "暂无行业信息",
-    "还没有当前交易计划，先放在观察列表",
   ];
 }
 
