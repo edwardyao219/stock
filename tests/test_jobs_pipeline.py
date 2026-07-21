@@ -3425,6 +3425,7 @@ def test_discover_next_session_candidates_step_filters_star_candidates_with_star
     assert calls[0]["limit"] == 15
     assert calls[1]["limit"] == 10
     assert calls[1]["include_growth_board"] is True
+    assert calls[1]["persist_market_regime"] is False
     assert [item["symbol"] for item in captured["discovery"]["candidates"]] == [
         "603083",
         "688001",

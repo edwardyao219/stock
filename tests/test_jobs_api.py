@@ -97,7 +97,13 @@ def test_after_close_status_backfills_market_regime_from_daily_record(monkeypatc
     monkeypatch.setattr(
         jobs,
         "read_after_close_status",
-        lambda trade_date: {"trade_date": trade_date, "status": "ok", "message": "已完成"},
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "status": "ok",
+            "message": "已完成",
+            "market_regime": "weak_trend",
+            "market_regime_risk_level": "high",
+        },
     )
 
     with session() as db:

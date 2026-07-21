@@ -2842,6 +2842,7 @@ def discover_next_session_candidates(
     include_growth_board: bool = False,
     include_fundamentals: bool = True,
     min_universe_size: int = 3000,
+    persist_market_regime: bool = True,
 ) -> dict[str, Any]:
     effective_feature_date, requested_feature_date, feature_coverage_ratio = (
         _effective_feature_date(
@@ -2864,7 +2865,8 @@ def discover_next_session_candidates(
     learning_recommendations = _load_learning_recommendations(db, effective_feature_date)
     market_regime = _market_regime_snapshot(contexts, effective_feature_date)
     if (
-        requested_feature_date is not None
+        persist_market_regime
+        and requested_feature_date is not None
         and effective_feature_date.isoformat() == requested_feature_date
     ):
         store_market_regime_daily(db, market_regime)

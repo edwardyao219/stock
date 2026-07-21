@@ -276,13 +276,15 @@ def get_after_close_status(
     except ValueError:
         report_date = None
     late_market_health = (
-        late_market_turn_health(late_market_turn_snapshot(db, report_date))
+        late_market_turn_health(
+            late_market_turn_snapshot(db, report_date) if db is not None else None
+        )
         if report_date is not None
         else {"status": "missing", "message": "收盘日期无效"}
     )
     if cached:
         cached = {**cached, "late_market_turn_health": late_market_health}
-        if cached.get("market_regime") is None and db is not None:
+        if db is not None:
             try:
                 regime_date = date.fromisoformat(target_date)
             except ValueError:

@@ -925,6 +925,7 @@ def _discover_next_session_candidates_step(
             pool_name="experiment_star",
             limit=10,
             include_growth_board=True,
+            persist_market_regime=False,
             **star_scan_kwargs,
         )
         normal_candidates = filter_hot_sector_candidates(
