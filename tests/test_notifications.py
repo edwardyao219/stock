@@ -137,6 +137,8 @@ def test_format_candidate_screening_text_contains_reasons() -> None:
         }
     )
 
+    assert "计划：规则待确认 / 板块强度 60.0，需不低于 75" in text
+
     assert "盘后股票候选" in text
     assert "请求日 2026-06-24" in text
     assert "特征日 2026-06-24" in text
@@ -1360,6 +1362,11 @@ def test_format_candidate_screening_text_pushes_layered_learning_sections() -> N
         "reasons": ["低维主线：板块趋势和个股强度共振"],
         "risk_flags": [],
         "tier_reason": "板块和个股趋势同时在线，作为核心行动候选；盘中仍看承接。",
+        "plan_availability": {
+            "status": "rule_pending",
+            "label": "规则待确认",
+            "reason": "板块强度 60.0，需不低于 75",
+        },
     }
     startup = {
         "symbol": "002558",

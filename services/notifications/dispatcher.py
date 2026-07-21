@@ -1424,6 +1424,11 @@ def _format_candidate_group(
         tier_reason = str(item.get("tier_reason") or "")
         if tier_reason:
             lines.append(f"分层：{tier_reason}")
+        availability = item.get("plan_availability")
+        if isinstance(availability, dict) and availability.get("status") != "planned":
+            label = str(availability.get("label") or "计划待确认")
+            reason = str(availability.get("reason") or "")
+            lines.append(f"计划：{label}{f' / {reason}' if reason else ''}")
         style_gate_label = str(item.get("style_gate_label") or "").strip()
         style_gate_reason = str(item.get("style_gate_reason") or "").strip()
         if style_gate_label or style_gate_reason:
