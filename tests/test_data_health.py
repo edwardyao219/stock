@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from services.engine.features.health import (
+    assess_trade_data_evidence_risk,
     inspect_daily_data_health,
     inspect_tushare_evidence_health,
 )
@@ -145,6 +146,25 @@ def test_inspect_tushare_evidence_health_accepts_empty_limit_events_after_sync()
         )
 
     assert health["datasets"][-1]["status"] == "ok"
+
+
+def test_assess_trade_data_evidence_risk_blocks_missing_tail_and_partial_tushare() -> None:
+    risk = assess_trade_data_evidence_risk(
+        {
+            "datasets": [
+                {"name": "moneyflow", "status": "ok"},
+                {"name": "cyq_perf", "status": "partial"},
+            ]
+        },
+        {"status": "missing", "message": "缺少尾盘市场快照"},
+    )
+
+    assert risk == {
+        "status": "blocked",
+        "reasons": ["尾盘行情：缺少尾盘市场快照", "筹码分布：数据覆盖不完整"],
+        "tushare_statuses": {"moneyflow": "ok", "cyq_perf": "partial"},
+        "late_market_status": "missing",
+    }
 
 
 def test_inspect_tushare_evidence_health_scopes_stock_moneyflow_to_hu_shen() -> None:

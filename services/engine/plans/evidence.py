@@ -79,6 +79,7 @@ def build_trade_evidence(
     fundamental_score = _score(context.get("fundamental_score"))
     fundamental_verdict = context.get("fundamental_verdict")
     near_high = _near_recent_high(context, active_thresholds)
+    data_evidence_risk = context.get("data_evidence_risk")
 
     tags: list[EvidenceTag] = []
 
@@ -378,6 +379,21 @@ def build_trade_evidence(
                     "close": close,
                     "chip_cost_85pct": chip_cost_85pct,
                     "chip_winner_rate": chip_winner_rate,
+                },
+            )
+        )
+
+    if isinstance(data_evidence_risk, dict) and data_evidence_risk.get("status") == "blocked":
+        reasons = [str(item) for item in data_evidence_risk.get("reasons") or []]
+        tags.append(
+            EvidenceTag(
+                name="data_evidence_incomplete",
+                direction="risk",
+                severity="high",
+                rationale="数据证据未完整到位，禁止把候选升级为可交易计划。",
+                values={
+                    "status": "blocked",
+                    "reasons": "；".join(reasons) or "数据未就绪",
                 },
             )
         )

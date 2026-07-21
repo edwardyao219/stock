@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from datetime import date
 
+from services.engine.features.health import (
+    assess_trade_data_evidence_risk,
+    inspect_tushare_evidence_health,
+)
+from services.engine.features.late_market_turn_health import (
+    late_market_turn_health,
+    late_market_turn_snapshot,
+)
 from services.engine.plans.generator import generate_trade_plans
 from services.engine.plans.learning_adjustments import load_plan_learning_adjustments
 from services.engine.plans.repository import (
@@ -21,6 +29,13 @@ from services.engine.rules.seed_rules import MVP_RULES
 from services.shared.database import SessionLocal
 
 MAIN_TRADE_STRATEGY_TYPES = {"long_term", "swing"}
+
+
+def _data_evidence_risk(db, feature_date: date) -> dict[str, object]:
+    return assess_trade_data_evidence_risk(
+        inspect_tushare_evidence_health(db, feature_date),
+        late_market_turn_health(late_market_turn_snapshot(db, feature_date)),
+    )
 
 
 def _strategy_priority(strategy_type: str | None) -> int:
@@ -109,6 +124,11 @@ def generate_and_store_trade_plans(
             prefer_strategy_candidates=target_symbols is None,
         )
         feature_date_obj = date.fromisoformat(effective_feature_date)
+        data_evidence_risk = _data_evidence_risk(db, feature_date_obj)
+        contexts = [
+            {**context, "data_evidence_risk": data_evidence_risk}
+            for context in contexts
+        ]
 
         def learning_loader(rule, context, signal_tags):
             return load_plan_learning_adjustments(

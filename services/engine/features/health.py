@@ -216,6 +216,38 @@ def inspect_tushare_evidence_health(
     }
 
 
+def assess_trade_data_evidence_risk(
+    tushare_evidence_health: dict[str, Any],
+    late_market_health: dict[str, Any],
+) -> dict[str, Any]:
+    labels = {
+        "moneyflow": "基础资金流",
+        "moneyflow_dc": "东财资金流",
+        "cyq_perf": "筹码分布",
+        "limit_list_d": "涨跌停事件",
+    }
+    dataset_statuses = {
+        str(item.get("name")): str(item.get("status") or "missing")
+        for item in tushare_evidence_health.get("datasets") or []
+        if isinstance(item, dict) and item.get("name")
+    }
+    late_market_status = str(late_market_health.get("status") or "missing")
+    reasons: list[str] = []
+    if late_market_status != "ok":
+        reasons.append(f"尾盘行情：{late_market_health.get('message') or '数据未就绪'}")
+    for name, status in dataset_statuses.items():
+        if status == "ok":
+            continue
+        detail = "数据覆盖不完整" if status == "partial" else "等待发布或未同步"
+        reasons.append(f"{labels.get(name, name)}：{detail}")
+    return {
+        "status": "blocked" if reasons else "ok",
+        "reasons": reasons,
+        "tushare_statuses": dataset_statuses,
+        "late_market_status": late_market_status,
+    }
+
+
 def _features(db: Session, trade_date: date | None) -> list[StockFeatureDaily]:
     if trade_date is None:
         return []

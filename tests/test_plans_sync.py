@@ -87,6 +87,7 @@ def test_generate_and_store_trade_plans_keeps_one_active_plan_per_symbol(monkeyp
     monkeypatch.setattr(sync, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(sync, "seed_default_risk_profile", lambda db: None)
     monkeypatch.setattr(sync, "load_risk_profile", lambda db, name: object())
+    monkeypatch.setattr(sync, "_data_evidence_risk", lambda *args: {"status": "ok"})
     monkeypatch.setattr(sync, "list_pool_symbols", lambda db, **kwargs: ["603893"])
     monkeypatch.setattr(
         sync,
@@ -157,6 +158,7 @@ def test_generate_and_store_trade_plans_refreshes_only_existing_plan_keys(monkey
     monkeypatch.setattr(sync, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(sync, "seed_default_risk_profile", lambda db: None)
     monkeypatch.setattr(sync, "load_risk_profile", lambda db, name: object())
+    monkeypatch.setattr(sync, "_data_evidence_risk", lambda *args: {"status": "ok"})
     monkeypatch.setattr(
         sync,
         "load_feature_contexts",
@@ -210,6 +212,34 @@ def test_generate_and_store_trade_plans_refreshes_only_existing_plan_keys(monkey
     assert retired["active_keys"] == {("603893", "R004")}
     assert retired["include_all_plan_dates"] is False
     assert result["plans"] == 1
+
+
+def test_generate_and_store_trade_plans_passes_data_evidence_risk_to_contexts(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(sync, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(sync, "seed_default_risk_profile", lambda db: None)
+    monkeypatch.setattr(sync, "load_risk_profile", lambda db, name: object())
+    monkeypatch.setattr(sync, "load_feature_contexts", lambda *args, **kwargs: [{"symbol": "603893"}])
+    monkeypatch.setattr(sync, "_data_evidence_risk", lambda *args: {"status": "blocked"})
+    monkeypatch.setattr(sync, "load_matching_risk_profile", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        sync,
+        "generate_trade_plans",
+        lambda **kwargs: captured.update(kwargs) or [],
+    )
+    monkeypatch.setattr(sync, "upsert_trade_plans", lambda *args, **kwargs: 0)
+
+    sync.generate_and_store_trade_plans(
+        plan_date="2026-07-16",
+        trade_date="2026-07-17",
+        feature_date="2026-07-16",
+        symbols=["603893"],
+        use_learning_adjustments=False,
+    )
+
+    assert captured["feature_contexts"] == [
+        {"symbol": "603893", "data_evidence_risk": {"status": "blocked"}}
+    ]
 
 
 def test_refresh_existing_trade_plans_reuses_only_planned_keys(monkeypatch) -> None:

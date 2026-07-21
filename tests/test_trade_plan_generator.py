@@ -84,6 +84,27 @@ def test_generate_trade_plans_blocks_action_on_tushare_high_risks(risk_context) 
     assert plans == []
 
 
+def test_generate_trade_plans_blocks_action_when_data_evidence_is_incomplete() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R004")
+
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=[rule],
+        feature_contexts=[
+            {
+                **_valid_long_term_context(),
+                "data_evidence_risk": {
+                    "status": "blocked",
+                    "reasons": ["筹码分布：数据覆盖不完整"],
+                },
+            }
+        ],
+    )
+
+    assert plans == []
+
+
 def test_nonblocking_tushare_evidence_remains_explanatory() -> None:
     rule = next(item for item in MVP_RULES if item.id == "R004")
 

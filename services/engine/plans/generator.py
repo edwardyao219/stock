@@ -13,6 +13,7 @@ from services.engine.rules.models import StrategyRule
 from services.engine.signals.route import build_signal_route
 
 ACTION_BLOCKING_TUSHARE_RISKS = {
+    "data_evidence_incomplete",
     "dual_source_moneyflow_outflow",
     "limit_down_risk",
     "repeated_limit_open",
