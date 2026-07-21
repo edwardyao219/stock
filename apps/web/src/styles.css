@@ -441,7 +441,7 @@ button {
   font-size: 14px;
 }
 
-.after-close-push-metrics span {
+.after-close-push-metrics > span {
   background: #fff;
   border: 1px solid #dbe4ee;
   border-radius: 999px;
@@ -454,6 +454,16 @@ button {
 .after-close-push-metrics .late-market-turn-health.ok { color: #15803d; }
 .after-close-push-metrics .late-market-turn-health.warning { color: #b45309; }
 .after-close-push-metrics .late-market-turn-health.missing { color: #b91c1c; }
+
+.after-close-push-metrics .after-close-evidence {
+  align-items: flex-start;
+  background: #f8fafc;
+  display: grid;
+  gap: 2px;
+}
+
+.after-close-evidence .ok { color: #15803d; }
+.after-close-evidence .missing { color: #b45309; }
 
 .mainline-phase-compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #e1e8ef; }
 .mainline-phase-compare > div { min-width: 0; padding: 8px 10px; }
@@ -5485,6 +5495,14 @@ textarea {
   }
 
   .intraday-watch-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .post-close-review-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .after-close-push-status {
     grid-template-columns: minmax(0, 1fr);
   }
 

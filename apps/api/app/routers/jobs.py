@@ -161,6 +161,7 @@ class AfterCloseStatusResponse(BaseModel):
     market_regime: str | None = None
     market_regime_risk_level: str | None = None
     late_market_turn_health: dict[str, Any] = Field(default_factory=dict)
+    late_market_index_evidence: dict[str, Any] = Field(default_factory=dict)
     tushare_evidence_health: dict[str, Any] = Field(default_factory=dict)
     scheduler_health: dict[str, Any] = Field(default_factory=dict)
     source: str = "cache"
@@ -275,15 +276,27 @@ def get_after_close_status(
         report_date = date.fromisoformat(target_date)
     except ValueError:
         report_date = None
+    late_snapshot = (
+        late_market_turn_snapshot(db, report_date)
+        if db is not None and report_date is not None
+        else None
+    )
     late_market_health = (
-        late_market_turn_health(
-            late_market_turn_snapshot(db, report_date) if db is not None else None
-        )
+        late_market_turn_health(late_snapshot)
         if report_date is not None
         else {"status": "missing", "message": "收盘日期无效"}
     )
+    late_market_index_evidence = (
+        dict((late_snapshot.state_json or {}).get("index_evidence") or {})
+        if late_snapshot is not None
+        else {}
+    )
     if cached:
-        cached = {**cached, "late_market_turn_health": late_market_health}
+        cached = {
+            **cached,
+            "late_market_turn_health": late_market_health,
+            "late_market_index_evidence": late_market_index_evidence,
+        }
         if db is not None:
             try:
                 regime_date = date.fromisoformat(target_date)
@@ -315,6 +328,7 @@ def get_after_close_status(
         message=f"{target_date} 还没有收盘推送记录；如果刚重启过服务，请以钉钉和候选池为准。",
         source="empty",
         late_market_turn_health=late_market_health,
+        late_market_index_evidence=late_market_index_evidence,
     )
 
 

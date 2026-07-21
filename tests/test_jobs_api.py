@@ -12,6 +12,7 @@ from services.jobs.pipeline import DailyPipelineResult, PipelineStepResult
 from services.shared.database import Base
 from services.shared.models import (
     BacktestTradeRecord,
+    IntradayMarketTurnSnapshot,
     MarketRegimeDaily,
     ReviewReport,
     RulePerformanceDaily,
@@ -88,6 +89,46 @@ def test_after_close_status_returns_unknown_without_cache(monkeypatch) -> None:
     assert payload.status == "unknown"
     assert payload.trade_date == "2026-07-09"
     assert "还没有收盘推送记录" in payload.message
+
+
+def test_after_close_status_exposes_late_market_index_evidence(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {"trade_date": trade_date, "status": "ok", "message": "已完成"},
+    )
+
+    with session() as db:
+        db.add(
+            IntradayMarketTurnSnapshot(
+                trade_date=date(2026, 7, 17),
+                snapshot_time=datetime(2026, 7, 17, 14, 50),
+                coverage_ratio=0.998,
+                breadth_ratio=0.42,
+                total_amount=123.0,
+                index_change_pct=-0.0123,
+                sector_expansion_count=2,
+                state_json={
+                    "data_ready": True,
+                    "index_evidence": {
+                        "code": "sh000001",
+                        "name": "上证指数",
+                        "change_pct": -0.0123,
+                        "source": "akshare.stock_zh_index_spot_sina",
+                        "captured_at": "2026-07-17T14:50:00",
+                    },
+                },
+            )
+        )
+        db.commit()
+        payload = jobs.get_after_close_status(db=db, trade_date="2026-07-17")
+
+    assert payload.late_market_index_evidence["code"] == "sh000001"
+    assert payload.late_market_index_evidence["change_pct"] == -0.0123
+    assert payload.late_market_index_evidence["source"] == "akshare.stock_zh_index_spot_sina"
 
 
 def test_after_close_status_backfills_market_regime_from_daily_record(monkeypatch) -> None:

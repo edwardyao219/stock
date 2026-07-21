@@ -1645,6 +1645,7 @@ export interface AfterCloseStatus {
   market_regime: string | null;
   market_regime_risk_level: string | null;
   late_market_turn_health: Record<string, unknown>;
+  late_market_index_evidence: Record<string, unknown>;
   tushare_evidence_health: TushareEvidenceHealth;
   scheduler_health: Record<string, unknown>;
   source: string;

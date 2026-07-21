@@ -1349,6 +1349,16 @@ function lateMarketTurnHealthDetail(value: Record<string, unknown> | undefined) 
   return String(value?.message ?? "未记录").replace("尾盘市场快照", "");
 }
 
+function lateMarketIndexEvidenceText(value: Record<string, unknown> | undefined) {
+  const name = typeof value?.name === "string" ? value.name : "";
+  if (!name) return "未记录";
+  const changePct = value?.change_pct;
+  const sourceValue = value?.source;
+  const change = typeof changePct === "number" ? pct(changePct) : "变动未记录";
+  const source = typeof sourceValue === "string" ? sourceValue.replace("akshare.", "") : "来源未记录";
+  return `${name} ${change} / ${source}`;
+}
+
 function uiText(value: string | null | undefined) {
   return cleanDisplayText(value);
 }
@@ -2659,8 +2669,13 @@ export function App() {
                         <span>资金更新 {dateTimeText(afterCloseStatus.moneyflow_updated_at)}</span>
                         <span>调度健康 {afterCloseSchedulerText(afterCloseStatus)}</span>
                         <span>市场阶段 {marketRegimeText(afterCloseStatus.market_regime)} / 风险 {afterCloseStatus.market_regime_risk_level ?? "未记录"}</span>
-                        <span className={`late-market-turn-health ${String(afterCloseStatus.late_market_turn_health?.status ?? "missing")}`}>
-                          尾盘快照 {lateMarketTurnHealthText(afterCloseStatus.late_market_turn_health)} / {lateMarketTurnHealthDetail(afterCloseStatus.late_market_turn_health)}
+                        <span className="after-close-evidence">
+                          <span className={`late-market-turn-health ${String(afterCloseStatus.late_market_turn_health?.status ?? "missing")}`}>
+                            尾盘行情 {lateMarketTurnHealthText(afterCloseStatus.late_market_turn_health)} / {lateMarketTurnHealthDetail(afterCloseStatus.late_market_turn_health)}
+                          </span>
+                          <span className={afterCloseStatus.late_market_index_evidence?.name ? "ok" : "missing"}>
+                            尾盘指数 {lateMarketIndexEvidenceText(afterCloseStatus.late_market_index_evidence)}
+                          </span>
                         </span>
                         <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>
                         <span>Tushare证据</span>
