@@ -23,6 +23,8 @@ from services.engine.research_pool.repository import (
     manual_focus_tags,
 )
 from services.engine.rules.seed_rules import MVP_RULES
+from services.engine.rules.evaluator import evaluate_condition, evaluate_group
+from services.engine.rules.models import Condition, ConditionGroup
 from services.shared.models import (
     DailyBar,
     IntradayMarketTurnSnapshot,
@@ -663,6 +665,7 @@ def _plan_availability(
     candidate_tier: str | None,
     candidate_tier_reason: str | None,
     data_evidence_risk: dict[str, object] | None,
+    feature_snapshot: dict[str, Any] | None = None,
 ) -> PlanAvailability:
     if plans:
         return PlanAvailability("planned", "计划已生成", "已生成交易计划，仍需按触发价和盘中承接执行。")
@@ -686,10 +689,53 @@ def _plan_availability(
         return PlanAvailability("watch_only", "买点待确认", tier_reason or "候选仍在观察，等待买点和盘中承接确认。")
     rule_id = _tag_text(manual_tags, "rule:")
     if rule_id:
+        gaps = _rule_entry_gaps(rule_id, feature_snapshot) if feature_snapshot is not None else []
+        gap_text = f"当前缺口：{'；'.join(gaps)}。" if gaps else ""
         return PlanAvailability(
-            "rule_pending", "规则待确认", f"策略 {rule_id} 已入选候选，但入场条件尚未全部满足。"
+            "rule_pending", "规则待确认", f"策略 {rule_id} 已入选候选，但入场条件尚未全部满足。{gap_text}"
         )
     return PlanAvailability("rule_pending", "规则待确认", "候选已入池，但尚未满足可执行交易计划的规则条件。")
+
+
+def _condition_gap(condition: Condition, context: dict[str, Any]) -> str:
+    key = condition.feature or condition.field or "条件"
+    labels = {
+        "sector_strength_score": "板块强度",
+        "relative_strength_score": "相对强度",
+        "amount_percentile_60d": "成交额分位",
+    }
+    label = labels.get(key, key)
+    value = context.get(key)
+    right = context.get(condition.ref) if condition.ref else condition.value
+    value_text = f"{float(value):.1f}" if isinstance(value, (int, float)) else "缺失"
+    if condition.op == ">=":
+        return f"{label} {value_text}，需不低于 {right}"
+    return f"{label} 未满足 {condition.op} {right}"
+
+
+def _group_gaps(group: ConditionGroup, context: dict[str, Any]) -> list[str]:
+    gaps: list[str] = []
+    for item in group.all:
+        if isinstance(item, ConditionGroup):
+            if not evaluate_group(item, context):
+                gaps.extend(_group_gaps(item, context))
+        elif not evaluate_condition(item, context):
+            gaps.append(_condition_gap(item, context))
+    if group.any and not any(
+        evaluate_group(item, context) if isinstance(item, ConditionGroup) else evaluate_condition(item, context)
+        for item in group.any
+    ):
+        for item in group.any:
+            if isinstance(item, ConditionGroup):
+                gaps.extend(_group_gaps(item, context))
+            else:
+                gaps.append(_condition_gap(item, context))
+    return gaps
+
+
+def _rule_entry_gaps(rule_id: str, context: dict[str, Any]) -> list[str]:
+    rule = next((item for item in MVP_RULES if item.id == rule_id), None)
+    return _group_gaps(rule.entry, context)[:3] if rule else []
 
 
 def _data_evidence_risks(db: Session, feature_dates: set[str]) -> dict[str, dict[str, object]]:
@@ -991,6 +1037,7 @@ def _build_workspace_item(
             candidate_tier=candidate_tier,
             candidate_tier_reason=candidate_tier_reason,
             data_evidence_risk=(data_evidence_risks or {}).get(feature_date or ""),
+            feature_snapshot=feature_snapshot,
         ),
         plans=[
             _to_workspace_plan(

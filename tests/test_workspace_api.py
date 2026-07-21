@@ -290,6 +290,22 @@ def test_plan_availability_names_the_pending_candidate_rule() -> None:
     assert availability.reason == "策略 R004 已入选候选，但入场条件尚未全部满足。"
 
 
+def test_rule_entry_gaps_lists_failed_required_conditions() -> None:
+    gaps = workspace_repository._rule_entry_gaps(
+        "R001",
+        {
+            "sector_strength_score": 60,
+            "relative_strength_score": 72,
+            "amount_percentile_60d": 70,
+            "distance_to_20d_high": 0.02,
+            "is_st": False,
+            "is_suspended": False,
+        },
+    )
+
+    assert gaps == ["板块强度 60.0，需不低于 75", "成交额分位 70.0，需不低于 80"]
+
+
 def test_workspace_plan_defers_when_intraday_candidate_is_deferred(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
