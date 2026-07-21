@@ -143,24 +143,34 @@ def inspect_tushare_evidence_health(
     trade_date: date,
     sync_statuses: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    eligible_symbols = set(
+    eligible_rows = list(
         db.execute(
-            select(DailyBar.symbol)
+            select(DailyBar.symbol, Security.exchange)
             .join(Security, Security.symbol == DailyBar.symbol)
             .where(DailyBar.trade_date == trade_date)
             .where(Security.is_active.is_(True))
             .where(Security.is_st.is_(False))
-        ).scalars()
+        ).all()
     )
+    eligible_symbols = {str(symbol) for symbol, _ in eligible_rows}
 
-    def full_market_dataset(name: str, model: type) -> dict[str, Any]:
+    def full_market_dataset(
+        name: str,
+        model: type,
+        supported_exchanges: set[str] | None = None,
+    ) -> dict[str, Any]:
+        supported_symbols = {
+            str(symbol)
+            for symbol, exchange in eligible_rows
+            if supported_exchanges is None or str(exchange) in supported_exchanges
+        }
         ts_codes = list(
             db.execute(select(model.ts_code).where(model.trade_date == trade_date)).scalars()
         )
         matched_rows = sum(
-            1 for ts_code in ts_codes if str(ts_code).split(".", 1)[0] in eligible_symbols
+            1 for ts_code in ts_codes if str(ts_code).split(".", 1)[0] in supported_symbols
         )
-        coverage_ratio = matched_rows / len(eligible_symbols) if eligible_symbols else None
+        coverage_ratio = matched_rows / len(supported_symbols) if supported_symbols else None
         if not ts_codes:
             status = "missing"
         elif coverage_ratio is not None and coverage_ratio >= 0.98:
@@ -192,8 +202,8 @@ def inspect_tushare_evidence_health(
         "trade_date": trade_date.isoformat(),
         "daily_symbol_count": len(eligible_symbols),
         "datasets": [
-            full_market_dataset("moneyflow", TushareMoneyflow),
-            full_market_dataset("moneyflow_dc", TushareMoneyflowDc),
+            full_market_dataset("moneyflow", TushareMoneyflow, {"SH", "SZ"}),
+            full_market_dataset("moneyflow_dc", TushareMoneyflowDc, {"SH", "SZ"}),
             full_market_dataset("cyq_perf", TushareCyqPerf),
             {
                 "name": "limit_list_d",

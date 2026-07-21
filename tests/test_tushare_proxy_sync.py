@@ -515,8 +515,17 @@ def test_sync_tushare_market_data_resumable_keeps_going_after_dataset_failure(
     assert result[1].rows == 93
 
 
-def test_sync_tushare_market_data_resumable_marks_empty_moneyflow_pending(
+@pytest.mark.parametrize(
+    ("dataset", "sync_name"),
+    [
+        ("moneyflow", "sync_tushare_moneyflow"),
+        ("cyq_perf", "sync_tushare_cyq_perf"),
+    ],
+)
+def test_sync_tushare_market_data_resumable_marks_empty_delayed_dataset_pending(
     monkeypatch,
+    dataset,
+    sync_name,
 ) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -524,13 +533,13 @@ def test_sync_tushare_market_data_resumable_marks_empty_moneyflow_pending(
     monkeypatch.setattr(collector_sync, "SessionLocal", lambda: Session(engine))
     monkeypatch.setattr(
         collector_sync,
-        "sync_tushare_moneyflow",
+        sync_name,
         lambda db, *, trade_date: 0,
     )
 
     result = collector_sync.sync_tushare_market_data_resumable(
         "20260716",
-        datasets=("moneyflow",),
+        datasets=(dataset,),
     )
 
     assert len(result) == 1

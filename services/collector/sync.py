@@ -353,6 +353,7 @@ TUSHARE_MARKET_DATASETS = (
     "limit_list_d",
     "cyq_perf",
 )
+TUSHARE_DELAYED_DATASETS = {"moneyflow", "cyq_perf"}
 
 
 def _parse_trade_date(value: str) -> date:
@@ -448,7 +449,7 @@ def sync_tushare_market_data_resumable(
                 else:
                     rows = sync_func(db, trade_date=trade_date_text)
                 db.commit()
-                if dataset == "moneyflow" and rows == 0:
+                if dataset in TUSHARE_DELAYED_DATASETS and rows == 0:
                     results.append(
                         CollectionResult(
                             source="tushare_proxy",

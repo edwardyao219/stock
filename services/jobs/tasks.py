@@ -536,17 +536,37 @@ def sync_late_tushare_moneyflow_task() -> dict[str, object]:
                 "message": "非交易日，已跳过基础资金流补采。",
             }
 
-    result = sync_tushare_market_data_resumable(
+    results = sync_tushare_market_data_resumable(
         today.strftime("%Y%m%d"),
-        datasets=("moneyflow",),
+        datasets=("moneyflow", "cyq_perf"),
         force=False,
-    )[0]
-    if result.status == "pending":
-        status = "warning"
-        message = "基础资金流尚未发布，本次未写入。"
-    elif result.status == "failed":
+    )
+    result_by_dataset = {result.dataset: result for result in results}
+    moneyflow_result = result_by_dataset.get("moneyflow")
+    cyq_perf_result = result_by_dataset.get("cyq_perf")
+    if moneyflow_result is None or cyq_perf_result is None:
         status = "failed"
-        message = f"基础资金流补采失败：{result.message}"
+        message = "晚间资金流或筹码补采未返回完整结果。"
+        sync_status = "failed"
+        moneyflow_rows = 0
+        cyq_perf_rows = 0
+    elif any(result.status == "pending" for result in (moneyflow_result, cyq_perf_result)):
+        status = "warning"
+        message = "基础资金流或筹码数据尚未发布，本次未完整写入。"
+        sync_status = "pending"
+        moneyflow_rows = moneyflow_result.rows
+        cyq_perf_rows = cyq_perf_result.rows
+    elif any(result.status == "failed" for result in (moneyflow_result, cyq_perf_result)):
+        status = "failed"
+        failed_result = next(
+            result
+            for result in (moneyflow_result, cyq_perf_result)
+            if result.status == "failed"
+        )
+        message = f"基础资金流或筹码补采失败：{failed_result.message}"
+        sync_status = "failed"
+        moneyflow_rows = moneyflow_result.rows
+        cyq_perf_rows = cyq_perf_result.rows
     else:
         from services.engine.plans.sync import refresh_existing_trade_plans
 
@@ -560,18 +580,28 @@ def sync_late_tushare_moneyflow_task() -> dict[str, object]:
         refreshed_rows = int(plan_result["written"])
         status = "ok"
         message = (
-            f"基础资金流已就绪：{result.rows} 条；"
+            f"基础资金流 {moneyflow_result.rows} 条、筹码 {cyq_perf_result.rows} 条已就绪；"
             f"静默刷新 {refreshed_rows}/{existing_plans} 条交易计划。"
         )
+        with SessionLocal() as db:
+            evidence_health = inspect_tushare_evidence_health(
+                db,
+                today,
+                {
+                    "moneyflow": moneyflow_result.status,
+                    "cyq_perf": cyq_perf_result.status,
+                },
+            )
         merge_after_close_status(
             trade_date,
             {
-                "moneyflow_status": result.status,
-                "moneyflow_rows": result.rows,
+                "moneyflow_status": moneyflow_result.status,
+                "moneyflow_rows": moneyflow_result.rows,
                 "moneyflow_updated_at": current_time.isoformat(),
                 "plan_refresh_status": "ok",
                 "existing_plans": existing_plans,
                 "plan_rows_refreshed": refreshed_rows,
+                "tushare_evidence_health": evidence_health,
             },
         )
         return {
@@ -579,28 +609,40 @@ def sync_late_tushare_moneyflow_task() -> dict[str, object]:
             "next_trade_date": next_trade_date,
             "status": status,
             "message": message,
-            "sync_status": result.status,
-            "moneyflow_rows": result.rows,
+            "sync_status": "ok",
+            "moneyflow_rows": moneyflow_result.rows,
+            "cyq_perf_rows": cyq_perf_result.rows,
             "existing_plans": existing_plans,
             "plan_rows_refreshed": refreshed_rows,
         }
+    with SessionLocal() as db:
+        evidence_health = inspect_tushare_evidence_health(
+            db,
+            today,
+            {
+                "moneyflow": moneyflow_result.status if moneyflow_result else "failed",
+                "cyq_perf": cyq_perf_result.status if cyq_perf_result else "failed",
+            },
+        )
     merge_after_close_status(
         trade_date,
         {
-            "moneyflow_status": result.status,
-            "moneyflow_rows": result.rows,
+            "moneyflow_status": sync_status,
+            "moneyflow_rows": moneyflow_rows,
             "moneyflow_updated_at": current_time.isoformat(),
-            "plan_refresh_status": "failed" if result.status == "failed" else "waiting",
+            "plan_refresh_status": "failed" if sync_status == "failed" else "waiting",
             "existing_plans": 0,
             "plan_rows_refreshed": 0,
+            "tushare_evidence_health": evidence_health,
         },
     )
     return {
         "trade_date": trade_date,
         "status": status,
         "message": message,
-        "sync_status": result.status,
-        "moneyflow_rows": result.rows,
+        "sync_status": sync_status,
+        "moneyflow_rows": moneyflow_rows,
+        "cyq_perf_rows": cyq_perf_rows,
     }
 
 

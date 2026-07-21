@@ -339,6 +339,7 @@ def test_sync_late_tushare_moneyflow_task_reports_pending_release(monkeypatch) -
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 16, 19, 30))
     monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "inspect_tushare_evidence_health", lambda *args: {"updated": True})
     monkeypatch.setattr(tasks, "merge_after_close_status", lambda *args, **kwargs: None)
 
     def fake_sync(trade_date, *, datasets, force=False):
@@ -355,7 +356,15 @@ def test_sync_late_tushare_moneyflow_task_reports_pending_release(monkeypatch) -
                 rows=0,
                 status="pending",
                 message="dataset not published yet",
-            )
+            ),
+            CollectionResult(
+                source="tushare_proxy",
+                dataset="cyq_perf",
+                trade_date=trade_date,
+                rows=0,
+                status="pending",
+                message="dataset not published yet",
+            ),
         ]
 
     monkeypatch.setattr(collector_sync, "sync_tushare_market_data_resumable", fake_sync)
@@ -364,15 +373,16 @@ def test_sync_late_tushare_moneyflow_task_reports_pending_release(monkeypatch) -
 
     assert captured == {
         "trade_date": "20260716",
-        "datasets": ("moneyflow",),
+        "datasets": ("moneyflow", "cyq_perf"),
         "force": False,
     }
     assert result == {
         "trade_date": "2026-07-16",
         "status": "warning",
-        "message": "基础资金流尚未发布，本次未写入。",
+        "message": "基础资金流或筹码数据尚未发布，本次未完整写入。",
         "sync_status": "pending",
         "moneyflow_rows": 0,
+        "cyq_perf_rows": 0,
     }
 
 
@@ -391,6 +401,7 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
     monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
     monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-17")
+    monkeypatch.setattr(tasks, "inspect_tushare_evidence_health", lambda *args: {"updated": True})
     monkeypatch.setattr(
         tasks,
         "merge_after_close_status",
@@ -407,7 +418,14 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
                 trade_date="20260716",
                 rows=5198,
                 status="ok",
-            )
+            ),
+            CollectionResult(
+                source="tushare_proxy",
+                dataset="cyq_perf",
+                trade_date="20260716",
+                rows=5198,
+                status="ok",
+            ),
         ],
     )
 
@@ -440,15 +458,17 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
             "plan_refresh_status": "ok",
             "existing_plans": 2,
             "plan_rows_refreshed": 2,
+            "tushare_evidence_health": {"updated": True},
         },
     }
     assert result == {
         "trade_date": "2026-07-16",
         "next_trade_date": "2026-07-17",
         "status": "ok",
-        "message": "基础资金流已就绪：5198 条；静默刷新 2/2 条交易计划。",
+        "message": "基础资金流 5198 条、筹码 5198 条已就绪；静默刷新 2/2 条交易计划。",
         "sync_status": "ok",
         "moneyflow_rows": 5198,
+        "cyq_perf_rows": 5198,
         "existing_plans": 2,
         "plan_rows_refreshed": 2,
     }

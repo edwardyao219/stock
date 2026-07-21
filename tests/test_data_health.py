@@ -147,6 +147,54 @@ def test_inspect_tushare_evidence_health_accepts_empty_limit_events_after_sync()
     assert health["datasets"][-1]["status"] == "ok"
 
 
+def test_inspect_tushare_evidence_health_scopes_stock_moneyflow_to_hu_shen() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    trade_date = date(2026, 7, 10)
+
+    with sessionmaker(bind=engine)() as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="000001",
+                    name="深市样本",
+                    exchange="SZ",
+                    is_active=True,
+                    is_st=False,
+                ),
+                Security(
+                    symbol="600001",
+                    name="沪市样本",
+                    exchange="SH",
+                    is_active=True,
+                    is_st=False,
+                ),
+                Security(
+                    symbol="920001",
+                    name="北交样本",
+                    exchange="BJ",
+                    is_active=True,
+                    is_st=False,
+                ),
+                _daily_bar("000001", trade_date, amount="1000000000"),
+                _daily_bar("600001", trade_date, amount="1000000000"),
+                _daily_bar("920001", trade_date, amount="1000000000"),
+                TushareMoneyflow(ts_code="000001.SZ", trade_date=trade_date),
+                TushareMoneyflow(ts_code="600001.SH", trade_date=trade_date),
+                TushareMoneyflowDc(ts_code="000001.SZ", trade_date=trade_date),
+                TushareMoneyflowDc(ts_code="600001.SH", trade_date=trade_date),
+            ]
+        )
+        db.commit()
+        health = inspect_tushare_evidence_health(db, trade_date)
+
+    datasets = {item["name"]: item for item in health["datasets"]}
+    assert datasets["moneyflow"]["coverage_ratio"] == 1.0
+    assert datasets["moneyflow"]["status"] == "ok"
+    assert datasets["moneyflow_dc"]["coverage_ratio"] == 1.0
+    assert datasets["moneyflow_dc"]["status"] == "ok"
+
+
 def test_inspect_daily_data_health_flags_amount_and_feature_anomalies() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
