@@ -1647,6 +1647,7 @@ export interface AfterCloseStatus {
   late_market_turn_health: Record<string, unknown>;
   late_market_index_evidence: Record<string, unknown>;
   tushare_evidence_health: TushareEvidenceHealth;
+  data_evidence_risk: Record<string, unknown>;
   scheduler_health: Record<string, unknown>;
   source: string;
 }

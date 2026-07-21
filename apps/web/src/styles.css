@@ -464,6 +464,9 @@ button {
 
 .after-close-evidence .ok { color: #15803d; }
 .after-close-evidence .missing { color: #b45309; }
+.after-close-evidence .data-evidence-gate.ok { color: #15803d; }
+.after-close-evidence .data-evidence-gate.blocked { color: #b91c1c; }
+.after-close-evidence .data-evidence-reason { color: #b45309; overflow-wrap: anywhere; }
 
 .mainline-phase-compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #e1e8ef; }
 .mainline-phase-compare > div { min-width: 0; padding: 8px 10px; }

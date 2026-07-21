@@ -1359,6 +1359,10 @@ function lateMarketIndexEvidenceText(value: Record<string, unknown> | undefined)
   return `${name} ${change} / ${source}`;
 }
 
+function dataEvidenceGateText(value: Record<string, unknown> | undefined) {
+  return value?.status === "ok" ? "可生成" : "已拦截";
+}
+
 function uiText(value: string | null | undefined) {
   return cleanDisplayText(value);
 }
@@ -2676,6 +2680,14 @@ export function App() {
                           <span className={afterCloseStatus.late_market_index_evidence?.name ? "ok" : "missing"}>
                             尾盘指数 {lateMarketIndexEvidenceText(afterCloseStatus.late_market_index_evidence)}
                           </span>
+                          <span className={`data-evidence-gate ${String(afterCloseStatus.data_evidence_risk?.status ?? "blocked")}`}>
+                            交易计划门禁 {dataEvidenceGateText(afterCloseStatus.data_evidence_risk)}
+                          </span>
+                          {(Array.isArray(afterCloseStatus.data_evidence_risk?.reasons)
+                            ? afterCloseStatus.data_evidence_risk.reasons
+                            : []).map((reason) => (
+                            <span className="data-evidence-reason" key={String(reason)}>{uiText(String(reason))}</span>
+                          ))}
                         </span>
                         <span>{uiText(afterCloseStatus.market_summary ?? "市场未记录")}</span>
                         <span>Tushare证据</span>

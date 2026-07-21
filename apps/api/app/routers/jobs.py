@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.engine.backtest.replay import run_historical_replay
+from services.engine.features.health import assess_trade_data_evidence_risk
 from services.engine.features.late_market_turn_health import (
     late_market_turn_health,
     late_market_turn_snapshot,
@@ -163,6 +164,7 @@ class AfterCloseStatusResponse(BaseModel):
     late_market_turn_health: dict[str, Any] = Field(default_factory=dict)
     late_market_index_evidence: dict[str, Any] = Field(default_factory=dict)
     tushare_evidence_health: dict[str, Any] = Field(default_factory=dict)
+    data_evidence_risk: dict[str, Any] = Field(default_factory=dict)
     scheduler_health: dict[str, Any] = Field(default_factory=dict)
     source: str = "cache"
 
@@ -291,11 +293,19 @@ def get_after_close_status(
         if late_snapshot is not None
         else {}
     )
+    tushare_evidence_health = (
+        dict(cached.get("tushare_evidence_health") or {}) if cached else {}
+    )
+    data_evidence_risk = assess_trade_data_evidence_risk(
+        tushare_evidence_health,
+        late_market_health,
+    )
     if cached:
         cached = {
             **cached,
             "late_market_turn_health": late_market_health,
             "late_market_index_evidence": late_market_index_evidence,
+            "data_evidence_risk": data_evidence_risk,
         }
         if db is not None:
             try:
@@ -329,6 +339,7 @@ def get_after_close_status(
         source="empty",
         late_market_turn_health=late_market_health,
         late_market_index_evidence=late_market_index_evidence,
+        data_evidence_risk=data_evidence_risk,
     )
 
 

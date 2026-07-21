@@ -81,6 +81,29 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
     assert payload.tushare_evidence_health["daily_symbol_count"] == 100
 
 
+def test_after_close_status_explains_trade_plan_data_gate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "status": "warning",
+            "message": "数据等待补齐。",
+            "tushare_evidence_health": {
+                "trade_date": trade_date,
+                "daily_symbol_count": 100,
+                "datasets": [{"name": "cyq_perf", "status": "partial"}],
+            },
+        },
+    )
+
+    payload = jobs.get_after_close_status(db=None, trade_date="2026-07-09")
+
+    assert payload.data_evidence_risk["status"] == "blocked"
+    assert "尾盘行情" in payload.data_evidence_risk["reasons"][0]
+    assert "筹码分布：数据覆盖不完整" in payload.data_evidence_risk["reasons"]
+
+
 def test_after_close_status_returns_unknown_without_cache(monkeypatch) -> None:
     monkeypatch.setattr(jobs, "read_after_close_status", lambda trade_date: None)
 
