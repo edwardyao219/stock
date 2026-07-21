@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
@@ -8,6 +8,14 @@ from typing import Any
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
+from services.engine.features.health import (
+    assess_trade_data_evidence_risk,
+    inspect_tushare_evidence_health,
+)
+from services.engine.features.late_market_turn_health import (
+    late_market_turn_health,
+    late_market_turn_snapshot,
+)
 from services.engine.intraday.candidates import discover_intraday_candidates
 from services.engine.research_pool.repository import (
     candidate_tags,
@@ -63,6 +71,13 @@ class WorkspacePlan:
     execution_label: str
     execution_note: str
     evidence: list[PlanEvidence]
+
+
+@dataclass(frozen=True)
+class PlanAvailability:
+    status: str
+    label: str
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -163,6 +178,11 @@ class WorkspaceItem:
     plans: list[WorkspacePlan]
     paper_trade_summaries: list[PaperTradeSummary]
     recent_paper_trades: list[PaperTradeItem]
+    plan_availability: PlanAvailability = field(
+        default_factory=lambda: PlanAvailability(
+            "unknown", "计划待确认", "计划状态暂未计算。"
+        )
+    )
 
 
 def _float(value: Decimal | None) -> float | None:
@@ -636,6 +656,51 @@ def _candidate_tier_reason(tags: list[str], tier: str | None) -> str | None:
     return None
 
 
+def _plan_availability(
+    *,
+    plans: list[TradePlan],
+    manual_tags: list[str],
+    candidate_tier: str | None,
+    candidate_tier_reason: str | None,
+    data_evidence_risk: dict[str, object] | None,
+) -> PlanAvailability:
+    if plans:
+        return PlanAvailability("planned", "计划已生成", "已生成交易计划，仍需按触发价和盘中承接执行。")
+    risk = data_evidence_risk or {}
+    reasons = [str(item) for item in risk.get("reasons") or []]
+    if risk.get("status") == "blocked":
+        return PlanAvailability(
+            "data_blocked",
+            "数据门禁拦截",
+            "；".join(reasons) or "数据证据未完整到位，暂不生成交易计划。",
+        )
+    is_auto_candidate = any(tag in {"after_close_candidate", "next_session"} for tag in manual_tags)
+    if not is_auto_candidate:
+        return PlanAvailability("manual_watch", "仅手动关注", "尚未进入自动候选批次，不生成交易计划。")
+    tier_reason = candidate_tier_reason or ""
+    if "市场" in tier_reason and any(word in tier_reason for word in ("观察", "暂停", "风险")):
+        return PlanAvailability("market_guard", "市场风控观察", tier_reason)
+    if candidate_tier == "risk_reject":
+        return PlanAvailability("risk_reject", "风险暂缓", tier_reason or "风险信号偏重，暂不生成交易计划。")
+    if candidate_tier in {"watch_wait", "sector_watch"}:
+        return PlanAvailability("watch_only", "买点待确认", tier_reason or "候选仍在观察，等待买点和盘中承接确认。")
+    return PlanAvailability("rule_pending", "规则待确认", "候选已入池，但尚未满足可执行交易计划的规则条件。")
+
+
+def _data_evidence_risks(db: Session, feature_dates: set[str]) -> dict[str, dict[str, object]]:
+    risks: dict[str, dict[str, object]] = {}
+    for feature_date in feature_dates:
+        try:
+            trade_date = date.fromisoformat(feature_date)
+        except ValueError:
+            continue
+        risks[feature_date] = assess_trade_data_evidence_risk(
+            inspect_tushare_evidence_health(db, trade_date),
+            late_market_turn_health(late_market_turn_snapshot(db, trade_date)),
+        )
+    return risks
+
+
 def _to_paper_trade_item(
     position: PaperPosition,
     latest_bar: DailyBar | None,
@@ -828,6 +893,7 @@ def _build_workspace_item(
     latest_quote: RealtimeQuote | None = None,
     intraday_guards: dict[str, IntradayPlanGuard] | None = None,
     market_stress: dict[str, Any] | None = None,
+    data_evidence_risks: dict[str, dict[str, object]] | None = None,
 ) -> WorkspaceItem:
     recent_bars = _load_recent_bars(db, symbol)
     latest_bar = recent_bars[-1] if recent_bars else None
@@ -844,6 +910,7 @@ def _build_workspace_item(
         source_parts.append("manual")
     manual_tags = (manual.tags_json or {}).get("tags", []) if manual else []
     candidate_tier = _tag_text(manual_tags, "tier:")
+    candidate_tier_reason = _candidate_tier_reason(manual_tags, candidate_tier)
 
     return WorkspaceItem(
         symbol=symbol,
@@ -857,7 +924,7 @@ def _build_workspace_item(
         candidate_score=_tag_number(manual_tags, "score:", float),
         candidate_tier=candidate_tier,
         candidate_tier_label=_candidate_tier_label(candidate_tier),
-        candidate_tier_reason=_candidate_tier_reason(manual_tags, candidate_tier),
+        candidate_tier_reason=candidate_tier_reason,
         startup_signal_score=_tag_number(manual_tags, "startup_signal_score:", float),
         startup_signal_label=_tag_text(manual_tags, "startup_signal_label:"),
         startup_signal_reasons=_tag_texts(manual_tags, "startup_signal_reason:"),
@@ -913,6 +980,13 @@ def _build_workspace_item(
         route_score=_float(route_score) if route_score is not None else None,
         route_label=str(route_label) if route_label is not None else None,
         route_reason=str(route_reason) if route_reason is not None else None,
+        plan_availability=_plan_availability(
+            plans=plans,
+            manual_tags=manual_tags,
+            candidate_tier=candidate_tier,
+            candidate_tier_reason=candidate_tier_reason,
+            data_evidence_risk=(data_evidence_risks or {}).get(feature_date or ""),
+        ),
         plans=[
             _to_workspace_plan(
                 db,
@@ -959,6 +1033,19 @@ def load_stock_workspace_items(
         for item in db.execute(select(Security).where(Security.symbol.in_(symbols))).scalars()
     }
     latest_quotes = _load_latest_quotes(db, symbols)
+    feature_dates = {
+        row.trade_date.isoformat()
+        for row in db.execute(
+            select(
+                StockFeatureDaily.symbol,
+                func.max(StockFeatureDaily.trade_date).label("trade_date"),
+            )
+            .where(StockFeatureDaily.symbol.in_(symbols))
+            .group_by(StockFeatureDaily.symbol)
+        )
+        if row.trade_date is not None
+    }
+    data_evidence_risks = _data_evidence_risks(db, feature_dates)
 
     rows: list[WorkspaceItem] = []
     for symbol in symbols:
@@ -972,6 +1059,7 @@ def load_stock_workspace_items(
                 latest_quote=latest_quotes.get(symbol),
                 intraday_guards=intraday_guards,
                 market_stress=market_stress,
+                data_evidence_risks=data_evidence_risks,
             )
         )
 

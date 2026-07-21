@@ -540,6 +540,12 @@ export interface PlanEvidence {
   note: string;
 }
 
+export interface PlanAvailability {
+  status: string;
+  label: string;
+  reason: string;
+}
+
 export interface PaperTradeSummary {
   rule_id: string;
   closed_count: number;
@@ -623,6 +629,7 @@ export interface WorkspaceStock {
   route_score: number | null;
   route_label: string | null;
   route_reason: string | null;
+  plan_availability: PlanAvailability;
   plans: WorkspacePlan[];
   paper_trade_summaries: PaperTradeSummary[];
   recent_paper_trades: PaperTrade[];
@@ -1694,6 +1701,11 @@ function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
     ma60_slope_20d: item.ma60_slope_20d ?? null,
     ma_alignment_score: item.ma_alignment_score ?? null,
     trend_quality_score: item.trend_quality_score ?? null,
+    plan_availability: item.plan_availability ?? {
+      status: "unknown",
+      label: "计划待确认",
+      reason: "计划状态暂未返回。",
+    },
     plans: (item.plans ?? []).map((plan) => ({ ...plan, evidence: plan.evidence ?? [] })),
     paper_trade_summaries: item.paper_trade_summaries ?? [],
     recent_paper_trades: item.recent_paper_trades ?? [],

@@ -2259,9 +2259,7 @@ export function App() {
           <small>
             {rowPlan
               ? `触发 ${price(rowPlan.entry_trigger_price)} / 仓位 ${(rowPlan.position_size * 100).toFixed(1)}%`
-              : isNextSessionCandidate(item)
-                ? "等待次日计划"
-                : "无交易计划"}
+              : item.plan_availability.label}
           </small>
           <small>
             {rowPlan
@@ -2993,7 +2991,7 @@ export function App() {
                   <span>当前判断</span>
                   <strong>{decisionTitle(selected)}</strong>
                 </div>
-                <p>{selectedTrade?.status === "open" ? "已买入，重点看止损、止盈和浮盈回撤。" : selectedPlan?.execution_note ?? "暂无触发条件。"}</p>
+                <p>{selectedTrade?.status === "open" ? "已买入，重点看止损、止盈和浮盈回撤。" : selectedPlan?.execution_note ?? selected.plan_availability.reason}</p>
                 <div className="decision-reasons">
                   {selectedDecisionReasons.map((reason) => (
                     <span key={reason}>{reason}</span>
@@ -3149,7 +3147,10 @@ export function App() {
                     </div>
                   ))
                 ) : (
-                  <div className="empty compact">暂无当前交易计划。</div>
+                  <div className="empty compact">
+                    <strong>{selected.plan_availability.label}</strong>
+                    <span>{selected.plan_availability.reason}</span>
+                  </div>
                 )}
               </section>
 

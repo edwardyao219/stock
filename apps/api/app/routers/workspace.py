@@ -84,6 +84,12 @@ class WorkspacePlanResponse(BaseModel):
     evidence: list[PlanEvidenceResponse]
 
 
+class PlanAvailabilityResponse(BaseModel):
+    status: str
+    label: str
+    reason: str
+
+
 class PaperTradeSummaryResponse(BaseModel):
     rule_id: str
     closed_count: int
@@ -550,6 +556,7 @@ class WorkspaceStockResponse(BaseModel):
     route_score: float | None
     route_label: str | None
     route_reason: str | None
+    plan_availability: PlanAvailabilityResponse
     plans: list[WorkspacePlanResponse]
     paper_trade_summaries: list[PaperTradeSummaryResponse]
     recent_paper_trades: list[PaperTradeResponse]
@@ -709,6 +716,11 @@ def _to_response(
         route_score=item.route_score,
         route_label=item.route_label,
         route_reason=item.route_reason,
+        plan_availability=PlanAvailabilityResponse(
+            status=item.plan_availability.status,
+            label=item.plan_availability.label,
+            reason=item.plan_availability.reason,
+        ),
         plans=[
             WorkspacePlanResponse(
                 id=plan.id,

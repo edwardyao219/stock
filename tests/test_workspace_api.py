@@ -249,6 +249,34 @@ def test_list_workspace_stocks_keeps_manual_symbol_without_security_profile() ->
     assert payload[0].latest_trade_date == "2026-06-21"
 
 
+def test_plan_availability_explains_why_candidate_has_no_trade_plan() -> None:
+    availability = workspace_repository._plan_availability(
+        plans=[],
+        manual_tags=["after_close_candidate"],
+        candidate_tier="watch_wait",
+        candidate_tier_reason="趋势仍可跟踪，但还需要买点、板块延续或盘中承接确认。",
+        data_evidence_risk={"status": "ok", "reasons": []},
+    )
+
+    assert availability.status == "watch_only"
+    assert availability.label == "买点待确认"
+    assert availability.reason == "趋势仍可跟踪，但还需要买点、板块延续或盘中承接确认。"
+
+
+def test_plan_availability_prioritizes_data_gate_over_candidate_tier() -> None:
+    availability = workspace_repository._plan_availability(
+        plans=[],
+        manual_tags=["after_close_candidate"],
+        candidate_tier="core_action",
+        candidate_tier_reason="板块和个股趋势同时在线。",
+        data_evidence_risk={"status": "blocked", "reasons": ["筹码分布：数据覆盖不完整"]},
+    )
+
+    assert availability.status == "data_blocked"
+    assert availability.label == "数据门禁拦截"
+    assert availability.reason == "筹码分布：数据覆盖不完整"
+
+
 def test_workspace_plan_defers_when_intraday_candidate_is_deferred(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
