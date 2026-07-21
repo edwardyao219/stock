@@ -277,6 +277,19 @@ def test_plan_availability_prioritizes_data_gate_over_candidate_tier() -> None:
     assert availability.reason == "筹码分布：数据覆盖不完整"
 
 
+def test_plan_availability_names_the_pending_candidate_rule() -> None:
+    availability = workspace_repository._plan_availability(
+        plans=[],
+        manual_tags=["after_close_candidate", "rule:R004"],
+        candidate_tier=None,
+        candidate_tier_reason=None,
+        data_evidence_risk={"status": "ok", "reasons": []},
+    )
+
+    assert availability.status == "rule_pending"
+    assert availability.reason == "策略 R004 已入选候选，但入场条件尚未全部满足。"
+
+
 def test_workspace_plan_defers_when_intraday_candidate_is_deferred(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

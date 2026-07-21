@@ -684,6 +684,11 @@ def _plan_availability(
         return PlanAvailability("risk_reject", "风险暂缓", tier_reason or "风险信号偏重，暂不生成交易计划。")
     if candidate_tier in {"watch_wait", "sector_watch"}:
         return PlanAvailability("watch_only", "买点待确认", tier_reason or "候选仍在观察，等待买点和盘中承接确认。")
+    rule_id = _tag_text(manual_tags, "rule:")
+    if rule_id:
+        return PlanAvailability(
+            "rule_pending", "规则待确认", f"策略 {rule_id} 已入选候选，但入场条件尚未全部满足。"
+        )
     return PlanAvailability("rule_pending", "规则待确认", "候选已入池，但尚未满足可执行交易计划的规则条件。")
 
 
