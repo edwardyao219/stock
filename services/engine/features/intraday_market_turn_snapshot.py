@@ -216,20 +216,21 @@ def build_intraday_market_turn_snapshot(
         price = _float(getattr(quote, "price", None))
         pre_close = _float(getattr(quote, "pre_close", None))
         if price is not None and pre_close is not None and pre_close > 0:
-            valid_quotes.append((quote, price / pre_close - 1))
+            valid_quotes.append((quote, price / pre_close - 1, price))
 
     coverage_ratio = len(valid_quotes) / active_security_count if active_security_count else 0.0
     breadth_ratio = (
-        sum(1 for _, change_pct in valid_quotes if change_pct > 0) / len(valid_quotes)
+        sum(1 for _, change_pct, _price in valid_quotes if change_pct > 0) / len(valid_quotes)
         if valid_quotes
         else 0.0
     )
     total_amount = sum(
-        _float(getattr(quote, "amount", None)) or 0.0 for quote, _change_pct in valid_quotes
+        _float(getattr(quote, "amount", None)) or 0.0
+        for quote, _change_pct, _price in valid_quotes
     )
     sector_changes: dict[str, list[float]] = defaultdict(list)
     sector_quotes: dict[str, list[tuple[str, float, float, float]]] = defaultdict(list)
-    for quote, change_pct in valid_quotes:
+    for quote, change_pct, price in valid_quotes:
         sector = sector_by_symbol.get(str(getattr(quote, "symbol", "")))
         if sector:
             sector_changes[sector].append(change_pct)

@@ -74,6 +74,32 @@ def test_intraday_snapshot_uses_full_market_breadth_and_sector_return_flow() -> 
     assert snapshot["core_action_allowed"] is False
 
 
+def test_intraday_snapshot_keeps_leader_price_when_later_quote_is_missing() -> None:
+    quotes = [
+        SimpleNamespace(
+            symbol=f"600{index:03d}",
+            price=10 + index / 10,
+            pre_close=10,
+            amount=110,
+        )
+        for index in range(1, 6)
+    ]
+    quotes.append(
+        SimpleNamespace(symbol="600999", price=None, pre_close=10, amount=None)
+    )
+
+    snapshot = build_intraday_market_turn_snapshot(
+        quotes=quotes,
+        active_security_count=6,
+        sector_by_symbol={quote.symbol: "半导体" for quote in quotes},
+        index_change_pct=0.002,
+        prior_snapshots=[],
+    )
+
+    assert snapshot["expanding_sectors"][0]["leader_symbol"] == "600005"
+    assert snapshot["expanding_sectors"][0]["leader_price"] == 10.5
+
+
 def test_intraday_snapshot_excludes_quotes_outside_active_universe() -> None:
     active_quotes = [
         SimpleNamespace(
