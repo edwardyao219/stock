@@ -68,6 +68,20 @@ _AFTER_CLOSE_RECOVERY_LOCK_TTL_SECONDS = 30 * 60
 _AFTER_CLOSE_RECOVERY_MAX_ATTEMPTS = 2
 
 
+def _index_snapshot_payload(index: object | None, captured_at: datetime) -> dict[str, object]:
+    quote_date = getattr(index, "quote_date", None)
+    return {
+        "code": str(getattr(index, "code", "sh000001")),
+        "name": str(getattr(index, "name", "上证指数")),
+        "quote_date": quote_date.isoformat() if quote_date is not None else None,
+        "price": getattr(index, "price", None),
+        "change_pct": getattr(index, "change_pct", None),
+        "amount": getattr(index, "amount", None),
+        "source": str(getattr(index, "source", "unavailable")),
+        "captured_at": captured_at.isoformat(),
+    }
+
+
 def _is_after_close_push_window(value: datetime) -> bool:
     return value.hour > 17 or (value.hour == 17 and value.minute >= 55)
 
@@ -381,14 +395,15 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
         )
         from apps.api.app.routers.market import _safe_live_market_indexes
 
-        index_change_pct = next(
+        market_index = next(
             (
-                item.change_pct
+                item
                 for item in _safe_live_market_indexes()
                 if item.code == "sh000001"
             ),
             None,
         )
+        index_change_pct = market_index.change_pct if market_index is not None else None
     except Exception as exc:
         return {
             "trade_date": trade_date.isoformat(),
@@ -432,6 +447,7 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
             "source_counts": dict(sorted(source_counts.items())),
             "retry_applied": any(source.endswith(".retry") for source in source_counts),
         }
+        snapshot["index_evidence"] = _index_snapshot_payload(market_index, current_time)
         candidate_result: dict[str, object] | None = None
         if snapshot.get("data_ready"):
             from services.engine.intraday.candidates import discover_intraday_candidates

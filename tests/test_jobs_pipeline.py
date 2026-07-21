@@ -12,6 +12,34 @@ from services.shared.database import Base
 from services.shared.models import ResearchPoolItem
 
 
+def test_index_snapshot_payload_records_live_source_and_timestamp() -> None:
+    captured_at = datetime(2026, 7, 21, 14, 50, 2)
+
+    payload = tasks._index_snapshot_payload(
+        SimpleNamespace(
+            code="sh000001",
+            name="上证指数",
+            quote_date=captured_at.date(),
+            price=3801.25,
+            change_pct=-0.0123,
+            amount=456789.0,
+            source="akshare.stock_zh_index_spot_sina",
+        ),
+        captured_at,
+    )
+
+    assert payload == {
+        "code": "sh000001",
+        "name": "上证指数",
+        "quote_date": "2026-07-21",
+        "price": 3801.25,
+        "change_pct": -0.0123,
+        "amount": 456789.0,
+        "source": "akshare.stock_zh_index_spot_sina",
+        "captured_at": "2026-07-21T14:50:02",
+    }
+
+
 def test_prepare_next_trade_session_runs_prepare_steps(monkeypatch) -> None:
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(pipeline, "_is_open_trade_date", lambda db, trade_date: True)
