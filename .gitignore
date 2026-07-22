@@ -19,5 +19,7 @@ logs/
 celerybeat-schedule.db*
 data/
 reports/
+.stock-dev.sqlite
+dump.rdb
 
 *.egg-info/
