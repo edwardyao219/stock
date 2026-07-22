@@ -29,6 +29,7 @@ from services.engine.paper.repository import (
     load_trade_plans_for_trade_date,
 )
 from services.engine.paper.review import upsert_paper_trade_review_for_position
+from services.engine.plans.repository import startup_plan_gate
 from services.engine.research_pool.repository import filter_latest_candidate_batch_items
 from services.notifications.dispatcher import dispatch_paper_alerts
 from services.shared.database import SessionLocal
@@ -1087,6 +1088,23 @@ def _execute_realtime_entry(
     pre_close = _decimal(quote.pre_close)
     if price is None:
         return False, None
+
+    startup_gate = startup_plan_gate(db, plan, as_of=current_time)
+    if not startup_gate.allowed:
+        if startup_gate.state == "invalidated":
+            plan.status = "cancelled"
+        return False, _plan_alert(
+            account_id=account.id,
+            plan=plan,
+            quote=quote,
+            alert_type="paper_entry_deferred",
+            severity="high" if startup_gate.state == "invalidated" else "low",
+            message=(
+                f"{plan.symbol} {startup_gate.reason}，"
+                f"{'计划已取消。' if startup_gate.state == 'invalidated' else '等待启动确认后再执行纸面买入。'}"
+            ),
+            price=price,
+        )
 
     if current_time.time() >= INTRADAY_ENTRY_CUTOFF:
         plan.status = "cancelled"

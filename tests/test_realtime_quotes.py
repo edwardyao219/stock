@@ -5,6 +5,7 @@ from threading import Lock
 from time import sleep
 
 import pandas as pd
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -818,6 +819,81 @@ def test_realtime_monitor_can_execute_entry_from_plan(monkeypatch) -> None:
     assert position.entry_price == Decimal("10.3000")
     assert trade.side == "buy"
     assert plan.status == "executed"
+
+
+@pytest.mark.parametrize(
+    ("startup_state", "expected_status", "expected_label"),
+    [
+        ("probing", "planned", "启动试探"),
+        ("invalidated", "cancelled", "启动失效"),
+    ],
+)
+def test_realtime_monitor_blocks_tracked_startup_before_confirmation(
+    monkeypatch,
+    startup_state: str,
+    expected_status: str,
+    expected_label: str,
+) -> None:
+    from services.engine.paper import realtime
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(realtime, "SessionLocal", session)
+
+    with session() as db:
+        db.add_all(
+            [
+                TradePlan(
+                    plan_date=date(2026, 6, 23),
+                    trade_date=date(2026, 6, 24),
+                    symbol="000001",
+                    rule_id="R001",
+                    strategy_type="short_term",
+                    sector_code=None,
+                    entry_condition_json=_strong_entry_condition(),
+                    entry_trigger_price=Decimal("10.2000"),
+                    max_gap_up_pct=Decimal("0.0600"),
+                    trailing_drawdown_pct=Decimal("0.0600"),
+                    initial_stop=Decimal("9.7000"),
+                    take_profit_1=Decimal("10.8000"),
+                    max_holding_days=5,
+                    position_size=Decimal("0.1000"),
+                    confidence_score=Decimal("80.0000"),
+                    status="planned",
+                ),
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="000001",
+                    tags_json={
+                        "tags": [
+                            "candidate_pool:startup_preheat",
+                            f"startup_state:{startup_state}",
+                        ]
+                    },
+                    status="active",
+                ),
+            ]
+        )
+        db.commit()
+
+    result = realtime.monitor_paper_positions_realtime(
+        trade_date="2026-06-24",
+        account_name="default",
+        quotes=[_entry_quote()],
+        quote_time=datetime(2026, 6, 24, 10, 5),
+        execute_entries=True,
+        execute_exits=False,
+    )
+
+    with session() as db:
+        plan = db.query(TradePlan).one()
+        position_count = db.query(PaperPosition).count()
+
+    assert result.executed_entries == 0
+    assert position_count == 0
+    assert plan.status == expected_status
+    assert any(expected_label in alert.message for alert in result.alerts)
 
 
 def test_entry_quality_rejects_failed_breakout_pullback() -> None:

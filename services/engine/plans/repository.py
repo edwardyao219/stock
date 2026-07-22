@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -20,9 +21,12 @@ from services.engine.plans.context import (
     load_tushare_moneyflow_map,
 )
 from services.engine.plans.generator import TradePlanCandidate
+from services.engine.intraday.startup_state import STARTUP_LABELS
+from services.engine.research_signal_ledger import latest_startup_states
 from services.engine.sector.repository import load_sector_profile_map
 from services.shared.models import (
     DailyBar,
+    ResearchPoolItem,
     SectorFeatureDaily,
     Security,
     StockFeatureDaily,
@@ -39,6 +43,73 @@ def _decimal(value: float | None) -> Decimal | None:
     if value is None:
         return None
     return Decimal(str(round(value, 6)))
+
+
+@dataclass(frozen=True)
+class StartupPlanGate:
+    tracked: bool
+    state: str | None
+    allowed: bool
+    reason: str | None
+
+
+def startup_plan_gate(
+    db: Session,
+    plan: TradePlan,
+    *,
+    as_of: datetime,
+) -> StartupPlanGate:
+    item = db.execute(
+        select(ResearchPoolItem)
+        .where(ResearchPoolItem.symbol == plan.symbol)
+        .where(ResearchPoolItem.status == "active")
+        .order_by(ResearchPoolItem.updated_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    tags = [str(tag) for tag in (item.tags_json or {}).get("tags", [])] if item else []
+    if "candidate_pool:startup_preheat" not in tags:
+        return StartupPlanGate(tracked=False, state=None, allowed=True, reason=None)
+
+    state = latest_startup_states(
+        db,
+        signal_date=plan.trade_date,
+        symbols={plan.symbol},
+        as_of=as_of,
+    ).get(plan.symbol)
+    if state is None:
+        state = next(
+            (
+                tag.removeprefix("startup_state:")
+                for tag in tags
+                if tag.startswith("startup_state:")
+                and tag.removeprefix("startup_state:") in STARTUP_LABELS
+            ),
+            "preheat",
+        )
+    allowed = state == "confirmed"
+    reason = None if allowed else f"启动状态为{STARTUP_LABELS[state]}"
+    return StartupPlanGate(tracked=True, state=state, allowed=allowed, reason=reason)
+
+
+def cancel_invalidated_startup_plans(
+    db: Session,
+    *,
+    trade_date: date | str,
+    symbols: set[str],
+    reason: str,
+) -> int:
+    if not symbols:
+        return 0
+    target_date = _date(trade_date) if isinstance(trade_date, str) else trade_date
+    result = db.execute(
+        update(TradePlan)
+        .where(TradePlan.trade_date == target_date)
+        .where(TradePlan.symbol.in_(symbols))
+        .where(TradePlan.status == "planned")
+        .values(status="cancelled")
+        .execution_options(synchronize_session=False)
+    )
+    return int(result.rowcount or 0)
 
 
 def latest_feature_date(db: Session, before: date | None = None) -> date | None:
