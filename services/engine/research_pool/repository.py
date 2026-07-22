@@ -38,6 +38,17 @@ def tag_value(tags: list[str], prefix: str) -> str | None:
     return None
 
 
+def retired_reason_summary(items: list[ResearchPoolItem]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        if item.status != "retired":
+            continue
+        reason = tag_value([str(tag) for tag in (item.tags_json or {}).get("tags", [])], "retire_reason:")
+        if reason:
+            counts[reason] = counts.get(reason, 0) + 1
+    return counts
+
+
 def candidate_batch_id(tags: list[str]) -> str | None:
     return tag_value(tags, "batch:")
 

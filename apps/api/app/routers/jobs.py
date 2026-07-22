@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.engine.backtest.replay import run_historical_replay
+from services.engine.research_pool.repository import retired_reason_summary
 from services.engine.features.health import (
     assess_trade_data_evidence_risk,
     inspect_tushare_evidence_health,
@@ -33,6 +34,7 @@ from services.shared.models import (
     MarketRegimeDaily,
     ReviewReport,
     RulePerformanceDaily,
+    ResearchPoolItem,
 )
 from services.shared.time import now_local
 
@@ -166,6 +168,7 @@ class AfterCloseStatusResponse(BaseModel):
     candidate_recovery_summary: str | None = None
     candidate_recovery_written: int = 0
     candidate_recovery_retired: int = 0
+    candidate_retire_reasons: dict[str, int] = Field(default_factory=dict)
     candidate_recovery_plan_rows: int = 0
     market_summary: str | None = None
     market_regime: str | None = None
@@ -313,8 +316,10 @@ def get_after_close_status(
         late_market_health,
     )
     if cached:
+        retire_reasons = retired_reason_summary(list(db.execute(select(ResearchPoolItem)).scalars())) if db is not None else {}
         cached = {
             **cached,
+            "candidate_retire_reasons": retire_reasons,
             "late_market_turn_health": late_market_health,
             "late_market_index_evidence": late_market_index_evidence,
             "tushare_evidence_health": tushare_evidence_health,
