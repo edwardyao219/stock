@@ -81,6 +81,37 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
     assert payload.tushare_evidence_health["daily_symbol_count"] == 100
 
 
+def test_after_close_status_refreshes_cached_tushare_health_from_database(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "status": "warning",
+            "message": "等待补采。",
+            "tushare_evidence_health": {"trade_date": trade_date, "datasets": []},
+        },
+    )
+    monkeypatch.setattr(
+        jobs,
+        "inspect_tushare_evidence_health",
+        lambda db, trade_date: {
+            "trade_date": trade_date.isoformat(),
+            "daily_symbol_count": 99,
+            "datasets": [{"name": "limit_list_d", "status": "ok"}],
+        },
+    )
+
+    with session() as db:
+        payload = jobs.get_after_close_status(db=db, trade_date="2026-07-09")
+
+    assert payload.tushare_evidence_health["daily_symbol_count"] == 99
+    assert payload.tushare_evidence_health["datasets"][0]["status"] == "ok"
+
+
 def test_after_close_status_explains_trade_plan_data_gate(monkeypatch) -> None:
     monkeypatch.setattr(
         jobs,

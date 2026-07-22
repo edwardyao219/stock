@@ -10,7 +10,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.engine.backtest.replay import run_historical_replay
-from services.engine.features.health import assess_trade_data_evidence_risk
+from services.engine.features.health import (
+    assess_trade_data_evidence_risk,
+    inspect_tushare_evidence_health,
+)
 from services.engine.features.late_market_turn_health import (
     late_market_turn_health,
     late_market_turn_snapshot,
@@ -293,9 +296,12 @@ def get_after_close_status(
         if late_snapshot is not None
         else {}
     )
-    tushare_evidence_health = (
-        dict(cached.get("tushare_evidence_health") or {}) if cached else {}
-    )
+    tushare_evidence_health = dict(cached.get("tushare_evidence_health") or {}) if cached else {}
+    if db is not None and report_date is not None:
+        try:
+            tushare_evidence_health = inspect_tushare_evidence_health(db, report_date)
+        except Exception:
+            pass
     data_evidence_risk = assess_trade_data_evidence_risk(
         tushare_evidence_health,
         late_market_health,
@@ -305,6 +311,7 @@ def get_after_close_status(
             **cached,
             "late_market_turn_health": late_market_health,
             "late_market_index_evidence": late_market_index_evidence,
+            "tushare_evidence_health": tushare_evidence_health,
             "data_evidence_risk": data_evidence_risk,
         }
         if db is not None:
