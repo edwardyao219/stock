@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from services.shared.models import DailyBar
+from services.engine.intraday.startup_state import STARTUP_LABELS
+from services.shared.models import DailyBar, ResearchSignalLedger, TradePlan
 
 STARTUP_TAGS = {
     "candidate_pool:startup_preheat": ("startup_preheat", "启动观察"),
@@ -31,11 +32,18 @@ class StartupHorizonProgress:
 @dataclass(frozen=True)
 class StartupTrackingRow:
     symbol: str
+    state: str
+    state_label: str
+    state_time: datetime | None
     signal_type: str
     signal_label: str
     signal_date: date | None
     signal_score: float | None
     signal_reasons: list[str]
+    confirmation_evidence: list[str]
+    invalidation_reasons: list[str]
+    next_conditions: list[str]
+    plan_available: bool
     realised_return: float | None
     horizons: dict[int, StartupHorizonProgress]
 
@@ -70,6 +78,12 @@ def _signal_reasons(tags: tuple[str, ...]) -> list[str]:
 
 def _startup_signal(tags: tuple[str, ...]) -> tuple[str, str] | None:
     for tag in tags:
+        if not tag.startswith("startup_state:"):
+            continue
+        state = tag.removeprefix("startup_state:")
+        if state in STARTUP_LABELS:
+            return f"startup_{state}", STARTUP_LABELS[state]
+    for tag in tags:
         if tag in STARTUP_TAGS:
             return STARTUP_TAGS[tag]
     return None
@@ -86,6 +100,37 @@ def build_startup_tracking_rows(
             continue
         signal_type, signal_label = signal
         signal_date = _signal_date(candidate.tags)
+        state = signal_type.removeprefix("startup_")
+        state_time = None
+        confirmation_evidence: list[str] = []
+        invalidation_reasons: list[str] = []
+        next_conditions: list[str] = []
+        event_stmt = (
+            select(ResearchSignalLedger)
+            .where(ResearchSignalLedger.source == "startup_state")
+            .where(ResearchSignalLedger.symbol == candidate.symbol)
+            .order_by(ResearchSignalLedger.signal_time.desc())
+            .limit(1)
+        )
+        if signal_date is not None:
+            event_stmt = event_stmt.where(ResearchSignalLedger.signal_date == signal_date)
+        event = db.execute(event_stmt).scalar_one_or_none()
+        if event is not None:
+            event_state = event.signal_type.removeprefix("startup_")
+            if event_state in STARTUP_LABELS:
+                state = event_state
+                signal_type = f"startup_{state}"
+                signal_label = STARTUP_LABELS[state]
+                signal_date = event.signal_date
+                state_time = event.signal_time
+                evidence = dict(event.evidence_json or {})
+                confirmation_evidence = list(
+                    evidence.get("confirmation_evidence") or []
+                )
+                invalidation_reasons = list(
+                    evidence.get("invalidation_reasons") or []
+                )
+                next_conditions = list(evidence.get("next_conditions") or [])
         bars = []
         if signal_date is not None:
             bars = list(
@@ -108,14 +153,32 @@ def build_startup_tracking_rows(
             )
             for horizon in HORIZONS
         }
+        plan_available = bool(
+            state == "confirmed"
+            and signal_date is not None
+            and db.execute(
+                select(TradePlan.id)
+                .where(TradePlan.symbol == candidate.symbol)
+                .where(TradePlan.trade_date == signal_date)
+                .where(TradePlan.status == "planned")
+                .limit(1)
+            ).scalar_one_or_none()
+        )
         rows.append(
             StartupTrackingRow(
                 symbol=candidate.symbol,
+                state=state,
+                state_label=signal_label,
+                state_time=state_time,
                 signal_type=signal_type,
                 signal_label=signal_label,
                 signal_date=signal_date,
                 signal_score=_signal_score(candidate.tags),
                 signal_reasons=_signal_reasons(candidate.tags),
+                confirmation_evidence=confirmation_evidence,
+                invalidation_reasons=invalidation_reasons,
+                next_conditions=next_conditions,
+                plan_available=plan_available,
                 realised_return=realised_return,
                 horizons=horizons,
             )
@@ -126,7 +189,12 @@ def build_startup_tracking_rows(
 def build_startup_historical_evidence(payload: dict) -> HistoricalEvidence:
     evidence: HistoricalEvidence = {}
     scopes = payload.get("scopes") if isinstance(payload.get("scopes"), dict) else {}
-    for signal_type in ("startup_preheat", "startup_confirmed"):
+    for signal_type in (
+        "startup_preheat",
+        "startup_probing",
+        "startup_confirmed",
+        "startup_invalidated",
+    ):
         scope = scopes.get(signal_type) if isinstance(scopes.get(signal_type), dict) else {}
         horizon_metrics: dict[int, dict[str, float | int | None]] = {}
         for horizon in HORIZONS:

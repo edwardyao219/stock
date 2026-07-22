@@ -8,15 +8,18 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from services.engine.intraday.startup_state import STARTUP_LABELS
 from services.shared.models import (
     DailyBar,
     IntradayMarketTurnSnapshot,
     MarketRegimeDaily,
+    ResearchSignalLedger,
     TradingCalendar,
 )
 
 HORIZONS = (1, 3, 5)
-STARTUP_STAGES = {"starting", "accelerating"}
+LEGACY_STARTUP_STAGES = {"starting", "accelerating"}
+CANONICAL_STARTUP_STATES = tuple(STARTUP_LABELS)
 
 
 def _plain_datetime(value: datetime) -> datetime:
@@ -41,7 +44,12 @@ def _first_startup_signals(snapshot_days: list[list[dict[str, Any]]]) -> list[di
             symbol = str(candidate.get("symbol") or "")
             price = float(candidate.get("price") or 0)
             key = (signal_date, symbol)
-            if startup_stage not in STARTUP_STAGES or not symbol or price <= 0 or key in seen:
+            if (
+                startup_stage not in LEGACY_STARTUP_STAGES
+                or not symbol
+                or price <= 0
+                or key in seen
+            ):
                 continue
             seen.add(key)
             signals.append(
@@ -57,8 +65,64 @@ def _first_startup_signals(snapshot_days: list[list[dict[str, Any]]]) -> list[di
                     "startup_label": str(candidate.get("startup_label") or startup_stage),
                     "startup_score": float(candidate.get("startup_score") or 0),
                     "signal_price": price,
+                    "confirmation_evidence": [],
+                    "invalidation_reasons": [],
+                    "next_conditions": [],
                 }
             )
+    return signals
+
+
+def _first_lifecycle_signals(
+    db: Session,
+    signal_dates: set[date],
+    *,
+    current_time: datetime,
+) -> list[dict[str, Any]]:
+    if not signal_dates:
+        return []
+    rows = db.execute(
+        select(ResearchSignalLedger)
+        .where(ResearchSignalLedger.source == "startup_state")
+        .where(ResearchSignalLedger.signal_date.in_(signal_dates))
+        .where(ResearchSignalLedger.signal_time <= _plain_datetime(current_time))
+        .order_by(
+            ResearchSignalLedger.signal_date,
+            ResearchSignalLedger.signal_time,
+            ResearchSignalLedger.id,
+        )
+    ).scalars()
+    signals: list[dict[str, Any]] = []
+    seen: set[tuple[date, str, str]] = set()
+    for row in rows:
+        state = row.signal_type.removeprefix("startup_")
+        key = (row.signal_date, row.symbol, state)
+        if state not in STARTUP_LABELS or key in seen:
+            continue
+        seen.add(key)
+        evidence = dict(row.evidence_json or {})
+        signals.append(
+            {
+                "signal_date": row.signal_date,
+                "signal_time": row.signal_time,
+                "signal_stage": "lifecycle_event",
+                "signal_stage_label": "生命周期事件",
+                "symbol": row.symbol,
+                "name": row.name,
+                "sector": row.sector,
+                "startup_stage": state,
+                "startup_label": str(evidence.get("startup_label") or STARTUP_LABELS[state]),
+                "startup_score": float(evidence.get("startup_score") or 0),
+                "signal_price": float(row.signal_price),
+                "confirmation_evidence": list(
+                    evidence.get("confirmation_evidence") or []
+                ),
+                "invalidation_reasons": list(
+                    evidence.get("invalidation_reasons") or []
+                ),
+                "next_conditions": list(evidence.get("next_conditions") or []),
+            }
+        )
     return signals
 
 
@@ -173,6 +237,48 @@ def _summary(outcomes: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     return summary
 
 
+def _state_summary(
+    outcomes: list[dict[str, Any]],
+) -> dict[str, dict[int, dict[str, Any]]]:
+    return {
+        state: _summary(
+            [item for item in outcomes if item.get("startup_stage") == state]
+        )
+        for state in CANONICAL_STARTUP_STATES
+    }
+
+
+def _conversion_rates(
+    signals: list[dict[str, Any]],
+) -> tuple[float | None, float | None]:
+    paths: dict[tuple[date, str], set[str]] = {}
+    for signal in signals:
+        state = str(signal.get("startup_stage") or "")
+        if state not in STARTUP_LABELS:
+            continue
+        paths.setdefault((signal["signal_date"], signal["symbol"]), set()).add(state)
+    probing_paths = [states for states in paths.values() if "probing" in states]
+    confirmed_paths = [states for states in paths.values() if "confirmed" in states]
+    probing_to_confirmed = (
+        round(
+            sum("confirmed" in states for states in probing_paths) / len(probing_paths),
+            4,
+        )
+        if probing_paths
+        else None
+    )
+    confirmed_to_invalidated = (
+        round(
+            sum("invalidated" in states for states in confirmed_paths)
+            / len(confirmed_paths),
+            4,
+        )
+        if confirmed_paths
+        else None
+    )
+    return probing_to_confirmed, confirmed_to_invalidated
+
+
 def _regime_transition_summary(outcomes: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
     summary: dict[int, list[dict[str, Any]]] = {}
     for horizon in HORIZONS:
@@ -206,15 +312,25 @@ def build_intraday_startup_outcomes(
     *,
     current_time: datetime,
 ) -> dict[str, Any]:
-    signals = _first_startup_signals(snapshot_days)
-    observed_day_count = len(
-        {
-            datetime.fromisoformat(str(snapshot["as_of"])).date()
-            for day in snapshot_days
-            for snapshot in day
-            if snapshot.get("as_of")
-        }
+    observed_dates = {
+        datetime.fromisoformat(str(snapshot["as_of"])).date()
+        for day in snapshot_days
+        for snapshot in day
+        if snapshot.get("as_of")
+    }
+    lifecycle_signals = _first_lifecycle_signals(
+        db,
+        observed_dates,
+        current_time=current_time,
     )
+    lifecycle_dates = {item["signal_date"] for item in lifecycle_signals}
+    signals = lifecycle_signals + [
+        item
+        for item in _first_startup_signals(snapshot_days)
+        if item["signal_date"] not in lifecycle_dates
+    ]
+    observed_day_count = len(observed_dates)
+    probing_to_confirmed_rate, confirmed_to_invalidated_rate = _conversion_rates(signals)
     if not signals:
         return {
             "observed_day_count": observed_day_count,
@@ -225,6 +341,9 @@ def build_intraday_startup_outcomes(
             "unavailable_count": 0,
             "context_counts": {},
             "summary": _summary([]),
+            "state_summary": _state_summary([]),
+            "probing_to_confirmed_rate": probing_to_confirmed_rate,
+            "confirmed_to_invalidated_rate": confirmed_to_invalidated_rate,
             "regime_transition_summary": _regime_transition_summary([]),
             "outcomes": [],
         }
@@ -344,6 +463,9 @@ def build_intraday_startup_outcomes(
         "unavailable_count": unavailable_count,
         "context_counts": context_counts,
         "summary": _summary(outcomes),
+        "state_summary": _state_summary(outcomes),
+        "probing_to_confirmed_rate": probing_to_confirmed_rate,
+        "confirmed_to_invalidated_rate": confirmed_to_invalidated_rate,
         "regime_transition_summary": _regime_transition_summary(outcomes),
         "outcomes": outcomes,
     }

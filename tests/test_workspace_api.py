@@ -31,6 +31,7 @@ from services.shared.models import (
     PaperPosition,
     RealtimeQuote,
     ResearchPoolItem,
+    ResearchSignalLedger,
     SectorFeatureDaily,
     Security,
     TradePlan,
@@ -76,6 +77,58 @@ def test_get_startup_tracking_excludes_manual_focus(monkeypatch) -> None:
     assert payload[0].signal_label == "启动观察"
     assert payload[0].historical[5]["sample_count"] == 0
     assert payload[0].current_tracking["realised_return"] is None
+
+
+def test_get_startup_tracking_exposes_canonical_lifecycle_evidence(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+    signal_time = datetime(2026, 7, 22, 14, 0)
+    monkeypatch.setattr(
+        "apps.api.app.routers.workspace.get_candidate_replay_effect",
+        lambda: {"scopes": {}},
+    )
+
+    with session() as db:
+        db.add_all(
+            [
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="600001",
+                    status="active",
+                    tags_json={
+                        "tags": [
+                            "candidate_pool:startup_preheat",
+                            "startup_state:probing",
+                            "2026-07-22",
+                        ]
+                    },
+                ),
+                ResearchSignalLedger(
+                    source="startup_state",
+                    signal_type="startup_invalidated",
+                    signal_time=signal_time,
+                    signal_date=signal_time.date(),
+                    symbol="600001",
+                    signal_price=10.2,
+                    executable=False,
+                    evidence_json={
+                        "confirmation_evidence": [],
+                        "invalidation_reasons": ["板块转弱"],
+                        "next_conditions": [],
+                    },
+                ),
+            ]
+        )
+        db.commit()
+        response = get_startup_tracking(db=db)[0]
+
+    assert response.state == "invalidated"
+    assert response.state_label == "启动失效"
+    assert response.state_time == "2026-07-22T14:00:00"
+    assert response.invalidation_reasons == ["板块转弱"]
+    assert response.next_conditions == []
+    assert response.plan_available is False
 
 
 def test_list_workspace_stocks_merges_auto_plans_and_manual_pool() -> None:

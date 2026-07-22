@@ -464,6 +464,9 @@ class IntradayStartupOutcomeResponse(BaseModel):
     previous_market_regime: str | None
     regime_transition: str | None
     horizons: dict[int, IntradayStartupHorizonResponse]
+    confirmation_evidence: list[str] = Field(default_factory=list)
+    invalidation_reasons: list[str] = Field(default_factory=list)
+    next_conditions: list[str] = Field(default_factory=list)
 
 
 class IntradayStartupOutcomeSummaryResponse(BaseModel):
@@ -493,6 +496,12 @@ class IntradayStartupOutcomeReportResponse(BaseModel):
     summary: dict[int, IntradayStartupOutcomeSummaryResponse]
     regime_transition_summary: dict[int, list[IntradayRegimeTransitionSummaryResponse]]
     outcomes: list[IntradayStartupOutcomeResponse]
+    state_summary: dict[
+        str,
+        dict[int, IntradayStartupOutcomeSummaryResponse],
+    ] = Field(default_factory=dict)
+    probing_to_confirmed_rate: float | None = None
+    confirmed_to_invalidated_rate: float | None = None
 
 
 class IntradayHistoryHealthResponse(BaseModel):
@@ -567,11 +576,18 @@ class WorkspaceStockResponse(BaseModel):
 
 class StartupTrackingResponse(BaseModel):
     symbol: str
+    state: str
+    state_label: str
+    state_time: str | None
     signal_type: str
     signal_label: str
     signal_date: str | None
     signal_score: float | None
     signal_reasons: list[str]
+    confirmation_evidence: list[str]
+    invalidation_reasons: list[str]
+    next_conditions: list[str]
+    plan_available: bool
     historical: dict[int, dict[str, float | int | None]]
     current_tracking: dict[str, object]
 
@@ -1314,11 +1330,18 @@ def get_startup_tracking(
     return [
         StartupTrackingResponse(
             symbol=row.symbol,
+            state=row.state,
+            state_label=row.state_label,
+            state_time=row.state_time.isoformat() if row.state_time else None,
             signal_type=row.signal_type,
             signal_label=row.signal_label,
             signal_date=row.signal_date.isoformat() if row.signal_date else None,
             signal_score=row.signal_score,
             signal_reasons=row.signal_reasons,
+            confirmation_evidence=row.confirmation_evidence,
+            invalidation_reasons=row.invalidation_reasons,
+            next_conditions=row.next_conditions,
+            plan_available=row.plan_available,
             historical=historical[row.signal_type],
             current_tracking={
                 "realised_return": row.realised_return,

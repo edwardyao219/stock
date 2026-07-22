@@ -10,6 +10,7 @@ from services.shared.models import (
     DailyBar,
     IntradayMarketTurnSnapshot,
     MarketRegimeDaily,
+    ResearchSignalLedger,
     TradingCalendar,
 )
 
@@ -317,3 +318,67 @@ def test_intraday_startup_outcomes_group_completed_returns_by_regime_transition(
             "is_sufficient_samples": True,
         }
     ]
+
+
+def test_intraday_startup_outcomes_use_lifecycle_events_and_report_conversions() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 22)
+    open_dates = [signal_date + timedelta(days=offset) for offset in range(6)]
+
+    def event(symbol: str, state: str, signal_time: datetime, price: float):
+        return ResearchSignalLedger(
+            source="startup_state",
+            signal_type=f"startup_{state}",
+            signal_time=signal_time,
+            signal_date=signal_date,
+            symbol=symbol,
+            signal_price=price,
+            executable=False,
+            evidence_json={"startup_label": f"启动{state}"},
+        )
+
+    with Session(engine) as db:
+        db.add_all([TradingCalendar(trade_date=item, is_open=True) for item in open_dates])
+        db.add_all(
+            [
+                _bar(symbol, trade_date, str(base + index))
+                for symbol, base in (("600001", 10), ("600002", 20))
+                for index, trade_date in enumerate(open_dates)
+            ]
+        )
+        db.add_all(
+            [
+                event("600001", "probing", datetime(2026, 7, 22, 9, 45), 10.0),
+                event("600001", "confirmed", datetime(2026, 7, 22, 10, 30), 10.5),
+                event("600001", "invalidated", datetime(2026, 7, 22, 14, 0), 10.2),
+                event("600002", "probing", datetime(2026, 7, 22, 9, 45), 20.0),
+            ]
+        )
+        db.commit()
+
+        report = intraday.build_intraday_startup_outcomes(
+            db,
+            [
+                [
+                    _snapshot(
+                        as_of=datetime(2026, 7, 22, 9, 45),
+                        stage="early_divergence",
+                        startup_stage="starting",
+                        startup_label="刚启动",
+                        price=9.8,
+                    )
+                ]
+            ],
+            current_time=datetime(2026, 7, 28, 16, 0),
+        )
+
+    assert report["signal_count"] == 4
+    assert report["state_summary"]["confirmed"][1]["sample_count"] == 1
+    assert report["state_summary"]["probing"][1]["sample_count"] == 2
+    assert report["probing_to_confirmed_rate"] == 0.5
+    assert report["confirmed_to_invalidated_rate"] == 1.0
+    confirmed = next(
+        item for item in report["outcomes"] if item["startup_stage"] == "confirmed"
+    )
+    assert confirmed["signal_price"] == 10.5

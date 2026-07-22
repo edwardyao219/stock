@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import create_engine
@@ -10,7 +10,7 @@ from services.engine.tracking.startup import (
     build_startup_tracking_rows,
 )
 from services.shared.database import Base
-from services.shared.models import DailyBar
+from services.shared.models import DailyBar, ResearchSignalLedger, TradePlan
 
 
 def _bar(symbol: str, trade_date: date, close: str) -> DailyBar:
@@ -110,3 +110,89 @@ def test_startup_historical_evidence_reads_startup_scopes() -> None:
     assert evidence["startup_preheat"][5]["win_rate"] == 0.5
     assert evidence["startup_preheat"][5]["raw_return"] == 0.03
     assert evidence["startup_confirmed"][5]["guarded_return"] == 0.06
+
+
+def test_startup_tracking_prefers_latest_lifecycle_event_evidence() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_time = datetime(2026, 7, 22, 14, 0)
+
+    with Session(engine) as db:
+        db.add(
+            ResearchSignalLedger(
+                source="startup_state",
+                signal_type="startup_invalidated",
+                signal_time=signal_time,
+                signal_date=signal_time.date(),
+                symbol="600001",
+                signal_price=10.2,
+                executable=False,
+                evidence_json={
+                    "confirmation_evidence": [],
+                    "invalidation_reasons": ["板块转弱"],
+                    "next_conditions": [],
+                },
+            )
+        )
+        db.commit()
+
+        row = build_startup_tracking_rows(
+            db,
+            [
+                StartupCandidate(
+                    symbol="600001",
+                    tags=(
+                        "candidate_pool:startup_preheat",
+                        "startup_state:probing",
+                        "2026-07-22",
+                    ),
+                )
+            ],
+        )[0]
+
+    assert row.state == "invalidated"
+    assert row.signal_type == "startup_invalidated"
+    assert row.signal_label == "启动失效"
+    assert row.state_time == signal_time
+    assert row.invalidation_reasons == ["板块转弱"]
+    assert row.next_conditions == []
+    assert row.plan_available is False
+
+
+def test_startup_tracking_reports_confirmed_planned_trade_as_available() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 7, 22)
+
+    with Session(engine) as db:
+        db.add(
+            TradePlan(
+                plan_date=signal_date - timedelta(days=1),
+                trade_date=signal_date,
+                symbol="600001",
+                rule_id="R002",
+                strategy_type="swing",
+                sector_code="半导体",
+                entry_condition_json={},
+                position_size=Decimal("0.10"),
+                status="planned",
+            )
+        )
+        db.commit()
+
+        row = build_startup_tracking_rows(
+            db,
+            [
+                StartupCandidate(
+                    symbol="600001",
+                    tags=(
+                        "candidate_pool:startup_preheat",
+                        "startup_state:confirmed",
+                        "2026-07-22",
+                    ),
+                )
+            ],
+        )[0]
+
+    assert row.state == "confirmed"
+    assert row.plan_available is True
