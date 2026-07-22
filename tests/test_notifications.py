@@ -4,9 +4,11 @@ from services.notifications.dispatcher import (
     dispatch_candidate_screening,
     dispatch_monthly_trade_summary,
     dispatch_paper_alerts,
+    dispatch_startup_state_events,
     filter_hot_sector_candidates,
     format_candidate_screening_text,
     format_paper_alert_text,
+    format_startup_state_event_text,
     select_action_candidates,
     select_long_action_candidates,
 )
@@ -26,6 +28,47 @@ def _alert() -> dict:
         "strategy_type": "swing",
         "reasons": ["板块20日主线扩散较好"],
     }
+
+
+def _startup_event(state: str) -> dict:
+    return {
+        "source": "startup_state",
+        "signal_type": f"startup_{state}",
+        "signal_time": "2026-07-22T10:30:00",
+        "symbol": "600001" if state != "invalidated" else "600002",
+        "name": "确认样本" if state != "invalidated" else "失效样本",
+        "sector": "半导体",
+        "signal_price": 10.5,
+        "evidence": {
+            "confirmation_evidence": ["板块持续扩散", "个股量价承接"],
+            "invalidation_reasons": ["板块转弱"],
+        },
+    }
+
+
+def test_format_startup_state_event_text_includes_only_actionable_transitions() -> None:
+    text = format_startup_state_event_text(
+        [_startup_event(state) for state in ("preheat", "probing", "confirmed", "invalidated")]
+    )
+
+    assert "启动确认" in text
+    assert "启动失效" in text
+    assert "启动预热" not in text
+    assert "启动试探" not in text
+    assert "板块持续扩散" in text
+    assert "板块转弱" in text
+    assert "已有交易计划" in text
+
+
+def test_dispatch_startup_state_events_skips_non_actionable_transitions(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.notifications.dispatcher._send_text",
+        lambda content: (_ for _ in ()).throw(AssertionError(content)),
+    )
+
+    assert dispatch_startup_state_events(
+        [_startup_event("preheat"), _startup_event("probing")]
+    ) == []
 
 
 def test_format_paper_alert_text_contains_alert_context() -> None:

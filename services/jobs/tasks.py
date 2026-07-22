@@ -22,6 +22,7 @@ from services.engine.features.late_market_turn_health import (
     late_market_turn_snapshot,
 )
 from services.engine.intraday.candidates import early_sector_scan_symbols
+from services.engine.plans.repository import cancel_invalidated_startup_plans
 from services.engine.research_signal_ledger import (
     STARTUP_EVENT_SOURCE,
     build_intraday_market_turn_signals,
@@ -55,7 +56,11 @@ from services.jobs.status import (
     read_after_close_status,
     write_after_close_status,
 )
-from services.notifications.dispatcher import dispatch_monthly_trade_summary, dispatch_text
+from services.notifications.dispatcher import (
+    dispatch_monthly_trade_summary,
+    dispatch_startup_state_events,
+    dispatch_text,
+)
 from services.shared.database import SessionLocal
 from services.shared.models import (
     IntradayMarketTurnSnapshot,
@@ -492,7 +497,29 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
             signal_time=current_time,
             market_regime=market_regime,
         )
-        record_startup_state_signals(db, signals)
+        created_startup_signals = record_startup_state_signals(db, signals)
+        invalidated_signals = [
+            item
+            for item in created_startup_signals
+            if item.get("signal_type") == "startup_invalidated"
+        ]
+        invalidated_symbols = {
+            str(item["symbol"])
+            for item in invalidated_signals
+            if str(item.get("symbol") or "").strip()
+        }
+        invalidation_reasons = [
+            str(reason)
+            for item in invalidated_signals
+            for reason in (item.get("evidence") or {}).get("invalidation_reasons", [])
+            if str(reason).strip()
+        ]
+        cancel_invalidated_startup_plans(
+            db,
+            trade_date=trade_date,
+            symbols=invalidated_symbols,
+            reason="；".join(invalidation_reasons) or "启动状态失效",
+        )
         record_research_signals(
             db,
             [item for item in signals if item.get("source") != STARTUP_EVENT_SOURCE],
@@ -511,11 +538,13 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
         )
         db.commit()
 
+    notification_results = dispatch_startup_state_events(created_startup_signals)
     return {
         "trade_date": trade_date.isoformat(),
         "status": "ok" if snapshot["data_ready"] else "warning",
         "message": f"盘中市场修复：{snapshot['label']}。{snapshot['summary']}",
         "snapshot": snapshot,
+        "notifications": [item.to_dict() for item in notification_results],
     }
 
 

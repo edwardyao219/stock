@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -9,7 +10,7 @@ from services.collector.contracts import CollectionResult
 from services.jobs import pipeline, tasks
 from services.jobs.celery_app import celery_app
 from services.shared.database import Base
-from services.shared.models import ResearchPoolItem
+from services.shared.models import ResearchPoolItem, ResearchSignalLedger, TradePlan
 
 
 def test_index_snapshot_payload_records_live_source_and_timestamp() -> None:
@@ -1773,6 +1774,105 @@ def test_intraday_market_turn_snapshot_passes_confirmed_sectors_to_candidates(
 
     assert result["status"] == "ok"
     assert captured["sustained_startup_sectors"] == {"半导体"}
+
+
+def test_startup_notification_dispatches_new_actionable_events_after_commit(
+    monkeypatch,
+) -> None:
+    from apps.api.app.routers import market
+    from services.engine.intraday import candidates as intraday_candidates
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    times = iter(
+        [
+            datetime(2026, 7, 22, 10, 30),
+            datetime(2026, 7, 22, 10, 31),
+            datetime(2026, 7, 22, 10, 32),
+        ]
+    )
+    states = iter(["confirmed", "invalidated", "invalidated"])
+    dispatched: list[str] = []
+
+    with session_factory() as db:
+        db.add(
+            TradePlan(
+                plan_date=datetime(2026, 7, 21).date(),
+                trade_date=datetime(2026, 7, 22).date(),
+                symbol="600001",
+                rule_id="R002",
+                strategy_type="swing",
+                sector_code="半导体",
+                entry_condition_json={},
+                position_size=Decimal("0.10"),
+                status="planned",
+            )
+        )
+        db.commit()
+
+    monkeypatch.setattr(tasks, "SessionLocal", session_factory)
+    monkeypatch.setattr(tasks, "now_local", lambda: next(times))
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "sync_realtime_quotes", lambda **kwargs: [])
+    monkeypatch.setattr(market, "_safe_live_market_indexes", lambda: [])
+    monkeypatch.setattr(
+        tasks,
+        "build_intraday_market_turn_snapshot",
+        lambda **kwargs: {
+            "key": "normal_market",
+            "label": "常态市场",
+            "summary": "板块扩散可用",
+            "data_ready": True,
+            "valid_quote_count": 0,
+            "coverage_ratio": 1.0,
+            "breadth_ratio": 0.6,
+            "total_amount": 100.0,
+            "index_change_pct": 0.002,
+            "sector_expansion_count": 1,
+        },
+    )
+
+    def fake_discover(db, **kwargs):
+        state = next(states)
+        return {
+            "candidates": [
+                {
+                    "symbol": "600001",
+                    "name": "测试股份",
+                    "sector": "半导体",
+                    "price": 10.5,
+                    "startup_stage": state,
+                    "startup_label": "启动确认" if state == "confirmed" else "启动失效",
+                    "startup_tracked": True,
+                    "startup_confirmation_evidence": ["板块持续扩散"],
+                    "startup_invalidation_reasons": ["板块转弱"],
+                }
+            ]
+        }
+
+    def fake_dispatch(events):
+        with session_factory() as db:
+            stored_types = {
+                row.signal_type for row in db.query(ResearchSignalLedger).all()
+            }
+            assert {str(event["signal_type"]) for event in events} <= stored_types
+            if any(event["signal_type"] == "startup_invalidated" for event in events):
+                assert db.query(TradePlan).one().status == "cancelled"
+        dispatched.extend(str(event["signal_type"]) for event in events)
+        return []
+
+    monkeypatch.setattr(intraday_candidates, "discover_intraday_candidates", fake_discover)
+    monkeypatch.setattr(tasks, "dispatch_startup_state_events", fake_dispatch, raising=False)
+
+    tasks.capture_intraday_market_turn_snapshot_task()
+    tasks.capture_intraday_market_turn_snapshot_task()
+    tasks.capture_intraday_market_turn_snapshot_task()
+
+    with session_factory() as db:
+        assert db.query(ResearchSignalLedger).count() == 2
+        assert db.query(TradePlan).one().status == "cancelled"
+    assert dispatched == ["startup_confirmed", "startup_invalidated"]
 
 
 def test_celery_captures_korea_semiconductor_signal_before_a_share_open() -> None:

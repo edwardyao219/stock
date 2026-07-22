@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from services.engine.intraday.startup_state import STARTUP_LABELS
 from services.notifications.dingtalk import DingTalkNotifier
 from services.shared.config import get_settings
 from services.shared.symbols import is_star_market_symbol
@@ -1493,6 +1494,47 @@ def format_paper_alert_text(
     return "\n".join(lines)
 
 
+def _actionable_startup_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        event
+        for event in events
+        if event.get("source") == "startup_state"
+        and event.get("signal_type") in {"startup_confirmed", "startup_invalidated"}
+    ]
+
+
+def format_startup_state_event_text(events: list[dict[str, Any]]) -> str:
+    lines = ["启动状态变更"]
+    for event in _actionable_startup_events(events):
+        state = str(event["signal_type"]).removeprefix("startup_")
+        header = " ".join(
+            part
+            for part in (
+                str(event.get("symbol") or "-"),
+                str(event.get("name") or ""),
+                str(event.get("sector") or ""),
+                STARTUP_LABELS[state],
+            )
+            if part
+        )
+        lines.append(f"{header} | 价格={event.get('signal_price')}")
+        evidence = event.get("evidence") if isinstance(event.get("evidence"), dict) else {}
+        reasons = (
+            evidence.get("confirmation_evidence")
+            if state == "confirmed"
+            else evidence.get("invalidation_reasons")
+        )
+        reason_text = _compact_reason_text(reasons)
+        if reason_text:
+            lines.append(f"依据：{reason_text}")
+        lines.append(
+            "已有交易计划：确认后仍需满足原入场条件，禁止直接追价。"
+            if state == "confirmed"
+            else "已有交易计划：未执行计划将取消，已持仓仍按原风控处理。"
+        )
+    return "\n".join(lines)
+
+
 def format_candidate_screening_text(
     discovery: dict[str, Any],
     *,
@@ -1766,6 +1808,15 @@ def dispatch_paper_alerts(alerts: list[dict[str, Any]]) -> list[NotificationResu
     if not clean_alerts:
         return []
     return _send_text(format_paper_alert_text(clean_alerts))
+
+
+def dispatch_startup_state_events(
+    events: list[dict[str, Any]],
+) -> list[NotificationResult]:
+    actionable = _actionable_startup_events(events)
+    if not actionable:
+        return []
+    return _send_text(format_startup_state_event_text(actionable))
 
 
 def dispatch_candidate_screening(discovery: dict[str, Any]) -> list[NotificationResult]:
