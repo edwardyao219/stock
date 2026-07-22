@@ -519,6 +519,7 @@ def test_run_pipeline_cli_uses_resolved_next_trade_date(monkeypatch, capsys) -> 
     )
     monkeypatch.setattr(run_pipeline_cli, "run_daily_research_pipeline", fake_daily)
     monkeypatch.setattr(run_pipeline_cli, "argparse", __import__("argparse"))
+    monkeypatch.setattr(run_pipeline_cli, "require_primary_database", lambda reason: None)
 
     class _Args:
         stage = "daily"

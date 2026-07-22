@@ -732,10 +732,45 @@ def test_after_close_recovery_skips_completed_status(monkeypatch) -> None:
 
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 14, 18, 20))
     monkeypatch.setattr(tasks, "read_after_close_status", lambda trade_date: {"status": "ok"})
+    monkeypatch.setattr(
+        tasks,
+        "_recover_missing_market_regime_step",
+        lambda trade_date: pipeline.PipelineStepResult(
+            name="sync_market_regime",
+            status="skipped",
+            detail="市场阶段已存在，无需恢复。",
+            summary="市场阶段已存在",
+        ),
+    )
 
     result = tasks.run_after_close_safe_recovery_task()
 
     assert result["status"] == "skipped"
+
+
+def test_candidate_tier_plan_availability_downgrades_non_core_candidates() -> None:
+    candidate = {
+        "symbol": "000001",
+        "selection_mode": "formal_strategy",
+        "plan_availability": {
+            "status": "planned",
+            "label": "可生成计划",
+            "reason": "正式策略命中且市场允许。",
+            "gaps": [],
+        },
+    }
+    tiers = {
+        "core_action": [],
+        "watch_wait": [{**candidate, "tier_reason": "市场弹性不足，等待盘中承接确认。"}],
+        "risk_reject": [],
+    }
+
+    pipeline._apply_candidate_tier_plan_availability([candidate], tiers)
+
+    availability = candidate["plan_availability"]
+    assert availability["status"] == "market_guard"
+    assert availability["label"] == "市场风控观察"
+    assert tiers["watch_wait"][0]["plan_availability"] == availability
 
 
 def test_after_close_recovery_skips_active_normal_task(monkeypatch) -> None:

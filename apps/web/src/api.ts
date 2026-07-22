@@ -544,6 +544,7 @@ export interface PlanAvailability {
   status: string;
   label: string;
   reason: string;
+  gaps: string[];
 }
 
 export interface PaperTradeSummary {
@@ -1705,6 +1706,7 @@ function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
       status: "unknown",
       label: "计划待确认",
       reason: "计划状态暂未返回。",
+      gaps: [],
     },
     plans: (item.plans ?? []).map((plan) => ({ ...plan, evidence: plan.evidence ?? [] })),
     paper_trade_summaries: item.paper_trade_summaries ?? [],

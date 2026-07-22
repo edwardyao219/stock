@@ -290,6 +290,26 @@ def test_plan_availability_names_the_pending_candidate_rule() -> None:
     assert availability.reason == "策略 R004 已入选候选，但入场条件尚未全部满足。"
 
 
+def test_plan_availability_prefers_persisted_candidate_status() -> None:
+    availability = workspace_repository._plan_availability(
+        plans=[],
+        manual_tags=[
+            "after_close_candidate",
+            "plan_status:watch_only",
+            "plan_label:买点待确认",
+            "plan_reason:等待盘中承接确认。",
+            "plan_gap:板块强度 60.0，需不低于 75",
+        ],
+        candidate_tier=None,
+        candidate_tier_reason=None,
+        data_evidence_risk={"status": "ok", "reasons": []},
+    )
+
+    assert availability.status == "watch_only"
+    assert availability.label == "买点待确认"
+    assert availability.reason == "等待盘中承接确认。当前缺口：板块强度 60.0，需不低于 75。"
+
+
 def test_rule_entry_gaps_lists_failed_required_conditions() -> None:
     gaps = workspace_repository._rule_entry_gaps(
         "R001",

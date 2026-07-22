@@ -88,6 +88,7 @@ class PlanAvailabilityResponse(BaseModel):
     status: str
     label: str
     reason: str
+    gaps: list[str] = Field(default_factory=list)
 
 
 class PaperTradeSummaryResponse(BaseModel):
@@ -720,6 +721,7 @@ def _to_response(
             status=item.plan_availability.status,
             label=item.plan_availability.label,
             reason=item.plan_availability.reason,
+            gaps=item.plan_availability.gaps,
         ),
         plans=[
             WorkspacePlanResponse(

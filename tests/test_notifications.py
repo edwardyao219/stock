@@ -132,6 +132,11 @@ def test_format_candidate_screening_text_contains_reasons() -> None:
                     "selected_rule_name": "趋势突破",
                     "reasons": ["入选层级：正式策略命中", "板块20日主线扩散较好", "趋势强度领先"],
                     "risk_flags": ["过热分数偏高72.0"],
+                    "plan_availability": {
+                        "status": "rule_pending",
+                        "label": "规则待确认",
+                        "reason": "板块强度 60.0，需不低于 75",
+                    },
                 }
             ],
         }
@@ -1366,6 +1371,7 @@ def test_format_candidate_screening_text_pushes_layered_learning_sections() -> N
             "status": "rule_pending",
             "label": "规则待确认",
             "reason": "板块强度 60.0，需不低于 75",
+            "gaps": ["板块强度 60.0，需不低于 75", "成交额分位 45.0，需不低于 60"],
         },
     }
     startup = {
@@ -1417,6 +1423,7 @@ def test_format_candidate_screening_text_pushes_layered_learning_sections() -> N
     assert "002558 启动前夜" in text
     assert "600900 风险样本" in text
     assert "不代表买点" in text
+    assert "条件缺口：板块强度 60.0，需不低于 75；成交额分位 45.0，需不低于 60" in text
     assert "只在 Web" not in text
 
 

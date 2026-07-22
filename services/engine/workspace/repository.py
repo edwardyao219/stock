@@ -80,6 +80,7 @@ class PlanAvailability:
     status: str
     label: str
     reason: str
+    gaps: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -669,6 +670,20 @@ def _plan_availability(
 ) -> PlanAvailability:
     if plans:
         return PlanAvailability("planned", "计划已生成", "已生成交易计划，仍需按触发价和盘中承接执行。")
+    persisted_status = _tag_text(manual_tags, "plan_status:")
+    persisted_label = _tag_text(manual_tags, "plan_label:")
+    persisted_reason = _tag_text(manual_tags, "plan_reason:")
+    persisted_gaps = _tag_texts(manual_tags, "plan_gap:")[:3]
+    if persisted_status and persisted_label and persisted_reason:
+        reason = persisted_reason
+        if persisted_gaps:
+            reason = f"{reason.rstrip('。')}。当前缺口：{'；'.join(persisted_gaps)}。"
+        return PlanAvailability(
+            persisted_status,
+            persisted_label,
+            reason,
+            persisted_gaps,
+        )
     risk = data_evidence_risk or {}
     reasons = [str(item) for item in risk.get("reasons") or []]
     if risk.get("status") == "blocked":
@@ -692,7 +707,10 @@ def _plan_availability(
         gaps = _rule_entry_gaps(rule_id, feature_snapshot) if feature_snapshot is not None else []
         gap_text = f"当前缺口：{'；'.join(gaps)}。" if gaps else ""
         return PlanAvailability(
-            "rule_pending", "规则待确认", f"策略 {rule_id} 已入选候选，但入场条件尚未全部满足。{gap_text}"
+            "rule_pending",
+            "规则待确认",
+            f"策略 {rule_id} 已入选候选，但入场条件尚未全部满足。{gap_text}",
+            gaps,
         )
     return PlanAvailability("rule_pending", "规则待确认", "候选已入池，但尚未满足可执行交易计划的规则条件。")
 

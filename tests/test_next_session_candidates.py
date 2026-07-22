@@ -82,9 +82,14 @@ def _dated_feature(symbol: str, trade_date: date, **overrides) -> StockFeatureDa
     return item
 
 
-def test_discover_next_session_candidates_writes_strong_candidates_to_pool() -> None:
+def test_discover_next_session_candidates_writes_strong_candidates_to_pool(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
+    monkeypatch.setattr(
+        candidate_module,
+        "_candidate_data_evidence_risk",
+        lambda db, feature_date: {"status": "ok", "reasons": []},
+    )
 
     with Session(engine) as db:
         db.add_all(
@@ -140,9 +145,17 @@ def test_discover_next_session_candidates_writes_strong_candidates_to_pool() -> 
     assert result["candidates"][0]["distance_to_ma20"] == 0.02
     assert result["candidates"][0]["route_score"] is not None
     assert result["candidates"][0]["route_label"] is not None
+    assert result["candidates"][0]["plan_availability"] == {
+        "status": "planned",
+        "label": "可生成计划",
+        "reason": "正式策略命中且市场允许，等待计划生成与次日触发价确认。",
+        "gaps": [],
+    }
     assert result["written"] == 1
     assert items[0]["symbol"] == "000001"
     assert "after_close_candidate" in items[0]["tags"]
+    assert "plan_status:planned" in items[0]["tags"]
+    assert "plan_label:可生成计划" in items[0]["tags"]
     assert "rule:R002" in items[0]["tags"]
     assert "mode:formal_strategy" in items[0]["tags"]
     assert "style_horizon:10d" in items[0]["tags"]

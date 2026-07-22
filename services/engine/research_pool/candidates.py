@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from services.engine.features.health import (
+    assess_trade_data_evidence_risk,
+    inspect_tushare_evidence_health,
+)
+from services.engine.features.late_market_turn_health import (
+    late_market_turn_health,
+    late_market_turn_snapshot,
+)
 from services.engine.features.market_regime import MarketRegimeSnapshot, classify_market_regime
 from services.engine.features.market_regime_repository import store_market_regime_daily
 from services.engine.features.market_turn import classify_verified_market_turn_state
@@ -16,7 +24,8 @@ from services.engine.news.external_mapping import (
 )
 from services.engine.plans.repository import latest_feature_date, load_feature_contexts
 from services.engine.research_pool.repository import add_symbols_to_pool, list_pool_items
-from services.engine.rules.evaluator import evaluate_group
+from services.engine.rules.evaluator import evaluate_condition, evaluate_group
+from services.engine.rules.models import Condition, ConditionGroup
 from services.engine.rules.seed_rules import MVP_RULES
 from services.engine.signals.route import build_signal_route
 from services.shared.models import (
@@ -238,6 +247,10 @@ CANDIDATE_TAG_PREFIXES = (
     "startup_signal_score:",
     "startup_signal_label:",
     "startup_signal_reason:",
+    "plan_status:",
+    "plan_label:",
+    "plan_reason:",
+    "plan_gap:",
 )
 WATCH_KEEP_RETIRE_AFTER = 2
 LONG_HORIZON_WATCH_KEEP_RETIRE_AFTER = 5
@@ -293,6 +306,7 @@ class NextSessionCandidate:
     matched_rules: list[CandidateStrategyMatch]
     moneyflow_support_score: float | None = None
     sector_fund_flow_score: float | None = None
+    plan_availability: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -2750,6 +2764,101 @@ def _build_candidate(
     )
 
 
+_PLAN_CONDITION_LABELS = {
+    "sector_strength_score": "板块强度",
+    "relative_strength_score": "相对强度",
+    "amount_percentile_60d": "成交额分位",
+}
+
+
+def _plan_condition_gap(condition: Condition, context: dict[str, Any]) -> str:
+    key = condition.feature or condition.field or "条件"
+    label = _PLAN_CONDITION_LABELS.get(key, key)
+    value = context.get(key)
+    right = context.get(condition.ref) if condition.ref else condition.value
+    value_text = f"{float(value):.1f}" if isinstance(value, (int, float)) else "缺失"
+    if condition.op == ">=":
+        return f"{label} {value_text}，需不低于 {right}"
+    return f"{label} 未满足 {condition.op} {right}"
+
+
+def _plan_entry_gaps(group: ConditionGroup, context: dict[str, Any]) -> list[str]:
+    gaps: list[str] = []
+    for condition in group.all:
+        if isinstance(condition, ConditionGroup):
+            if not evaluate_group(condition, context):
+                gaps.extend(_plan_entry_gaps(condition, context))
+        elif not evaluate_condition(condition, context):
+            gaps.append(_plan_condition_gap(condition, context))
+    if group.any and not any(
+        evaluate_group(condition, context)
+        if isinstance(condition, ConditionGroup)
+        else evaluate_condition(condition, context)
+        for condition in group.any
+    ):
+        for condition in group.any:
+            if isinstance(condition, ConditionGroup):
+                gaps.extend(_plan_entry_gaps(condition, context))
+            else:
+                gaps.append(_plan_condition_gap(condition, context))
+    return gaps
+
+
+def _candidate_data_evidence_risk(db: Session, feature_date: date) -> dict[str, Any]:
+    return assess_trade_data_evidence_risk(
+        inspect_tushare_evidence_health(db, feature_date),
+        late_market_turn_health(late_market_turn_snapshot(db, feature_date)),
+    )
+
+
+def _candidate_plan_availability(
+    candidate: NextSessionCandidate,
+    context: dict[str, Any],
+    *,
+    market_regime: str,
+    emotion_gate: dict[str, Any],
+    data_evidence_risk: dict[str, Any],
+) -> dict[str, Any]:
+    reasons = [str(item) for item in data_evidence_risk.get("reasons") or []]
+    if data_evidence_risk.get("status") == "blocked":
+        return {
+            "status": "data_blocked",
+            "label": "数据门禁拦截",
+            "reason": "；".join(reasons) or "数据证据未完整到位，暂不生成交易计划。",
+            "gaps": reasons[:3],
+        }
+    if candidate.selection_mode != "formal_strategy":
+        label = "启动观察" if candidate.selection_mode == "potential_watch" else "买点待确认"
+        reason = {
+            "potential_watch": "个股启动或板块修复尚未形成正式策略信号，等待次日承接确认。",
+            "observation": "候选仅用于观察，等待板块延续和盘中承接确认。",
+            "exploration": "强板块探索候选，买点尚未确认。",
+        }.get(candidate.selection_mode, "候选仍在观察，暂不生成交易计划。")
+        return {"status": "watch_only", "label": label, "reason": reason, "gaps": []}
+    if market_regime in {"panic", "weak_trend", "rebound_unconfirmed"} or emotion_gate.get("state") == "risk_off":
+        return {
+            "status": "market_guard",
+            "label": "市场风控观察",
+            "reason": "市场环境尚未允许扩仓，正式策略先等待情绪和承接确认。",
+            "gaps": [],
+        }
+    rule = next((item for item in MVP_RULES if item.id == candidate.selected_rule_id), None)
+    gaps = _plan_entry_gaps(rule.entry, context)[:3] if rule else []
+    if gaps:
+        return {
+            "status": "rule_pending",
+            "label": "规则待确认",
+            "reason": f"策略 {candidate.selected_rule_id} 入场条件尚未全部满足。",
+            "gaps": gaps,
+        }
+    return {
+        "status": "planned",
+        "label": "可生成计划",
+        "reason": "正式策略命中且市场允许，等待计划生成与次日触发价确认。",
+        "gaps": [],
+    }
+
+
 def _feature_date_counts(db: Session, *, before: date) -> list[tuple[date, int]]:
     rows = db.info.get(FEATURE_DATE_COUNTS_CACHE_KEY)
     if rows is None:
@@ -3140,6 +3249,20 @@ def discover_next_session_candidates(
         reverse=True,
     )
     selected = _surface_fresh_potential_after_crowded_sector(selected)
+    data_evidence_risk = _candidate_data_evidence_risk(db, effective_feature_date)
+    selected = [
+        replace(
+            item,
+            plan_availability=_candidate_plan_availability(
+                item,
+                context_by_symbol[item.symbol],
+                market_regime=market_regime.regime,
+                emotion_gate=emotion_gate,
+                data_evidence_risk=data_evidence_risk,
+            ),
+        )
+        for item in selected
+    ]
     sector_groups = _candidate_sector_groups(selected)
     sector_focus = _sector_focus_groups(contexts)
     external_challengers = build_external_challengers(
@@ -3230,6 +3353,13 @@ def discover_next_session_candidates(
         if hold_style:
             tags.append(f"hold_style:{hold_style}")
         tags.append(f"mode:{item.selection_mode}")
+        availability = item.plan_availability
+        if availability:
+            tags.append(f"plan_status:{availability['status']}")
+            tags.append(f"plan_label:{availability['label']}")
+            tags.append(f"plan_reason:{availability['reason']}")
+            for gap in availability.get("gaps") or []:
+                tags.append(f"plan_gap:{gap}")
         style_gate_reason = style_gate_reasons_by_symbol.get(item.symbol)
         if style_gate_reason:
             tags.append("style_gate:stand_down")

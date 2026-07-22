@@ -813,6 +813,42 @@ def _candidate_live_market_stress_for_trade_date(
     }
 
 
+def _apply_candidate_tier_plan_availability(
+    candidates: list[dict[str, Any]],
+    candidate_tiers: dict[str, Any],
+) -> None:
+    availability_by_symbol: dict[str, dict[str, Any]] = {}
+    for tier in ("core_action", "sector_watch", "watch_wait", "risk_reject"):
+        for item in candidate_tiers.get(tier) or []:
+            symbol = str(item.get("symbol") or "")
+            availability = dict(item.get("plan_availability") or {})
+            if not symbol or availability.get("status") == "data_blocked":
+                continue
+            reason = str(item.get("tier_reason") or "").strip()
+            if tier == "risk_reject":
+                availability = {
+                    "status": "risk_reject",
+                    "label": "风险暂缓",
+                    "reason": reason or "风险信号偏重，暂不生成交易计划。",
+                    "gaps": [],
+                }
+            elif tier in {"sector_watch", "watch_wait"}:
+                market_guard = any(word in reason for word in ("市场", "情绪", "回放", "弹性"))
+                availability = {
+                    "status": "market_guard" if market_guard else "watch_only",
+                    "label": "市场风控观察" if market_guard else "买点待确认",
+                    "reason": reason or "候选仍在观察，等待买点和盘中承接确认。",
+                    "gaps": [],
+                }
+            item["plan_availability"] = availability
+            availability_by_symbol[symbol] = availability
+
+    for candidate in candidates:
+        availability = availability_by_symbol.get(str(candidate.get("symbol") or ""))
+        if availability is not None:
+            candidate["plan_availability"] = availability
+
+
 def _apply_candidate_tier_tags(
     db: Session,
     *,
@@ -860,6 +896,10 @@ def _apply_candidate_tier_tags(
                 or tag.startswith("candidate_pool_reason:")
                 or tag.startswith("style_gate:")
                 or tag.startswith("style_gate_reason:")
+                or tag.startswith("plan_status:")
+                or tag.startswith("plan_label:")
+                or tag.startswith("plan_reason:")
+                or tag.startswith("plan_gap:")
             )
         ]
         cleaned_tags.append(f"tier:{tier}")
@@ -884,6 +924,13 @@ def _apply_candidate_tier_tags(
             cleaned_tags.append(f"style_gate:{gate_status}")
         if gate_reason:
             cleaned_tags.append(f"style_gate_reason:{gate_reason}")
+        availability = tier_item.get("plan_availability")
+        if isinstance(availability, dict) and availability.get("status"):
+            cleaned_tags.append(f"plan_status:{availability['status']}")
+            cleaned_tags.append(f"plan_label:{availability.get('label') or '计划待确认'}")
+            cleaned_tags.append(f"plan_reason:{availability.get('reason') or ''}")
+            for gap in availability.get("gaps") or []:
+                cleaned_tags.append(f"plan_gap:{gap}")
         row.tags_json = {"tags": list(dict.fromkeys(cleaned_tags))}
 
 
@@ -967,6 +1014,10 @@ def _discover_next_session_candidates_step(
             discovery,
             discovery["candidates"],
             max_core_items=3,
+        )
+        _apply_candidate_tier_plan_availability(
+            discovery["candidates"],
+            discovery["candidate_tiers"],
         )
         discovery["star_candidates"] = star_candidates
         discovery["next_trade_date"] = next_trade_date

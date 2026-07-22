@@ -574,7 +574,9 @@ function decisionReasons(
     ];
   }
   const availability = stock.plan_availability;
-  const gaps = availability.reason
+  const gaps = availability.gaps.length
+    ? availability.gaps.slice(0, 3)
+    : availability.reason
     .replace(/^.*当前缺口：/, "")
     .replace(/。$/, "")
     .split("；")
@@ -3157,6 +3159,9 @@ export function App() {
                   <div className="empty compact">
                     <strong>{selected.plan_availability.label}</strong>
                     <span>{selected.plan_availability.reason}</span>
+                    {selected.plan_availability.gaps.length ? (
+                      <small>当前缺口：{selected.plan_availability.gaps.join("；")}</small>
+                    ) : null}
                   </div>
                 )}
               </section>
