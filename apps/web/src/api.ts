@@ -601,6 +601,7 @@ export interface WorkspaceStock {
   candidate_tier: "core_action" | "sector_watch" | "watch_wait" | "risk_reject" | null;
   candidate_tier_label: string | null;
   candidate_tier_reason: string | null;
+  candidate_retire_reason: string | null;
   startup_signal_score: number | null;
   startup_signal_label: string | null;
   startup_signal_reasons: string[];
@@ -1688,6 +1689,7 @@ function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
     candidate_tier: item.candidate_tier ?? null,
     candidate_tier_label: item.candidate_tier_label ?? null,
     candidate_tier_reason: item.candidate_tier_reason ?? null,
+    candidate_retire_reason: item.candidate_retire_reason ?? null,
     startup_signal_score: item.startup_signal_score ?? null,
     startup_signal_label: item.startup_signal_label ?? null,
     startup_signal_reasons: item.startup_signal_reasons ?? [],

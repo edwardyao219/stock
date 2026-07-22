@@ -3327,6 +3327,8 @@ def discover_next_session_candidates(
         item.updated_at = now
         if not selected or next_keep >= retire_after:
             item.status = "retired"
+            cleaned_tags.append("retire_reason:本轮数据完整后未进入候选池")
+            item.tags_json = {"tags": list(dict.fromkeys(cleaned_tags))}
             retired += 1
         else:
             item.status = "active"

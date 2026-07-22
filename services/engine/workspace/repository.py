@@ -149,6 +149,7 @@ class WorkspaceItem:
     candidate_tier: str | None
     candidate_tier_label: str | None
     candidate_tier_reason: str | None
+    candidate_retire_reason: str | None
     startup_signal_score: float | None
     startup_signal_label: str | None
     startup_signal_reasons: list[str]
@@ -994,6 +995,7 @@ def _build_workspace_item(
         candidate_tier=candidate_tier,
         candidate_tier_label=_candidate_tier_label(candidate_tier),
         candidate_tier_reason=candidate_tier_reason,
+        candidate_retire_reason=_tag_text(manual_tags, "retire_reason:"),
         startup_signal_score=_tag_number(manual_tags, "startup_signal_score:", float),
         startup_signal_label=_tag_text(manual_tags, "startup_signal_label:"),
         startup_signal_reasons=_tag_texts(manual_tags, "startup_signal_reason:"),
