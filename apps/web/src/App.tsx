@@ -3019,6 +3019,7 @@ export function App() {
                   {candidatePoolText(selected) ? <p>{candidatePoolText(selected)}</p> : null}
                   {candidateStrategyText(selected) ? <p>{candidateStrategyText(selected)}</p> : null}
                   {candidateHorizonText(selected) ? <p>{candidateHorizonText(selected)}</p> : null}
+                  {selected.candidate_retire_reason ? <p>淘汰原因：{uiText(selected.candidate_retire_reason)}</p> : null}
                   {startupSignalText(selected) ? <p>{startupSignalText(selected)}</p> : null}
                   {selected.startup_signal_reasons.map((reason) => (
                     <p key={reason}>{uiText(reason)}</p>
