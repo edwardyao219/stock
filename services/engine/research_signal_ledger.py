@@ -20,7 +20,8 @@ from services.shared.models import (
 
 HORIZONS = (1, 3, 5, 10)
 MIN_SAMPLES_FOR_POLICY = 30
-STARTUP_STAGES = {"starting", "accelerating"}
+STARTUP_EVENT_SOURCE = "startup_state"
+STARTUP_STATES = {"preheat", "probing", "confirmed", "invalidated"}
 HISTORICAL_REPLAY_CACHE_VERSION = "candidate-v5-startup-signal"
 HISTORICAL_REPLAY_CANDIDATE_LIMIT = 15
 HISTORICAL_REPLAY_SNAPSHOT_LIMIT = 120
@@ -91,6 +92,70 @@ def record_research_signals(db: Session, signals: list[dict[str, Any]]) -> int:
     return created
 
 
+def latest_startup_states(
+    db: Session,
+    *,
+    signal_date: date,
+    symbols: set[str],
+    as_of: datetime | None = None,
+) -> dict[str, str]:
+    if not symbols:
+        return {}
+    stmt = (
+        select(ResearchSignalLedger)
+        .where(ResearchSignalLedger.source == STARTUP_EVENT_SOURCE)
+        .where(ResearchSignalLedger.signal_date == signal_date)
+        .where(ResearchSignalLedger.symbol.in_(symbols))
+        .order_by(ResearchSignalLedger.signal_time)
+    )
+    if as_of is not None:
+        stmt = stmt.where(ResearchSignalLedger.signal_time <= _plain_datetime(as_of))
+    states: dict[str, str] = {}
+    for row in db.execute(stmt).scalars():
+        state = row.signal_type.removeprefix("startup_")
+        if state in STARTUP_STATES:
+            states[row.symbol] = state
+    return states
+
+
+def record_startup_state_signals(
+    db: Session,
+    signals: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    eligible = [item for item in signals if item.get("source") == STARTUP_EVENT_SOURCE]
+    if not eligible:
+        return []
+    dates = {_plain_datetime(item["signal_time"]).date() for item in eligible}
+    symbols = {str(item["symbol"]) for item in eligible}
+    signal_types = {str(item["signal_type"]) for item in eligible}
+    existing = set(
+        db.execute(
+            select(
+                ResearchSignalLedger.signal_date,
+                ResearchSignalLedger.symbol,
+                ResearchSignalLedger.signal_type,
+            )
+            .where(ResearchSignalLedger.source == STARTUP_EVENT_SOURCE)
+            .where(ResearchSignalLedger.signal_date.in_(dates))
+            .where(ResearchSignalLedger.symbol.in_(symbols))
+            .where(ResearchSignalLedger.signal_type.in_(signal_types))
+        ).all()
+    )
+    created: list[dict[str, Any]] = []
+    for item in eligible:
+        key = (
+            _plain_datetime(item["signal_time"]).date(),
+            str(item["symbol"]),
+            str(item["signal_type"]),
+        )
+        if key in existing:
+            continue
+        existing.add(key)
+        created.append(item)
+    record_research_signals(db, created)
+    return created
+
+
 def build_intraday_market_turn_signals(
     *,
     snapshot: dict[str, Any],
@@ -105,11 +170,17 @@ def build_intraday_market_turn_signals(
         startup_stage = str(candidate.get("startup_stage") or "")
         price = candidate.get("price")
         symbol = str(candidate.get("symbol") or "").strip()
-        if startup_stage not in STARTUP_STAGES or not symbol or not price or float(price) <= 0:
+        if (
+            startup_stage not in STARTUP_STATES
+            or not candidate.get("startup_tracked")
+            or not symbol
+            or not price
+            or float(price) <= 0
+        ):
             continue
         signals.append(
             {
-                "source": "intraday_market_turn",
+                "source": STARTUP_EVENT_SOURCE,
                 "signal_type": f"startup_{startup_stage}",
                 "signal_time": signal_time,
                 "symbol": symbol,
@@ -126,6 +197,14 @@ def build_intraday_market_turn_signals(
                     "selection_reason": candidate.get("selection_reason"),
                     "intraday_state": candidate.get("intraday_state"),
                     "sector_signal": candidate.get("sector_signal"),
+                    "prior_state": candidate.get("startup_prior_state"),
+                    "confirmation_evidence": list(
+                        candidate.get("startup_confirmation_evidence") or []
+                    ),
+                    "invalidation_reasons": list(
+                        candidate.get("startup_invalidation_reasons") or []
+                    ),
+                    "next_conditions": list(candidate.get("startup_next_conditions") or []),
                 },
             }
         )

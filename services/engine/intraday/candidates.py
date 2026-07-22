@@ -14,6 +14,7 @@ from services.engine.intraday.startup_state import (
     StartupEvidence,
     resolve_startup_state,
 )
+from services.engine.research_signal_ledger import latest_startup_states
 from services.engine.research_pool.repository import (
     candidate_batch_summary,
     filter_latest_candidate_batch_items,
@@ -64,6 +65,7 @@ class IntradayCandidate:
     selection_reason: str
     summary: str
     startup_tracked: bool = False
+    startup_prior_state: str | None = None
     startup_confirmation_evidence: list[str] = field(default_factory=list)
     startup_invalidation_reasons: list[str] = field(default_factory=list)
     startup_next_conditions: list[str] = field(default_factory=list)
@@ -1290,6 +1292,12 @@ def discover_intraday_candidates(
         ),
     ]
     symbols = [item.symbol for item in pool_items]
+    persisted_startup_states = latest_startup_states(
+        db,
+        signal_date=trade_date,
+        symbols=set(symbols),
+        as_of=as_of,
+    )
     securities = {
         item.symbol: item
         for item in db.execute(select(Security).where(Security.symbol.in_(symbols))).scalars()
@@ -1448,7 +1456,11 @@ def discover_intraday_candidates(
                 selection_tier_label = SELECTION_TIER_LABELS["watch"]
                 selection_reason = "板块未形成连续扩散，个股即使走强也只做观察确认"
         startup_tracked = "candidate_pool:startup_preheat" in tags
-        prior_startup_state = _tag_text(tags, "startup_state:") or startup_stage
+        prior_startup_state = (
+            persisted_startup_states.get(item.symbol)
+            or _tag_text(tags, "startup_state:")
+            or startup_stage
+        )
         hard_startup_risks = {
             "intraday_distribution",
             "intraday_strength_fading",
@@ -1525,6 +1537,7 @@ def discover_intraday_candidates(
                     sector_signal=sector_signal,
                 ),
                 startup_tracked=startup_tracked,
+                startup_prior_state=prior_startup_state,
                 startup_confirmation_evidence=list(decision.confirmation_evidence),
                 startup_invalidation_reasons=list(decision.invalidation_reasons),
                 startup_next_conditions=list(decision.next_conditions),

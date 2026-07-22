@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from services.shared.database import Base
@@ -10,6 +10,7 @@ from services.shared.models import (
     DailyBar,
     PaperOrder,
     PaperPosition,
+    ResearchSignalLedger,
     TradePlan,
     TradingCalendar,
 )
@@ -188,7 +189,8 @@ def test_intraday_market_turn_signal_builder_records_only_real_startups_and_main
                 "name": "启动股",
                 "sector": "半导体",
                 "price": 10.5,
-                "startup_stage": "starting",
+                "startup_stage": "confirmed",
+                "startup_tracked": True,
                 "startup_score": 85,
                 "selection_tier": "watch",
             },
@@ -203,12 +205,62 @@ def test_intraday_market_turn_signal_builder_records_only_real_startups_and_main
     )
 
     assert {(item["signal_type"], item["symbol"]) for item in signals} == {
-        ("startup_starting", "600002"),
+        ("startup_confirmed", "600002"),
         ("confirmed_mainline", "600001"),
     }
     startup = next(item for item in signals if item["symbol"] == "600002")
+    assert startup["source"] == "startup_state"
     assert startup["executable"] is False
     assert startup["evidence"]["startup_score"] == 85
+
+
+def test_startup_state_signal_recording_deduplicates_state_across_retry_times() -> None:
+    from services.engine.research_signal_ledger import (
+        latest_startup_states,
+        record_startup_state_signals,
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    base = {
+        "source": "startup_state",
+        "signal_type": "startup_confirmed",
+        "symbol": "600001",
+        "name": "测试股份",
+        "sector": "半导体",
+        "signal_price": 10.5,
+        "market_regime": "range",
+        "market_state": "normal_market",
+        "executable": False,
+        "evidence": {"prior_state": "probing"},
+    }
+
+    with Session(engine) as db:
+        created = record_startup_state_signals(
+            db,
+            [
+                {**base, "signal_time": datetime(2026, 7, 22, 10, 30)},
+                {**base, "signal_time": datetime(2026, 7, 22, 10, 31)},
+            ],
+        )
+        db.commit()
+
+        retried = record_startup_state_signals(
+            db,
+            [{**base, "signal_time": datetime(2026, 7, 22, 10, 35)}],
+        )
+        states = latest_startup_states(
+            db,
+            signal_date=date(2026, 7, 22),
+            symbols={"600001"},
+            as_of=datetime(2026, 7, 22, 10, 40),
+        )
+        count = db.scalar(select(func.count()).select_from(ResearchSignalLedger))
+
+    assert len(created) == 1
+    assert retried == []
+    assert count == 1
+    assert states == {"600001": "confirmed"}
 
 
 def test_market_api_exposes_research_signal_ledger_report() -> None:

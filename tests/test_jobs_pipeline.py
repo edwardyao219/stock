@@ -1724,6 +1724,57 @@ def test_early_market_turn_and_paper_snapshot_task_runs_in_order(monkeypatch) ->
     }
 
 
+def test_intraday_market_turn_snapshot_passes_confirmed_sectors_to_candidates(
+    monkeypatch,
+) -> None:
+    from apps.api.app.routers import market
+    from services.engine.intraday import candidates as intraday_candidates
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    captured = {}
+
+    monkeypatch.setattr(tasks, "SessionLocal", session_factory)
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 22, 10, 30))
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "sync_realtime_quotes", lambda **kwargs: [])
+    monkeypatch.setattr(market, "_safe_live_market_indexes", lambda: [])
+    monkeypatch.setattr(
+        tasks,
+        "build_intraday_market_turn_snapshot",
+        lambda **kwargs: {
+            "key": "normal_market",
+            "label": "常态市场",
+            "summary": "板块扩散可用",
+            "data_ready": True,
+            "valid_quote_count": 0,
+            "coverage_ratio": 1.0,
+            "breadth_ratio": 0.6,
+            "total_amount": 100.0,
+            "index_change_pct": 0.002,
+            "sector_expansion_count": 1,
+            "cross_day_mainline": {
+                "status": "观察确认",
+                "checkpoint": "10:30复核",
+                "confirmed_sectors": ["半导体"],
+                "sectors": [],
+            },
+        },
+    )
+
+    def fake_discover(db, **kwargs):
+        captured.update(kwargs)
+        return {"candidates": []}
+
+    monkeypatch.setattr(intraday_candidates, "discover_intraday_candidates", fake_discover)
+
+    result = tasks.capture_intraday_market_turn_snapshot_task()
+
+    assert result["status"] == "ok"
+    assert captured["sustained_startup_sectors"] == {"半导体"}
+
+
 def test_celery_captures_korea_semiconductor_signal_before_a_share_open() -> None:
     job = celery_app.conf.beat_schedule["capture-korea-semiconductor-signal"]
     schedule = job["schedule"]

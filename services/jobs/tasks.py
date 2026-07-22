@@ -23,8 +23,10 @@ from services.engine.features.late_market_turn_health import (
 )
 from services.engine.intraday.candidates import early_sector_scan_symbols
 from services.engine.research_signal_ledger import (
+    STARTUP_EVENT_SOURCE,
     build_intraday_market_turn_signals,
     record_research_signals,
+    record_startup_state_signals,
 )
 from services.engine.review.mechanical import generate_daily_mechanical_review
 from services.engine.review.monthly_summary import generate_monthly_trade_summary
@@ -448,6 +450,17 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
             "retry_applied": any(source.endswith(".retry") for source in source_counts),
         }
         snapshot["index_evidence"] = _index_snapshot_payload(market_index, current_time)
+        cross_day_mainline = snapshot.get("cross_day_mainline")
+        confirmed_sectors = {
+            str(sector).strip()
+            for sector in (
+                cross_day_mainline.get("confirmed_sectors")
+                if isinstance(cross_day_mainline, dict)
+                and cross_day_mainline.get("status") == "观察确认"
+                else []
+            )
+            if str(sector).strip()
+        }
         candidate_result: dict[str, object] | None = None
         if snapshot.get("data_ready"):
             from services.engine.intraday.candidates import discover_intraday_candidates
@@ -459,45 +472,30 @@ def capture_intraday_market_turn_snapshot_task() -> dict[str, object]:
                 limit=50,
                 include_growth_board=False,
                 as_of=current_time,
+                sustained_startup_sectors=confirmed_sectors,
             )
-        cross_day_mainline = snapshot.get("cross_day_mainline")
         if (
             isinstance(cross_day_mainline, dict)
             and cross_day_mainline.get("status") == "观察确认"
             and cross_day_mainline.get("checkpoint") == "10:30复核"
         ):
-            confirmed_sectors = {
-                str(sector).strip()
-                for sector in cross_day_mainline.get("confirmed_sectors") or []
-                if str(sector).strip()
-            }
-            if candidate_result is None:
-                from services.engine.intraday.candidates import discover_intraday_candidates
-
-                candidate_result = discover_intraday_candidates(
-                    db,
-                    trade_date=trade_date,
-                    pool_name="experiment",
-                    limit=50,
-                    include_growth_board=False,
-                    as_of=current_time,
-                    sustained_startup_sectors=confirmed_sectors,
-                )
             snapshot["confirmed_candidate_bindings"] = build_confirmed_mainline_candidate_bindings(
-                candidates=list(candidate_result.get("candidates") or []),
+                candidates=list((candidate_result or {}).get("candidates") or []),
                 confirmed_sectors=confirmed_sectors,
             )
         market_regime = db.execute(
             select(MarketRegimeDaily.regime).where(MarketRegimeDaily.trade_date == trade_date)
         ).scalar_one_or_none()
+        signals = build_intraday_market_turn_signals(
+            snapshot=snapshot,
+            candidates=list((candidate_result or {}).get("candidates") or []),
+            signal_time=current_time,
+            market_regime=market_regime,
+        )
+        record_startup_state_signals(db, signals)
         record_research_signals(
             db,
-            build_intraday_market_turn_signals(
-                snapshot=snapshot,
-                candidates=list((candidate_result or {}).get("candidates") or []),
-                signal_time=current_time,
-                market_regime=market_regime,
-            ),
+            [item for item in signals if item.get("source") != STARTUP_EVENT_SOURCE],
         )
         db.add(
             IntradayMarketTurnSnapshot(
