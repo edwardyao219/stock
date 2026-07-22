@@ -901,7 +901,7 @@ def test_discover_intraday_candidates_expands_live_leading_sector_after_early_wi
         )
 
     assert result["candidates"][0]["symbol"] == "600220"
-    assert result["candidates"][0]["startup_label"] == "刚启动"
+    assert result["candidates"][0]["startup_label"] == "启动试探"
     assert "intraday_leading_sector_scan" in result["candidates"][0]["support_flags"]
 
 
@@ -1253,14 +1253,14 @@ def test_discover_intraday_candidates_prioritizes_fresh_start_over_extended_move
         "600512",
     ]
     starting, not_started, extended = result["candidates"]
-    assert starting["startup_stage"] == "starting"
-    assert starting["startup_label"] == "刚启动"
+    assert starting["startup_stage"] == "probing"
+    assert starting["startup_label"] == "启动试探"
     assert starting["startup_score"] > extended["startup_score"]
     assert "前一快照" in starting["startup_reason"]
     assert "intraday_leading_sector_scan" in starting["support_flags"]
-    assert not_started["startup_stage"] == "not_started"
-    assert extended["startup_stage"] == "extended"
-    assert extended["startup_label"] == "涨幅偏高"
+    assert not_started["startup_stage"] == "preheat"
+    assert extended["startup_stage"] == "invalidated"
+    assert extended["startup_label"] == "启动失效"
     assert extended["selection_tier"] == "defer"
     assert "intraday_overextended" in extended["risk_flags"]
 

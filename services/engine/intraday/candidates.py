@@ -9,6 +9,11 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from services.engine.intraday.startup_state import (
+    STARTUP_LABELS,
+    StartupEvidence,
+    resolve_startup_state,
+)
 from services.engine.research_pool.repository import (
     candidate_batch_summary,
     filter_latest_candidate_batch_items,
@@ -58,6 +63,10 @@ class IntradayCandidate:
     selection_tier_label: str
     selection_reason: str
     summary: str
+    startup_tracked: bool = False
+    startup_confirmation_evidence: list[str] = field(default_factory=list)
+    startup_invalidation_reasons: list[str] = field(default_factory=list)
+    startup_next_conditions: list[str] = field(default_factory=list)
     theme_signal_label: str | None = None
     theme_signal_reason: str | None = None
     caution_reasons: list[str] = field(default_factory=list)
@@ -115,14 +124,6 @@ SELECTION_TIER_PRIORITY = {
     "defer": 0,
 }
 
-STARTUP_LABELS = {
-    "starting": "刚启动",
-    "accelerating": "加速中",
-    "repairing": "修复观察",
-    "extended": "涨幅偏高",
-    "not_started": "未启动",
-}
-
 DEFAULT_FORMAL_LIMIT = 3
 DEFAULT_FORMAL_PER_SECTOR_LIMIT = 2
 EARLY_SECTOR_SCAN_MAX_SECTORS = 3
@@ -165,6 +166,10 @@ def _tag_number(tags: list[str], prefix: str, cast):
             except ValueError:
                 return None
     return None
+
+
+def _tag_text(tags: list[str], prefix: str) -> str | None:
+    return next((tag.removeprefix(prefix) for tag in tags if tag.startswith(prefix)), None)
 
 
 def _candidate_items_source(
@@ -550,8 +555,8 @@ def _startup_signal(
 
     if day_change is not None and day_change >= 0.085:
         return (
-            "extended",
-            STARTUP_LABELS["extended"],
+            "invalidated",
+            STARTUP_LABELS["invalidated"],
             25.0,
             f"当日已上涨{day_change:.2%}，属于启动后的高位段，不再按早启动排序",
             [],
@@ -570,8 +575,8 @@ def _startup_signal(
         and volume_confirmed
     ):
         return (
-            "starting",
-            STARTUP_LABELS["starting"],
+            "probing",
+            STARTUP_LABELS["probing"],
             92.0,
             (
                 f"前一快照涨幅{previous_day_change:.2%}，最新升至{day_change:.2%}，"
@@ -591,8 +596,8 @@ def _startup_signal(
         and volume_confirmed
     ):
         return (
-            "accelerating",
-            STARTUP_LABELS["accelerating"],
+            "probing",
+            STARTUP_LABELS["probing"],
             82.0,
             f"最新快照继续上涨{snapshot_change:.2%}，价格与量能同步加速",
             ["intraday_accelerating"],
@@ -601,8 +606,8 @@ def _startup_signal(
         )
     if state in {"gap_down_repair", "pullback_repair"}:
         return (
-            "repairing",
-            STARTUP_LABELS["repairing"],
+            "preheat",
+            STARTUP_LABELS["preheat"],
             60.0,
             "当前属于回落后的修复，尚未形成新的启动确认",
             [],
@@ -610,8 +615,8 @@ def _startup_signal(
             [],
         )
     return (
-        "not_started",
-        STARTUP_LABELS["not_started"],
+        "preheat",
+        STARTUP_LABELS["preheat"],
         45.0,
         "尚未同时出现价格抬升、日内高位和量能确认",
         [],
@@ -1442,6 +1447,51 @@ def discover_intraday_candidates(
                 selection_tier = "watch"
                 selection_tier_label = SELECTION_TIER_LABELS["watch"]
                 selection_reason = "板块未形成连续扩散，个股即使走强也只做观察确认"
+        startup_tracked = "candidate_pool:startup_preheat" in tags
+        prior_startup_state = _tag_text(tags, "startup_state:") or startup_stage
+        hard_startup_risks = {
+            "intraday_distribution",
+            "intraday_strength_fading",
+            "intraday_downside_pressure",
+            "volume_expansion_on_weakness",
+            "sector_feedback_intraday_weakened",
+            "intraday_overextended",
+        }.intersection(risk_flags)
+        decision = resolve_startup_state(
+            prior_startup_state,
+            StartupEvidence(
+                trade_date=trade_date,
+                as_of=as_of or quote.quote_time,
+                individual_supportive=startup_stage == "probing",
+                volume_confirmed="intraday_volume_confirmed" in support_flags,
+                sector_sustained=(
+                    sustained_startup_sectors is not None
+                    and sector_name in sustained_startup_sectors
+                ),
+                sector_strength_holding="sector_feedback_strength_holding" in support_flags,
+                formal_eligible=selection_tier == "formal",
+                market_risk_off="market_risk_off" in risk_flags,
+                hard_risk_reasons=(
+                    tuple(caution_reasons[:1] or sorted(hard_startup_risks))
+                    if hard_startup_risks
+                    else ()
+                ),
+            ),
+        )
+        startup_stage = decision.state
+        startup_label = decision.label
+        if decision.invalidation_reasons:
+            startup_reason = "；".join(decision.invalidation_reasons)
+        elif decision.confirmation_evidence:
+            startup_reason = "；".join(decision.confirmation_evidence)
+        if startup_tracked and startup_stage == "invalidated":
+            selection_tier = "defer"
+            selection_tier_label = SELECTION_TIER_LABELS["defer"]
+            selection_reason = startup_reason
+        elif startup_tracked and startup_stage != "confirmed" and selection_tier == "formal":
+            selection_tier = "watch"
+            selection_tier_label = SELECTION_TIER_LABELS["watch"]
+            selection_reason = "启动尚未确认，等待板块扩散、个股承接与市场风险阀门共振"
         candidates.append(
             IntradayCandidate(
                 symbol=item.symbol,
@@ -1474,6 +1524,10 @@ def discover_intraday_candidates(
                     review_window=review_window,
                     sector_signal=sector_signal,
                 ),
+                startup_tracked=startup_tracked,
+                startup_confirmation_evidence=list(decision.confirmation_evidence),
+                startup_invalidation_reasons=list(decision.invalidation_reasons),
+                startup_next_conditions=list(decision.next_conditions),
                 theme_signal_label=theme_signal_label,
                 theme_signal_reason=theme_signal_reason,
                 caution_reasons=caution_reasons,

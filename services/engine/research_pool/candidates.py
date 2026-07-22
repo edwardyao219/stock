@@ -18,6 +18,7 @@ from services.engine.features.late_market_turn_health import (
 from services.engine.features.market_regime import MarketRegimeSnapshot, classify_market_regime
 from services.engine.features.market_regime_repository import store_market_regime_daily
 from services.engine.features.market_turn import classify_verified_market_turn_state
+from services.engine.intraday.startup_state import STARTUP_LABELS
 from services.engine.news.external_mapping import (
     build_external_challengers,
     load_external_market_signals,
@@ -304,6 +305,7 @@ class NextSessionCandidate:
     reasons: list[str]
     risk_flags: list[str]
     matched_rules: list[CandidateStrategyMatch]
+    startup_signal_state: str | None = None
     moneyflow_support_score: float | None = None
     sector_fund_flow_score: float | None = None
     plan_availability: dict[str, Any] = field(default_factory=dict)
@@ -2099,7 +2101,7 @@ def _is_startup_preheat_context(context: dict[str, Any]) -> bool:
 
 def _startup_signal_profile(context: dict[str, Any]) -> dict[str, Any]:
     if not _is_startup_preheat_context(context):
-        return {"score": None, "label": None, "reasons": []}
+        return {"state": None, "score": None, "label": None, "reasons": []}
 
     day_change_pct = _day_change_pct(context) or 0.0
     trend = _float(context, "trend_score", 50.0)
@@ -2166,7 +2168,8 @@ def _startup_signal_profile(context: dict[str, Any]) -> dict[str, Any]:
         risk_score += 4.0
 
     score = round(min(100.0, sector_score + price_volume_score + risk_score), 1)
-    label = "启动观察" if score >= 70.0 else "预热观察"
+    state = "probing" if score >= 70.0 else "preheat"
+    label = STARTUP_LABELS[state]
     reasons = [
         (
             "板块修复："
@@ -2184,7 +2187,7 @@ def _startup_signal_profile(context: dict[str, Any]) -> dict[str, Any]:
             "不代表买点，只观察次日承接"
         ),
     ]
-    return {"score": score, "label": label, "reasons": reasons}
+    return {"state": state, "score": score, "label": label, "reasons": reasons}
 
 
 def _passes_potential_watch_filters(
@@ -2689,7 +2692,7 @@ def _build_candidate(
     startup_signal = (
         _startup_signal_profile(context)
         if selection_mode == "potential_watch"
-        else {"score": None, "label": None, "reasons": []}
+        else {"state": None, "score": None, "label": None, "reasons": []}
     )
     score = _candidate_score_with_delta(context, score_delta) + sum(
         item.score_bonus for item in matches
@@ -2759,6 +2762,7 @@ def _build_candidate(
         reasons=reasons,
         risk_flags=_risk_flags(context),
         matched_rules=matches,
+        startup_signal_state=startup_signal["state"],
         moneyflow_support_score=_optional_float(context, "moneyflow_support_score"),
         sector_fund_flow_score=_optional_float(context, "sector_fund_flow_score"),
     )
@@ -3368,6 +3372,8 @@ def discover_next_session_candidates(
             tags.append(f"style_gate_reason:{style_gate_reason}")
         if item.startup_signal_score is not None:
             tags.append(f"startup_signal_score:{item.startup_signal_score:.1f}")
+        if item.startup_signal_state:
+            tags.append(f"startup_state:{item.startup_signal_state}")
         if item.startup_signal_label:
             tags.append(f"startup_signal_label:{item.startup_signal_label}")
         for reason in item.startup_signal_reasons[:3]:
