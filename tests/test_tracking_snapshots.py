@@ -39,6 +39,7 @@ def _workspace_item(**overrides) -> WorkspaceItem:
         candidate_tier="core_action",
         candidate_tier_label="核心行动",
         candidate_tier_reason="板块和个股趋势同时在线。",
+        candidate_retire_reason=None,
         startup_signal_score=78.0,
         startup_signal_label="启动观察",
         startup_signal_reasons=["量价开始共振"],
