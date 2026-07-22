@@ -316,7 +316,14 @@ def get_after_close_status(
         late_market_health,
     )
     if cached:
-        retire_reasons = retired_reason_summary(list(db.execute(select(ResearchPoolItem)).scalars())) if db is not None else {}
+        retire_reasons = (
+            retired_reason_summary(
+                list(db.execute(select(ResearchPoolItem)).scalars()),
+                target_date,
+            )
+            if db is not None
+            else {}
+        )
         cached = {
             **cached,
             "candidate_retire_reasons": retire_reasons,

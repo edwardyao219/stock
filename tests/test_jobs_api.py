@@ -14,6 +14,7 @@ from services.shared.models import (
     BacktestTradeRecord,
     IntradayMarketTurnSnapshot,
     MarketRegimeDaily,
+    ResearchPoolItem,
     ReviewReport,
     RulePerformanceDaily,
 )
@@ -83,6 +84,40 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
     assert payload.candidate_recovery_summary == "候选恢复完成：写入 3 只股票，生成 1 条交易计划。"
     assert payload.market_summary == "市场 weak_trend / 压力大"
     assert payload.tushare_evidence_health["daily_symbol_count"] == 100
+
+
+def test_after_close_status_filters_candidate_retire_reasons_by_trade_date(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {"trade_date": trade_date, "status": "ok", "message": "已完成"},
+    )
+
+    with session() as db:
+        db.add_all(
+            [
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="000001",
+                    status="retired",
+                    tags_json={"tags": ["dropped:2026-07-21", "retire_reason:当日淘汰"]},
+                ),
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="000002",
+                    status="retired",
+                    tags_json={"tags": ["dropped:2026-07-18", "retire_reason:历史淘汰"]},
+                ),
+            ]
+        )
+        db.commit()
+
+        payload = jobs.get_after_close_status(db=db, trade_date="2026-07-21")
+
+    assert payload.candidate_retire_reasons == {"当日淘汰": 1}
 
 
 def test_after_close_status_refreshes_cached_tushare_health_from_database(monkeypatch) -> None:

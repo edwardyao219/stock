@@ -7,10 +7,43 @@ from services.engine.research_pool.repository import (
     filter_latest_candidate_batch_items,
     list_pool_items,
     list_pool_symbols,
+    retired_reason_summary,
 )
 from services.engine.research_pool.service import _parse_date
 from services.shared.database import Base
 from services.shared.models import ResearchPoolItem
+
+
+def test_retired_reason_summary_can_filter_by_dropped_date() -> None:
+    items = [
+        ResearchPoolItem(
+            pool_name="experiment",
+            symbol="000001",
+            status="retired",
+            tags_json={"tags": ["dropped:2026-07-21", "retire_reason:当日淘汰"]},
+        ),
+        ResearchPoolItem(
+            pool_name="experiment",
+            symbol="000002",
+            status="retired",
+            tags_json={"tags": ["dropped:2026-07-18", "retire_reason:历史淘汰"]},
+        ),
+        ResearchPoolItem(
+            pool_name="experiment",
+            symbol="000003",
+            status="active",
+            tags_json={"tags": ["dropped:2026-07-21", "retire_reason:仍在观察"]},
+        ),
+        ResearchPoolItem(
+            pool_name="experiment",
+            symbol="000004",
+            status="retired",
+            tags_json={"tags": ["dropped:2026-07-21"]},
+        ),
+    ]
+
+    assert retired_reason_summary(items, "2026-07-21") == {"当日淘汰": 1}
+    assert retired_reason_summary(items) == {"当日淘汰": 1, "历史淘汰": 1}
 
 
 def test_add_symbols_to_research_pool_upserts_items() -> None:

@@ -38,12 +38,18 @@ def tag_value(tags: list[str], prefix: str) -> str | None:
     return None
 
 
-def retired_reason_summary(items: list[ResearchPoolItem]) -> dict[str, int]:
+def retired_reason_summary(
+    items: list[ResearchPoolItem],
+    dropped_date: str | None = None,
+) -> dict[str, int]:
     counts: dict[str, int] = {}
     for item in items:
         if item.status != "retired":
             continue
-        reason = tag_value([str(tag) for tag in (item.tags_json or {}).get("tags", [])], "retire_reason:")
+        tags = [str(tag) for tag in (item.tags_json or {}).get("tags", [])]
+        if dropped_date and f"dropped:{dropped_date}" not in tags:
+            continue
+        reason = tag_value(tags, "retire_reason:")
         if reason:
             counts[reason] = counts.get(reason, 0) + 1
     return counts
