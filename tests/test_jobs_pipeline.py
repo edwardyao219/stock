@@ -507,6 +507,7 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
             status="ok",
             detail="候选恢复完成",
             summary="候选恢复完成",
+            metrics={"candidate_written": 3, "plan_written": 1},
         ),
     )
     monkeypatch.setattr(
@@ -535,6 +536,8 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
             "plan_rows_refreshed": 2,
             "candidate_recovery_status": "ok",
             "candidate_recovery_summary": "候选恢复完成",
+            "candidate_recovery_written": 3,
+            "candidate_recovery_plan_rows": 1,
             "tushare_evidence_health": {"updated": True},
         },
     }
@@ -550,6 +553,8 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
         "plan_rows_refreshed": 2,
         "candidate_recovery_status": "ok",
         "candidate_recovery_summary": "候选恢复完成",
+        "candidate_recovery_written": 3,
+        "candidate_recovery_plan_rows": 1,
     }
     assert candidate_captured["suppress_candidate_notification"] is True
 
@@ -692,6 +697,55 @@ def test_sync_late_tushare_moneyflow_task_keeps_data_sync_success_when_candidate
     assert "candidate store unavailable" in result["candidate_recovery_summary"]
     assert merged["updates"]["moneyflow_status"] == "ok"
     assert merged["updates"]["candidate_recovery_status"] == "failed"
+
+
+def test_replay_candidate_recovery_task_silently_updates_historical_status(monkeypatch) -> None:
+    from datetime import datetime
+
+    captured = {}
+    merged = {}
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 22, 18, 30))
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-22")
+    monkeypatch.setattr(
+        pipeline,
+        "_discover_next_session_candidates_step",
+        lambda **kwargs: captured.update(kwargs)
+        or pipeline.PipelineStepResult(
+            name="discover_next_session_candidates",
+            status="ok",
+            detail="候选恢复完成",
+            summary="候选恢复完成",
+            metrics={"candidate_written": 3, "plan_written": 1},
+        ),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "merge_after_close_status",
+        lambda trade_date, updates: merged.update(trade_date=trade_date, updates=updates),
+    )
+
+    result = tasks.replay_candidate_recovery_task("2026-07-21")
+
+    assert captured == {
+        "trade_date": "2026-07-21",
+        "next_trade_date": "2026-07-22",
+        "limit": 200,
+        "use_learning_adjustments": True,
+        "suppress_candidate_notification": True,
+    }
+    assert result["candidate_recovery_written"] == 3
+    assert result["candidate_recovery_plan_rows"] == 1
+    assert merged == {
+        "trade_date": "2026-07-21",
+        "updates": {
+            "candidate_recovery_status": "ok",
+            "candidate_recovery_summary": "候选恢复完成",
+            "candidate_recovery_written": 3,
+            "candidate_recovery_plan_rows": 1,
+        },
+    }
 
 
 def test_compute_features_step_refreshes_low_dimensional_snapshot_cache(monkeypatch) -> None:
@@ -2341,6 +2395,7 @@ def test_discover_next_session_candidates_step_dispatches_screening_summary(monk
     assert captured["plan_args"]["symbols"] == ["603083"]
     assert result.details[0] == "钉钉提醒：dingtalk:ok"
     assert any("候选诊断：候选偏少" in item for item in result.details)
+    assert result.metrics == {"candidate_written": 2, "plan_written": 1}
 
 
 def test_discover_next_session_candidates_step_plans_action_candidates_only(monkeypatch) -> None:

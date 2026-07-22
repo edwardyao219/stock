@@ -272,6 +272,24 @@ def test_after_close_recovery_endpoint_enqueues_safe_task(monkeypatch) -> None:
     assert payload["status"] == "queued"
 
 
+def test_after_close_candidate_recovery_endpoint_enqueues_silent_historical_replay(
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    class _Task:
+        def delay(self, trade_date):
+            captured["trade_date"] = trade_date
+
+    monkeypatch.setattr(jobs, "now_local", lambda: datetime(2026, 7, 22, 18, 30))
+    monkeypatch.setattr(jobs, "replay_candidate_recovery_task", _Task())
+
+    payload = jobs.recover_after_close_candidates(trade_date="2026-07-21")
+
+    assert captured == {"trade_date": "2026-07-21"}
+    assert payload == {"trade_date": "2026-07-21", "status": "queued"}
+
+
 def test_build_after_close_status_keeps_scheduler_health() -> None:
     payload = job_status.build_after_close_status(
         {

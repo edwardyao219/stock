@@ -32,6 +32,7 @@ class PipelineStepResult:
     detail: str
     summary: str | None = None
     details: list[str] = field(default_factory=list)
+    metrics: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -1178,6 +1179,10 @@ def _discover_next_session_candidates_step(
         detail=summary,
         summary=summary,
         details=details,
+        metrics={
+            "candidate_written": written_count,
+            "plan_written": int(plan_result["written"]),
+        },
     )
 
 

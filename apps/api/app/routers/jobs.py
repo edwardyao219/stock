@@ -26,7 +26,7 @@ from services.jobs.pipeline import (
     run_intraday_trade_session,
 )
 from services.jobs.status import read_after_close_status
-from services.jobs.tasks import run_after_close_safe_recovery_task
+from services.jobs.tasks import replay_candidate_recovery_task, run_after_close_safe_recovery_task
 from services.shared.database import get_db
 from services.shared.models import (
     BacktestTradeRecord,
@@ -62,6 +62,7 @@ class PipelineStepResponse(BaseModel):
     detail: str
     summary: str | None = None
     details: list[str] = []
+    metrics: dict[str, int] = Field(default_factory=dict)
 
 
 class PipelineRunResponse(BaseModel):
@@ -163,6 +164,8 @@ class AfterCloseStatusResponse(BaseModel):
     plan_rows_refreshed: int = 0
     candidate_recovery_status: str = "not_run"
     candidate_recovery_summary: str | None = None
+    candidate_recovery_written: int = 0
+    candidate_recovery_plan_rows: int = 0
     market_summary: str | None = None
     market_regime: str | None = None
     market_regime_risk_level: str | None = None
@@ -359,6 +362,18 @@ def recover_after_close(trade_date: str | None = None) -> dict[str, str]:
         raise HTTPException(status_code=400, detail="only the current trade date can be recovered")
     run_after_close_safe_recovery_task.delay()
     return {"trade_date": target_date, "status": "queued"}
+
+
+@router.post("/after-close/candidate-recovery")
+def recover_after_close_candidates(trade_date: str) -> dict[str, str]:
+    try:
+        target = date.fromisoformat(trade_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid trade date") from exc
+    if target > now_local().date():
+        raise HTTPException(status_code=400, detail="only current or past trade dates can be recovered")
+    replay_candidate_recovery_task.delay(target.isoformat())
+    return {"trade_date": target.isoformat(), "status": "queued"}
 
 
 @router.get("/rule-regression/status", response_model=RuleRegressionStatusResponse)

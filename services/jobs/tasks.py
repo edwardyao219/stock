@@ -599,6 +599,8 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
         )
         candidate_recovery_status = "skipped"
         candidate_recovery_summary = "数据已是最新，未重复重评估候选。"
+        candidate_recovery_written = 0
+        candidate_recovery_plan_rows = 0
         if data_arrived:
             try:
                 from services.jobs.pipeline import _discover_next_session_candidates_step
@@ -613,6 +615,12 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
                 candidate_recovery_status = candidate_recovery.status
                 candidate_recovery_summary = (
                     candidate_recovery.summary or candidate_recovery.detail
+                )
+                candidate_recovery_written = int(
+                    candidate_recovery.metrics.get("candidate_written") or 0
+                )
+                candidate_recovery_plan_rows = int(
+                    candidate_recovery.metrics.get("plan_written") or 0
                 )
             except Exception as exc:
                 candidate_recovery_status = "failed"
@@ -642,6 +650,8 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
                 "plan_rows_refreshed": refreshed_rows,
                 "candidate_recovery_status": candidate_recovery_status,
                 "candidate_recovery_summary": candidate_recovery_summary,
+                "candidate_recovery_written": candidate_recovery_written,
+                "candidate_recovery_plan_rows": candidate_recovery_plan_rows,
                 "tushare_evidence_health": evidence_health,
             },
         )
@@ -657,7 +667,10 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
             "plan_rows_refreshed": refreshed_rows,
             "candidate_recovery_status": candidate_recovery_status,
             "candidate_recovery_summary": candidate_recovery_summary,
+            "candidate_recovery_written": candidate_recovery_written,
+            "candidate_recovery_plan_rows": candidate_recovery_plan_rows,
         }
+
     with SessionLocal() as db:
         evidence_health = inspect_tushare_evidence_health(
             db,
@@ -686,6 +699,63 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
         "sync_status": sync_status,
         "moneyflow_rows": moneyflow_rows,
         "cyq_perf_rows": cyq_perf_rows,
+    }
+
+
+@celery_app.task(name="services.jobs.tasks.replay_candidate_recovery_task")
+def replay_candidate_recovery_task(trade_date: str) -> dict[str, object]:
+    target_date = date.fromisoformat(trade_date)
+    trade_date = target_date.isoformat()
+    if target_date > now_local().date():
+        return {
+            "trade_date": trade_date,
+            "status": "skipped",
+            "message": "未来日期，已跳过候选恢复。",
+        }
+    with SessionLocal() as db:
+        if not _is_open_trade_date(db, trade_date):
+            return {
+                "trade_date": trade_date,
+                "status": "skipped",
+                "message": "非交易日，已跳过候选恢复。",
+            }
+
+    next_trade_date = resolve_next_trade_date(trade_date)
+    try:
+        from services.jobs.pipeline import _discover_next_session_candidates_step
+
+        recovery = _discover_next_session_candidates_step(
+            trade_date=trade_date,
+            next_trade_date=next_trade_date,
+            limit=200,
+            use_learning_adjustments=True,
+            suppress_candidate_notification=True,
+        )
+        status = recovery.status
+        summary = recovery.summary or recovery.detail
+        written = int(recovery.metrics.get("candidate_written") or 0)
+        plan_rows = int(recovery.metrics.get("plan_written") or 0)
+    except Exception as exc:
+        status = "failed"
+        summary = f"候选恢复失败：{exc}"
+        written = 0
+        plan_rows = 0
+    merge_after_close_status(
+        trade_date,
+        {
+            "candidate_recovery_status": status,
+            "candidate_recovery_summary": summary,
+            "candidate_recovery_written": written,
+            "candidate_recovery_plan_rows": plan_rows,
+        },
+    )
+    return {
+        "trade_date": trade_date,
+        "next_trade_date": next_trade_date,
+        "status": status,
+        "message": summary,
+        "candidate_recovery_written": written,
+        "candidate_recovery_plan_rows": plan_rows,
     }
 
 
