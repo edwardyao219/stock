@@ -1181,6 +1181,7 @@ def _discover_next_session_candidates_step(
         details=details,
         metrics={
             "candidate_written": written_count,
+            "candidate_retired": retired_count,
             "plan_written": int(plan_result["written"]),
         },
     )

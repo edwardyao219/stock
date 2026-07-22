@@ -165,6 +165,7 @@ class AfterCloseStatusResponse(BaseModel):
     candidate_recovery_status: str = "not_run"
     candidate_recovery_summary: str | None = None
     candidate_recovery_written: int = 0
+    candidate_recovery_retired: int = 0
     candidate_recovery_plan_rows: int = 0
     market_summary: str | None = None
     market_regime: str | None = None

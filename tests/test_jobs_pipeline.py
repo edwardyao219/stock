@@ -507,7 +507,7 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
             status="ok",
             detail="候选恢复完成",
             summary="候选恢复完成",
-            metrics={"candidate_written": 3, "plan_written": 1},
+            metrics={"candidate_written": 3, "candidate_retired": 2, "plan_written": 1},
         ),
     )
     monkeypatch.setattr(
@@ -537,6 +537,7 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
             "candidate_recovery_status": "ok",
             "candidate_recovery_summary": "候选恢复完成",
             "candidate_recovery_written": 3,
+            "candidate_recovery_retired": 2,
             "candidate_recovery_plan_rows": 1,
             "tushare_evidence_health": {"updated": True},
         },
@@ -554,6 +555,7 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
         "candidate_recovery_status": "ok",
         "candidate_recovery_summary": "候选恢复完成",
         "candidate_recovery_written": 3,
+        "candidate_recovery_retired": 2,
         "candidate_recovery_plan_rows": 1,
     }
     assert candidate_captured["suppress_candidate_notification"] is True
@@ -717,7 +719,7 @@ def test_replay_candidate_recovery_task_silently_updates_historical_status(monke
             status="ok",
             detail="候选恢复完成",
             summary="候选恢复完成",
-            metrics={"candidate_written": 3, "plan_written": 1},
+            metrics={"candidate_written": 3, "candidate_retired": 2, "plan_written": 1},
         ),
     )
     monkeypatch.setattr(
@@ -736,6 +738,7 @@ def test_replay_candidate_recovery_task_silently_updates_historical_status(monke
         "suppress_candidate_notification": True,
     }
     assert result["candidate_recovery_written"] == 3
+    assert result["candidate_recovery_retired"] == 2
     assert result["candidate_recovery_plan_rows"] == 1
     assert merged == {
         "trade_date": "2026-07-21",
@@ -743,6 +746,7 @@ def test_replay_candidate_recovery_task_silently_updates_historical_status(monke
             "candidate_recovery_status": "ok",
             "candidate_recovery_summary": "候选恢复完成",
             "candidate_recovery_written": 3,
+            "candidate_recovery_retired": 2,
             "candidate_recovery_plan_rows": 1,
         },
     }
@@ -2395,7 +2399,11 @@ def test_discover_next_session_candidates_step_dispatches_screening_summary(monk
     assert captured["plan_args"]["symbols"] == ["603083"]
     assert result.details[0] == "钉钉提醒：dingtalk:ok"
     assert any("候选诊断：候选偏少" in item for item in result.details)
-    assert result.metrics == {"candidate_written": 2, "plan_written": 1}
+    assert result.metrics == {
+        "candidate_written": 2,
+        "candidate_retired": 0,
+        "plan_written": 1,
+    }
 
 
 def test_discover_next_session_candidates_step_plans_action_candidates_only(monkeypatch) -> None:

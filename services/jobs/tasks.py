@@ -600,6 +600,7 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
         candidate_recovery_status = "skipped"
         candidate_recovery_summary = "数据已是最新，未重复重评估候选。"
         candidate_recovery_written = 0
+        candidate_recovery_retired = 0
         candidate_recovery_plan_rows = 0
         if data_arrived:
             try:
@@ -618,6 +619,9 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
                 )
                 candidate_recovery_written = int(
                     candidate_recovery.metrics.get("candidate_written") or 0
+                )
+                candidate_recovery_retired = int(
+                    candidate_recovery.metrics.get("candidate_retired") or 0
                 )
                 candidate_recovery_plan_rows = int(
                     candidate_recovery.metrics.get("plan_written") or 0
@@ -651,6 +655,7 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
                 "candidate_recovery_status": candidate_recovery_status,
                 "candidate_recovery_summary": candidate_recovery_summary,
                 "candidate_recovery_written": candidate_recovery_written,
+                "candidate_recovery_retired": candidate_recovery_retired,
                 "candidate_recovery_plan_rows": candidate_recovery_plan_rows,
                 "tushare_evidence_health": evidence_health,
             },
@@ -668,6 +673,7 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
             "candidate_recovery_status": candidate_recovery_status,
             "candidate_recovery_summary": candidate_recovery_summary,
             "candidate_recovery_written": candidate_recovery_written,
+            "candidate_recovery_retired": candidate_recovery_retired,
             "candidate_recovery_plan_rows": candidate_recovery_plan_rows,
         }
 
@@ -734,11 +740,13 @@ def replay_candidate_recovery_task(trade_date: str) -> dict[str, object]:
         status = recovery.status
         summary = recovery.summary or recovery.detail
         written = int(recovery.metrics.get("candidate_written") or 0)
+        retired = int(recovery.metrics.get("candidate_retired") or 0)
         plan_rows = int(recovery.metrics.get("plan_written") or 0)
     except Exception as exc:
         status = "failed"
         summary = f"候选恢复失败：{exc}"
         written = 0
+        retired = 0
         plan_rows = 0
     merge_after_close_status(
         trade_date,
@@ -746,6 +754,7 @@ def replay_candidate_recovery_task(trade_date: str) -> dict[str, object]:
             "candidate_recovery_status": status,
             "candidate_recovery_summary": summary,
             "candidate_recovery_written": written,
+            "candidate_recovery_retired": retired,
             "candidate_recovery_plan_rows": plan_rows,
         },
     )
@@ -755,6 +764,7 @@ def replay_candidate_recovery_task(trade_date: str) -> dict[str, object]:
         "status": status,
         "message": summary,
         "candidate_recovery_written": written,
+        "candidate_recovery_retired": retired,
         "candidate_recovery_plan_rows": plan_rows,
     }
 

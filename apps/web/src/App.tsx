@@ -2677,7 +2677,7 @@ export function App() {
                         <span>{afterCloseDingText(afterCloseStatus)}</span>
                         <span>基础资金流 {afterCloseStatus.moneyflow_rows > 0 ? `${afterCloseStatus.moneyflow_rows} 条` : "未到"} / {afterCloseStatusLabel(afterCloseStatus.moneyflow_status)}</span>
                         <span>计划证据 {afterCloseStatus.plan_rows_refreshed}/{afterCloseStatus.existing_plans} / {afterCloseStatusLabel(afterCloseStatus.plan_refresh_status)}</span>
-                        <span title={afterCloseStatus.candidate_recovery_summary ?? undefined}>候选恢复 {afterCloseStatusLabel(afterCloseStatus.candidate_recovery_status)} / {afterCloseStatus.candidate_recovery_written} 只 / {afterCloseStatus.candidate_recovery_plan_rows} 计划</span>
+                        <span title={afterCloseStatus.candidate_recovery_summary ?? undefined}>候选恢复 {afterCloseStatusLabel(afterCloseStatus.candidate_recovery_status)} / 写入 {afterCloseStatus.candidate_recovery_written} / 淘汰 {afterCloseStatus.candidate_recovery_retired} / 计划 {afterCloseStatus.candidate_recovery_plan_rows}</span>
                         <span>资金更新 {dateTimeText(afterCloseStatus.moneyflow_updated_at)}</span>
                         <span>调度健康 {afterCloseSchedulerText(afterCloseStatus)}</span>
                         <span>市场阶段 {marketRegimeText(afterCloseStatus.market_regime)} / 风险 {afterCloseStatus.market_regime_risk_level ?? "未记录"}</span>
