@@ -638,13 +638,22 @@ export interface WorkspaceStock {
   manual_refresh?: ManualRefresh | null;
 }
 
+export type StartupState = "preheat" | "probing" | "confirmed" | "invalidated";
+
 export interface StartupTrackingRow {
   symbol: string;
-  signal_type: "startup_preheat" | "startup_confirmed";
+  state: StartupState;
+  state_label: string;
+  state_time: string | null;
+  signal_type: `startup_${StartupState}`;
   signal_label: string;
   signal_date: string | null;
   signal_score: number | null;
   signal_reasons: string[];
+  confirmation_evidence: string[];
+  invalidation_reasons: string[];
+  next_conditions: string[];
+  plan_available: boolean;
   historical: Record<number, { sample_count: number; win_rate: number | null; raw_return: number | null; guarded_return: number | null }>;
   current_tracking: { realised_return: number | null; horizons: Record<number, "completed" | "in_progress" | "data_pending"> };
 }
@@ -733,10 +742,15 @@ export interface IntradayCandidate {
   intraday_state: string;
   intraday_label: string;
   intraday_score: number;
-  startup_stage: string;
+  startup_stage: StartupState;
   startup_label: string;
   startup_score: number;
   startup_reason: string;
+  startup_tracked: boolean;
+  startup_prior_state: StartupState | null;
+  startup_confirmation_evidence: string[];
+  startup_invalidation_reasons: string[];
+  startup_next_conditions: string[];
   review_window: string;
   review_window_label: string;
   sector_signal: string;
@@ -878,7 +892,7 @@ export interface IntradayStartupOutcome {
   symbol: string;
   name: string | null;
   sector: string | null;
-  startup_stage: string;
+  startup_stage: StartupState | "starting" | "accelerating";
   startup_label: string;
   startup_score: number;
   signal_price: number;
@@ -890,6 +904,9 @@ export interface IntradayStartupOutcome {
   previous_market_regime: string | null;
   regime_transition: string | null;
   horizons: Record<number, IntradayStartupHorizon>;
+  confirmation_evidence: string[];
+  invalidation_reasons: string[];
+  next_conditions: string[];
 }
 
 export interface IntradayStartupOutcomeSummary {
@@ -917,6 +934,9 @@ export interface IntradayStartupOutcomeReport {
   unavailable_count: number;
   context_counts: Record<string, number>;
   summary: Record<number, IntradayStartupOutcomeSummary>;
+  state_summary: Record<StartupState, Record<number, IntradayStartupOutcomeSummary>>;
+  probing_to_confirmed_rate: number | null;
+  confirmed_to_invalidated_rate: number | null;
   regime_transition_summary: Record<number, IntradayRegimeTransitionSummary[]>;
   outcomes: IntradayStartupOutcome[];
 }

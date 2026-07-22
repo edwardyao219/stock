@@ -1147,6 +1147,17 @@ function candidateExplanationText(item: {
   return cleanDisplayText(parts.join("；"));
 }
 
+function startupCandidateEvidence(item: {
+  startup_confirmation_evidence: string[];
+  startup_invalidation_reasons: string[];
+  startup_reason?: string | null;
+}) {
+  return item.startup_invalidation_reasons?.[0]
+    ?? item.startup_confirmation_evidence?.[0]
+    ?? item.startup_reason
+    ?? null;
+}
+
 function startupHorizonReturnText(item: {
   status: string;
   return_pct: number | null;
@@ -2603,7 +2614,9 @@ export function App() {
                         <em>{candidateExplanationText(item)}</em>
                       </span>
                       <span>
-                        <b>{item.startup_label}</b>
+                        <b className={`startup-state startup-${item.startup_stage}`}>
+                          {item.startup_label}
+                        </b>
                         <small>
                           启动 {item.startup_score.toFixed(1)}分 / 今日 {pct(item.day_change_pct)}
                         </small>
@@ -2611,6 +2624,12 @@ export function App() {
                           {item.intraday_label} / {item.sector_quality_label}
                           {item.sector_quality_score.toFixed(1)}分
                         </small>
+                        {startupCandidateEvidence(item) ? (
+                          <small>{startupCandidateEvidence(item)}</small>
+                        ) : null}
+                        {item.startup_next_conditions?.[0] ? (
+                          <small>{item.startup_next_conditions?.[0]}</small>
+                        ) : null}
                       </span>
                     </button>
                   ))
@@ -2948,10 +2967,18 @@ export function App() {
                         <strong>启动追踪</strong>
                         {startupTracking.map((item) => (
                           <div className="startup-tracking-row" key={item.symbol}>
-                            <b className={item.signal_type}>{item.signal_label === "启动观察" ? "启动观察" : "启动确认"}</b>
-                            <span>{item.symbol} / {item.signal_date ?? "数据待补"}</span>
+                            <b className={`startup-state startup-${item.state ?? item.signal_type.replace("startup_", "")}`}>
+                              {item.state_label || item.signal_label || "未启动"}
+                            </b>
+                            <span>
+                              {item.symbol} / {dateTimeText(item.state_time ?? item.signal_date)}
+                              {(item.invalidation_reasons?.[0] ?? item.confirmation_evidence?.[0]) ? (
+                                <small>{item.invalidation_reasons?.[0] ?? item.confirmation_evidence?.[0]}</small>
+                              ) : null}
+                              {item.next_conditions?.[0] ? <small>{item.next_conditions?.[0]}</small> : null}
+                            </span>
                             <span>历史验证 5/10/20日平均收益 {Object.values(item.historical).map((metric) => metric.raw_return === null ? "样本不足" : `${(metric.raw_return * 100).toFixed(1)}%`).join(" / ")}</span>
-                            <span>当前跟踪 {item.current_tracking.realised_return === null ? "进行中" : `${(item.current_tracking.realised_return * 100).toFixed(1)}%`} / {Object.values(item.current_tracking.horizons).every((value) => value === "completed") ? "已完成" : "进行中"}</span>
+                            <span>当前跟踪 {item.current_tracking.realised_return === null ? "进行中" : `${(item.current_tracking.realised_return * 100).toFixed(1)}%`} / {Object.values(item.current_tracking.horizons).every((value) => value === "completed") ? "已完成" : "进行中"} / {item.plan_available ? "计划可用" : "计划暂不可用"}</span>
                           </div>
                         ))}
                       </div>
@@ -5365,6 +5392,9 @@ export function App() {
                         ? ` / 无数据 ${intradaySnapshots.startup_outcomes.unavailable_count}`
                         : ""}
                     </small>
+                    <small>
+                      试探→确认 {pct(intradaySnapshots.startup_outcomes.probing_to_confirmed_rate)} / 确认→失效 {pct(intradaySnapshots.startup_outcomes.confirmed_to_invalidated_rate)}
+                    </small>
                   </div>
                   {[1, 3, 5].map((horizon) => {
                     const item = intradaySnapshots.startup_outcomes.summary[horizon];
@@ -5433,10 +5463,16 @@ export function App() {
                           <small>{outcome.sector ?? "-"} / {outcome.signal_date} {timeOnly(outcome.signal_time)}</small>
                         </span>
                         <span>
-                          <b>{outcome.startup_label}</b>
+                          <b className={`startup-state startup-${outcome.startup_stage}`}>
+                            {outcome.startup_label}
+                          </b>
                           <small>
                             {outcome.market_context_label} / 宽度 {ratioPct(outcome.market_breadth_ratio)}
                           </small>
+                          {(outcome.invalidation_reasons?.[0] ?? outcome.confirmation_evidence?.[0]) ? (
+                            <small>{outcome.invalidation_reasons?.[0] ?? outcome.confirmation_evidence?.[0]}</small>
+                          ) : null}
+                          {outcome.next_conditions?.[0] ? <small>{outcome.next_conditions?.[0]}</small> : null}
                         </span>
                         {[1, 3, 5].map((horizon) => {
                           const item = outcome.horizons[horizon];
@@ -5559,7 +5595,9 @@ export function App() {
                             <small>{item.name ?? "-"} / {item.sector ?? "-"}</small>
                           </span>
                           <span>
-                            <b>{item.startup_label}</b>
+                            <b className={`startup-state startup-${item.startup_stage}`}>
+                              {item.startup_label}
+                            </b>
                             <small>
                               启动 {item.startup_score.toFixed(1)}分 / 今日 {pct(item.day_change_pct)}
                             </small>
@@ -5567,6 +5605,12 @@ export function App() {
                               {item.intraday_label} / {item.sector_quality_label}
                               {item.sector_quality_score.toFixed(1)}
                             </small>
+                            {startupCandidateEvidence(item) ? (
+                              <small>{startupCandidateEvidence(item)}</small>
+                            ) : null}
+                            {item.startup_next_conditions?.[0] ? (
+                              <small>{item.startup_next_conditions?.[0]}</small>
+                            ) : null}
                           </span>
                           <em>{candidateExplanationText(item)}</em>
                         </button>

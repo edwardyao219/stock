@@ -1709,8 +1709,16 @@ button {
   font-size: 12px;
 }
 
-.startup-tracking-row b.startup_preheat { color: #a66a00; }
-.startup-tracking-row b.startup_confirmed { color: #0a7a45; }
+.startup-state.startup-preheat { color: #a66a00; }
+.startup-state.startup-probing { color: #2563a8; }
+.startup-state.startup-confirmed { color: #0a7a45; }
+.startup-state.startup-invalidated { color: #c73535; }
+
+.startup-tracking-row > span small {
+  color: #64748b;
+  display: block;
+  line-height: 1.35;
+}
 
 .candidate-tier-section {
   border-top: 1px solid #e1e8ef;
