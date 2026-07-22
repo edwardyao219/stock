@@ -538,12 +538,12 @@ def compute_daily_features_task() -> dict[str, object]:
 
 
 @celery_app.task(name="services.jobs.tasks.sync_late_tushare_moneyflow_task")
-def sync_late_tushare_moneyflow_task() -> dict[str, object]:
+def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str, object]:
     from services.collector.sync import sync_tushare_market_data_resumable
 
     current_time = now_local()
-    today = current_time.date()
-    trade_date = today.isoformat()
+    target_date = date.fromisoformat(trade_date) if trade_date else current_time.date()
+    trade_date = target_date.isoformat()
     with SessionLocal() as db:
         if not _is_open_trade_date(db, trade_date):
             return {
@@ -553,7 +553,7 @@ def sync_late_tushare_moneyflow_task() -> dict[str, object]:
             }
 
     results = sync_tushare_market_data_resumable(
-        today.strftime("%Y%m%d"),
+        target_date.strftime("%Y%m%d"),
         datasets=("moneyflow", "cyq_perf"),
         force=False,
     )
@@ -602,7 +602,7 @@ def sync_late_tushare_moneyflow_task() -> dict[str, object]:
         with SessionLocal() as db:
             evidence_health = inspect_tushare_evidence_health(
                 db,
-                today,
+                target_date,
                 {
                     "moneyflow": moneyflow_result.status,
                     "cyq_perf": cyq_perf_result.status,
@@ -634,7 +634,7 @@ def sync_late_tushare_moneyflow_task() -> dict[str, object]:
     with SessionLocal() as db:
         evidence_health = inspect_tushare_evidence_health(
             db,
-            today,
+            target_date,
             {
                 "moneyflow": moneyflow_result.status if moneyflow_result else "failed",
                 "cyq_perf": cyq_perf_result.status if cyq_perf_result else "failed",

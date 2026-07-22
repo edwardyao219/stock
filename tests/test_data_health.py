@@ -16,6 +16,7 @@ from services.shared.models import (
     Security,
     StockFeatureDaily,
     TushareCyqPerf,
+    TushareDatasetSyncReceipt,
     TushareLimitListD,
     TushareMoneyflow,
     TushareMoneyflowDc,
@@ -144,6 +145,26 @@ def test_inspect_tushare_evidence_health_accepts_empty_limit_events_after_sync()
             date(2026, 7, 10),
             sync_statuses={"limit_list_d": "ok"},
         )
+
+    assert health["datasets"][-1]["status"] == "ok"
+
+
+def test_inspect_tushare_evidence_health_accepts_empty_limit_events_with_receipt() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    trade_date = date(2026, 7, 10)
+
+    with sessionmaker(bind=engine)() as db:
+        db.add(
+            TushareDatasetSyncReceipt(
+                dataset="limit_list_d",
+                trade_date=trade_date,
+                row_count=0,
+            )
+        )
+        db.commit()
+
+        health = inspect_tushare_evidence_health(db, trade_date)
 
     assert health["datasets"][-1]["status"] == "ok"
 

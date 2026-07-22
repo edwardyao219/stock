@@ -414,6 +414,41 @@ def test_sync_late_tushare_moneyflow_task_reports_pending_release(monkeypatch) -
     }
 
 
+def test_sync_late_tushare_moneyflow_task_accepts_missed_trade_date(monkeypatch) -> None:
+    from datetime import datetime
+
+    from services.collector import sync as collector_sync
+
+    captured = {}
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 22, 8, 30))
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "inspect_tushare_evidence_health", lambda *args: {"updated": True})
+    monkeypatch.setattr(tasks, "merge_after_close_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        collector_sync,
+        "sync_tushare_market_data_resumable",
+        lambda trade_date, *, datasets, force=False: captured.update(
+            trade_date=trade_date,
+            datasets=tuple(datasets),
+            force=force,
+        )
+        or [
+            CollectionResult(source="tushare_proxy", dataset="moneyflow", trade_date=trade_date, rows=0, status="pending"),
+            CollectionResult(source="tushare_proxy", dataset="cyq_perf", trade_date=trade_date, rows=0, status="pending"),
+        ],
+    )
+
+    result = tasks.sync_late_tushare_moneyflow_task("2026-07-21")
+
+    assert captured == {
+        "trade_date": "20260721",
+        "datasets": ("moneyflow", "cyq_perf"),
+        "force": False,
+    }
+    assert result["trade_date"] == "2026-07-21"
+
+
 def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
     monkeypatch,
 ) -> None:

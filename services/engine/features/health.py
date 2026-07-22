@@ -19,6 +19,7 @@ from services.shared.models import (
     TushareLimitListD,
     TushareMoneyflow,
     TushareMoneyflowDc,
+    TushareDatasetSyncReceipt,
 )
 
 MIN_DISTRIBUTION_SAMPLE_SIZE = 3
@@ -190,12 +191,20 @@ def inspect_tushare_evidence_health(
             select(TushareLimitListD.ts_code).where(TushareLimitListD.trade_date == trade_date)
         ).scalars()
     )
+    limit_receipt = db.execute(
+        select(TushareDatasetSyncReceipt.id)
+        .where(TushareDatasetSyncReceipt.dataset == "limit_list_d")
+        .where(TushareDatasetSyncReceipt.trade_date == trade_date)
+        .limit(1)
+    ).scalar_one_or_none()
     limit_matched_rows = sum(
         1 for ts_code in limit_codes if str(ts_code).split(".", 1)[0] in eligible_symbols
     )
     limit_status = (
         "ok"
-        if limit_codes or (sync_statuses or {}).get("limit_list_d") in {"ok", "skipped"}
+        if limit_codes
+        or limit_receipt is not None
+        or (sync_statuses or {}).get("limit_list_d") in {"ok", "skipped"}
         else "missing"
     )
     return {
