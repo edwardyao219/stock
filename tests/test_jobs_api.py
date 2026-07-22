@@ -56,6 +56,8 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
             "plan_refresh_status": "ok",
             "existing_plans": 2,
             "plan_rows_refreshed": 2,
+            "candidate_recovery_status": "ok",
+            "candidate_recovery_summary": "候选恢复完成：写入 3 只股票，生成 1 条交易计划。",
             "market_summary": "市场 weak_trend / 压力大",
             "tushare_evidence_health": {
                 "trade_date": trade_date,
@@ -77,6 +79,8 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
     assert payload.plan_refresh_status == "ok"
     assert payload.existing_plans == 2
     assert payload.plan_rows_refreshed == 2
+    assert payload.candidate_recovery_status == "ok"
+    assert payload.candidate_recovery_summary == "候选恢复完成：写入 3 只股票，生成 1 条交易计划。"
     assert payload.market_summary == "市场 weak_trend / 压力大"
     assert payload.tushare_evidence_health["daily_symbol_count"] == 100
 

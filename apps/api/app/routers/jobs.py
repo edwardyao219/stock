@@ -161,6 +161,8 @@ class AfterCloseStatusResponse(BaseModel):
     plan_refresh_status: str = "not_run"
     existing_plans: int = 0
     plan_rows_refreshed: int = 0
+    candidate_recovery_status: str = "not_run"
+    candidate_recovery_summary: str | None = None
     market_summary: str | None = None
     market_regime: str | None = None
     market_regime_risk_level: str | None = None

@@ -1649,6 +1649,8 @@ export interface AfterCloseStatus {
   plan_refresh_status: string;
   existing_plans: number;
   plan_rows_refreshed: number;
+  candidate_recovery_status: string;
+  candidate_recovery_summary: string | null;
   market_summary: string | null;
   market_regime: string | null;
   market_regime_risk_level: string | null;

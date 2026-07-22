@@ -594,10 +594,33 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
         )
         existing_plans = int(plan_result["existing_plans"])
         refreshed_rows = int(plan_result["written"])
-        status = "ok"
+        data_arrived = any(
+            result.status != "skipped" for result in (moneyflow_result, cyq_perf_result)
+        )
+        candidate_recovery_status = "skipped"
+        candidate_recovery_summary = "数据已是最新，未重复重评估候选。"
+        if data_arrived:
+            try:
+                from services.jobs.pipeline import _discover_next_session_candidates_step
+
+                candidate_recovery = _discover_next_session_candidates_step(
+                    trade_date=trade_date,
+                    next_trade_date=next_trade_date,
+                    limit=200,
+                    use_learning_adjustments=True,
+                    suppress_candidate_notification=True,
+                )
+                candidate_recovery_status = candidate_recovery.status
+                candidate_recovery_summary = (
+                    candidate_recovery.summary or candidate_recovery.detail
+                )
+            except Exception as exc:
+                candidate_recovery_status = "failed"
+                candidate_recovery_summary = f"候选恢复失败：{exc}"
+        status = "ok" if candidate_recovery_status in {"ok", "skipped"} else "warning"
         message = (
             f"基础资金流 {moneyflow_result.rows} 条、筹码 {cyq_perf_result.rows} 条已就绪；"
-            f"静默刷新 {refreshed_rows}/{existing_plans} 条交易计划。"
+            f"静默刷新 {refreshed_rows}/{existing_plans} 条交易计划。{candidate_recovery_summary}"
         )
         with SessionLocal() as db:
             evidence_health = inspect_tushare_evidence_health(
@@ -617,6 +640,8 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
                 "plan_refresh_status": "ok",
                 "existing_plans": existing_plans,
                 "plan_rows_refreshed": refreshed_rows,
+                "candidate_recovery_status": candidate_recovery_status,
+                "candidate_recovery_summary": candidate_recovery_summary,
                 "tushare_evidence_health": evidence_health,
             },
         )
@@ -630,6 +655,8 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
             "cyq_perf_rows": cyq_perf_result.rows,
             "existing_plans": existing_plans,
             "plan_rows_refreshed": refreshed_rows,
+            "candidate_recovery_status": candidate_recovery_status,
+            "candidate_recovery_summary": candidate_recovery_summary,
         }
     with SessionLocal() as db:
         evidence_health = inspect_tushare_evidence_health(

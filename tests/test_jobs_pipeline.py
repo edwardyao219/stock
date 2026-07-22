@@ -459,6 +459,7 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
     from services.notifications import dispatcher
 
     captured = {}
+    candidate_captured = {}
     merged = {}
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 16, 19, 30))
     monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
@@ -498,6 +499,17 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
 
     monkeypatch.setattr(plan_sync, "refresh_existing_trade_plans", fake_refresh)
     monkeypatch.setattr(
+        pipeline,
+        "_discover_next_session_candidates_step",
+        lambda **kwargs: candidate_captured.update(kwargs)
+        or pipeline.PipelineStepResult(
+            name="discover_next_session_candidates",
+            status="ok",
+            detail="候选恢复完成",
+            summary="候选恢复完成",
+        ),
+    )
+    monkeypatch.setattr(
         dispatcher,
         "dispatch_candidate_screening",
         lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -521,6 +533,8 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
             "plan_refresh_status": "ok",
             "existing_plans": 2,
             "plan_rows_refreshed": 2,
+            "candidate_recovery_status": "ok",
+            "candidate_recovery_summary": "候选恢复完成",
             "tushare_evidence_health": {"updated": True},
         },
     }
@@ -528,13 +542,156 @@ def test_sync_late_tushare_moneyflow_task_silently_refreshes_existing_plans(
         "trade_date": "2026-07-16",
         "next_trade_date": "2026-07-17",
         "status": "ok",
-        "message": "基础资金流 5198 条、筹码 5198 条已就绪；静默刷新 2/2 条交易计划。",
+        "message": "基础资金流 5198 条、筹码 5198 条已就绪；静默刷新 2/2 条交易计划。候选恢复完成",
         "sync_status": "ok",
         "moneyflow_rows": 5198,
         "cyq_perf_rows": 5198,
         "existing_plans": 2,
         "plan_rows_refreshed": 2,
+        "candidate_recovery_status": "ok",
+        "candidate_recovery_summary": "候选恢复完成",
     }
+    assert candidate_captured["suppress_candidate_notification"] is True
+
+
+def test_sync_late_tushare_moneyflow_task_silently_recovers_candidates_when_data_arrives(
+    monkeypatch,
+) -> None:
+    from services.collector import sync as collector_sync
+    from services.notifications import dispatcher
+
+    captured = {}
+    merged = {}
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-17")
+    monkeypatch.setattr(tasks, "inspect_tushare_evidence_health", lambda *args: {"updated": True})
+    monkeypatch.setattr(
+        collector_sync,
+        "sync_tushare_market_data_resumable",
+        lambda *args, **kwargs: [
+            CollectionResult(source="tushare_proxy", dataset="moneyflow", trade_date="20260716", rows=5198, status="ok"),
+            CollectionResult(source="tushare_proxy", dataset="cyq_perf", trade_date="20260716", rows=5198, status="ok"),
+        ],
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.refresh_existing_trade_plans",
+        lambda **kwargs: {"existing_plans": 0, "written": 0},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_discover_next_session_candidates_step",
+        lambda **kwargs: captured.update(kwargs)
+        or pipeline.PipelineStepResult(
+            name="discover_next_session_candidates",
+            status="ok",
+            detail="明日候选完成：写入 3 只股票，生成 1 条交易计划。",
+            summary="候选恢复完成",
+        ),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "merge_after_close_status",
+        lambda trade_date, updates: merged.update(trade_date=trade_date, updates=updates),
+    )
+    monkeypatch.setattr(
+        dispatcher,
+        "dispatch_candidate_screening",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("candidate recovery must not send notifications")
+        ),
+    )
+
+    result = tasks.sync_late_tushare_moneyflow_task("2026-07-16")
+
+    assert captured == {
+        "trade_date": "2026-07-16",
+        "next_trade_date": "2026-07-17",
+        "limit": 200,
+        "use_learning_adjustments": True,
+        "suppress_candidate_notification": True,
+    }
+    assert result["candidate_recovery_status"] == "ok"
+    assert merged["updates"]["candidate_recovery_status"] == "ok"
+    assert merged["updates"]["candidate_recovery_summary"] == "候选恢复完成"
+
+
+def test_sync_late_tushare_moneyflow_task_skips_candidate_recovery_when_data_is_already_current(
+    monkeypatch,
+) -> None:
+    from services.collector import sync as collector_sync
+
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-17")
+    monkeypatch.setattr(tasks, "inspect_tushare_evidence_health", lambda *args: {"updated": True})
+    monkeypatch.setattr(tasks, "merge_after_close_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        collector_sync,
+        "sync_tushare_market_data_resumable",
+        lambda *args, **kwargs: [
+            CollectionResult(source="tushare_proxy", dataset="moneyflow", trade_date="20260716", rows=0, status="skipped"),
+            CollectionResult(source="tushare_proxy", dataset="cyq_perf", trade_date="20260716", rows=0, status="skipped"),
+        ],
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.refresh_existing_trade_plans",
+        lambda **kwargs: {"existing_plans": 0, "written": 0},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_discover_next_session_candidates_step",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("current data must not trigger a second candidate recovery")
+        ),
+    )
+
+    result = tasks.sync_late_tushare_moneyflow_task("2026-07-16")
+
+    assert result["candidate_recovery_status"] == "skipped"
+
+
+def test_sync_late_tushare_moneyflow_task_keeps_data_sync_success_when_candidate_recovery_fails(
+    monkeypatch,
+) -> None:
+    from services.collector import sync as collector_sync
+
+    merged = {}
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-17")
+    monkeypatch.setattr(tasks, "inspect_tushare_evidence_health", lambda *args: {"updated": True})
+    monkeypatch.setattr(
+        collector_sync,
+        "sync_tushare_market_data_resumable",
+        lambda *args, **kwargs: [
+            CollectionResult(source="tushare_proxy", dataset="moneyflow", trade_date="20260716", rows=5198, status="ok"),
+            CollectionResult(source="tushare_proxy", dataset="cyq_perf", trade_date="20260716", rows=5198, status="ok"),
+        ],
+    )
+    monkeypatch.setattr(
+        "services.engine.plans.sync.refresh_existing_trade_plans",
+        lambda **kwargs: {"existing_plans": 0, "written": 0},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_discover_next_session_candidates_step",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("candidate store unavailable")),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "merge_after_close_status",
+        lambda trade_date, updates: merged.update(trade_date=trade_date, updates=updates),
+    )
+
+    result = tasks.sync_late_tushare_moneyflow_task("2026-07-16")
+
+    assert result["status"] == "warning"
+    assert result["sync_status"] == "ok"
+    assert result["candidate_recovery_status"] == "failed"
+    assert "candidate store unavailable" in result["candidate_recovery_summary"]
+    assert merged["updates"]["moneyflow_status"] == "ok"
+    assert merged["updates"]["candidate_recovery_status"] == "failed"
 
 
 def test_compute_features_step_refreshes_low_dimensional_snapshot_cache(monkeypatch) -> None:
