@@ -100,6 +100,13 @@
 - Celery 检查结果：1 个 worker 在线，active 为空。本轮没有重启 API、Web 或 worker。
 - 最新真实数据检查：盘中市场日期 `2026-07-22`；特征、板块和资金日期 `2026-07-21`。
 
+2026-07-23 运行态上线验证：
+
+- 从 `main` 重启 API screen，当前 `stock-api-funnel` 会话 PID 为 `8924`，8000 仅由新的 Uvicorn PID `8942` 监听。
+- `/jobs/after-close/status` 已返回 `candidate_retire_reasons`；`/workspace/startup-tracking` 可读，当前返回 0 条数据属正常样本不足状态。
+- launchd worker 从 PID `17399` 重启为 PID `14319`；`inspect ping`、生命周期相关任务注册和 `inspect active` 均正常，active 为空。
+- Celery beat 保持运行，未手工触发盘中/盘后任务，未发送测试通知；2026-07-22 的 `cyq_perf` 缺失数据门禁保持不变。
+
 常用命令：
 
 ```bash
