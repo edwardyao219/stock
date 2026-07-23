@@ -355,9 +355,12 @@ def _run_realtime_monitor_step(
     analysis_time = (as_of or now_local()).replace(tzinfo=None)
     market_overview = None
     try:
-        from apps.api.app.routers.market import _cached_live_a_share_overview
+        from apps.api.app.routers.market import (
+            LIVE_MARKET_TIMEOUT_SECONDS,
+            _try_cached_live_a_share_overview,
+        )
 
-        overview = _cached_live_a_share_overview()
+        overview = _try_cached_live_a_share_overview(LIVE_MARKET_TIMEOUT_SECONDS)
         market_overview = {
             "up_ratio": overview.up_ratio,
             "avg_change_pct": overview.avg_change_pct,

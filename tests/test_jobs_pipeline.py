@@ -1937,6 +1937,9 @@ def test_celery_captures_korea_semiconductor_signal_before_a_share_open() -> Non
 
 def test_intraday_session_passes_stage_and_as_of_to_monitor(monkeypatch) -> None:
     from datetime import datetime
+    from types import SimpleNamespace
+
+    from apps.api.app.routers import market
 
     captured = {}
 
@@ -1955,6 +1958,16 @@ def test_intraday_session_passes_stage_and_as_of_to_monitor(monkeypatch) -> None
         "services.engine.paper.realtime.monitor_paper_positions_realtime",
         fake_monitor,
     )
+    monkeypatch.setattr(
+        market,
+        "_try_cached_live_a_share_overview",
+        lambda timeout_seconds: SimpleNamespace(up_ratio=0.42, avg_change_pct=0.006),
+    )
+    monkeypatch.setattr(
+        market,
+        "_cached_live_a_share_overview",
+        lambda: (_ for _ in ()).throw(AssertionError("blocking overview must not be used")),
+    )
 
     result = pipeline.run_intraday_trade_session(
         "2026-06-24",
@@ -1967,6 +1980,7 @@ def test_intraday_session_passes_stage_and_as_of_to_monitor(monkeypatch) -> None
     assert result.steps[0].summary == "midday_snapshot @ 2026-06-24T11:35:00"
     assert captured["quote_time"] == datetime(2026, 6, 24, 11, 35)
     assert captured["snapshot_stage"] == "midday_snapshot"
+    assert captured["market_overview"] == {"up_ratio": 0.42, "avg_change_pct": 0.006}
 
 
 def test_early_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> None:
