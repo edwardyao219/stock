@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from services.jobs import status as job_status
 from services.jobs.status import build_after_close_status
 
@@ -58,7 +60,7 @@ def test_merge_after_close_status_preserves_push_outcomes(monkeypatch) -> None:
         },
     )
 
-    assert captured == {
+    assert {key: value for key, value in captured.items() if key != "updated_at"} == {
         "trade_date": "2026-07-16",
         "candidate_count": 21,
         "dingtalk_status": "ok",
@@ -67,3 +69,24 @@ def test_merge_after_close_status_preserves_push_outcomes(monkeypatch) -> None:
         "moneyflow_rows": 5197,
         "plan_rows_refreshed": 0,
     }
+    assert "updated_at" in captured
+
+
+def test_merge_after_close_status_refreshes_updated_at(monkeypatch) -> None:
+    captured = {}
+    refreshed_at = datetime(2026, 7, 23, 8, 50)
+    monkeypatch.setattr(
+        job_status,
+        "read_after_close_status",
+        lambda trade_date: {"trade_date": trade_date, "updated_at": "2026-07-22T18:44:12+08:00"},
+    )
+    monkeypatch.setattr(job_status, "now_local", lambda: refreshed_at)
+    monkeypatch.setattr(
+        job_status,
+        "_write_after_close_status_payload",
+        lambda trade_date, payload: captured.update(payload),
+    )
+
+    job_status.merge_after_close_status("2026-07-22", {"candidate_recovery_status": "ok"})
+
+    assert captured["updated_at"] == refreshed_at.isoformat()

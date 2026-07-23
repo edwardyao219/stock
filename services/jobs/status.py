@@ -151,7 +151,10 @@ def merge_after_close_status(trade_date: str, updates: dict[str, Any]) -> None:
     current = read_after_close_status(trade_date)
     if current is None:
         return
-    _write_after_close_status_payload(trade_date, {**current, **updates})
+    _write_after_close_status_payload(
+        trade_date,
+        {**current, **updates, "updated_at": now_local().isoformat()},
+    )
 
 
 def read_after_close_status(trade_date: str) -> dict[str, Any] | None:
