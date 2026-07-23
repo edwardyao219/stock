@@ -161,6 +161,9 @@ class AfterCloseStatusResponse(BaseModel):
     moneyflow_status: str = "not_run"
     moneyflow_rows: int = 0
     moneyflow_updated_at: str | None = None
+    cyq_perf_status: str = "not_run"
+    cyq_perf_rows: int = 0
+    cyq_perf_updated_at: str | None = None
     plan_refresh_status: str = "not_run"
     existing_plans: int = 0
     plan_rows_refreshed: int = 0

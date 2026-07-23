@@ -1667,6 +1667,9 @@ export interface AfterCloseStatus {
   moneyflow_status: string;
   moneyflow_rows: number;
   moneyflow_updated_at: string | null;
+  cyq_perf_status: string;
+  cyq_perf_rows: number;
+  cyq_perf_updated_at: string | null;
   plan_refresh_status: string;
   existing_plans: number;
   plan_rows_refreshed: number;

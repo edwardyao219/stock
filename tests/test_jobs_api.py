@@ -54,6 +54,9 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
             "moneyflow_status": "ok",
             "moneyflow_rows": 5197,
             "moneyflow_updated_at": "2026-07-09T19:30:00+08:00",
+            "cyq_perf_status": "pending",
+            "cyq_perf_rows": 0,
+            "cyq_perf_updated_at": "2026-07-09T19:30:00+08:00",
             "plan_refresh_status": "ok",
             "existing_plans": 2,
             "plan_rows_refreshed": 2,
@@ -77,6 +80,9 @@ def test_after_close_status_reads_cached_status(monkeypatch) -> None:
     assert payload.moneyflow_status == "ok"
     assert payload.moneyflow_rows == 5197
     assert payload.moneyflow_updated_at == "2026-07-09T19:30:00+08:00"
+    assert payload.cyq_perf_status == "pending"
+    assert payload.cyq_perf_rows == 0
+    assert payload.cyq_perf_updated_at == "2026-07-09T19:30:00+08:00"
     assert payload.plan_refresh_status == "ok"
     assert payload.existing_plans == 2
     assert payload.plan_rows_refreshed == 2

@@ -41,6 +41,8 @@ assert(app.includes("health?.current_step"), "收盘抽屉需要展示当前执�
 assert(app.includes("health?.last_heartbeat_at"), "收盘抽屉需要展示最近心跳时间");
 assert(app.includes("plan_rows_refreshed"), "收盘抽屉需要展示资金流到达后的计划刷新数量");
 assert(app.includes("moneyflow_updated_at"), "收盘抽屉需要展示基础资金流更新时间");
+assert(app.includes("cyq_perf_status"), "收盘抽屉需要展示筹码分布补采状态");
+assert(app.includes("cyq_perf_updated_at"), "收盘抽屉需要展示筹码分布更新时间");
 assert(
   app.includes('const reviewTradeDate = reviewMetricRecord(review, "market_summary")?.trade_date;'),
   "盘后状态查询需要优先使用复盘数据交易日",

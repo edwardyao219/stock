@@ -587,6 +587,8 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
     result_by_dataset = {result.dataset: result for result in results}
     moneyflow_result = result_by_dataset.get("moneyflow")
     cyq_perf_result = result_by_dataset.get("cyq_perf")
+    moneyflow_status = moneyflow_result.status if moneyflow_result else "failed"
+    cyq_perf_status = cyq_perf_result.status if cyq_perf_result else "failed"
     if moneyflow_result is None or cyq_perf_result is None:
         status = "failed"
         message = "晚间资金流或筹码补采未返回完整结果。"
@@ -676,6 +678,9 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
                 "moneyflow_status": moneyflow_result.status,
                 "moneyflow_rows": moneyflow_result.rows,
                 "moneyflow_updated_at": current_time.isoformat(),
+                "cyq_perf_status": cyq_perf_result.status,
+                "cyq_perf_rows": cyq_perf_result.rows,
+                "cyq_perf_updated_at": current_time.isoformat(),
                 "plan_refresh_status": "ok",
                 "existing_plans": existing_plans,
                 "plan_rows_refreshed": refreshed_rows,
@@ -693,7 +698,9 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
             "status": status,
             "message": message,
             "sync_status": "ok",
+            "moneyflow_status": moneyflow_status,
             "moneyflow_rows": moneyflow_result.rows,
+            "cyq_perf_status": cyq_perf_status,
             "cyq_perf_rows": cyq_perf_result.rows,
             "existing_plans": existing_plans,
             "plan_rows_refreshed": refreshed_rows,
@@ -716,9 +723,12 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
     merge_after_close_status(
         trade_date,
         {
-            "moneyflow_status": sync_status,
+            "moneyflow_status": moneyflow_status,
             "moneyflow_rows": moneyflow_rows,
             "moneyflow_updated_at": current_time.isoformat(),
+            "cyq_perf_status": cyq_perf_status,
+            "cyq_perf_rows": cyq_perf_rows,
+            "cyq_perf_updated_at": current_time.isoformat(),
             "plan_refresh_status": "failed" if sync_status == "failed" else "waiting",
             "existing_plans": 0,
             "plan_rows_refreshed": 0,
@@ -730,7 +740,9 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
         "status": status,
         "message": message,
         "sync_status": sync_status,
+        "moneyflow_status": moneyflow_status,
         "moneyflow_rows": moneyflow_rows,
+        "cyq_perf_status": cyq_perf_status,
         "cyq_perf_rows": cyq_perf_rows,
     }
 
