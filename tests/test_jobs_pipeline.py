@@ -804,8 +804,110 @@ def test_replay_candidate_recovery_task_silently_updates_historical_status(monke
             "candidate_recovery_written": 3,
             "candidate_recovery_retired": 2,
             "candidate_recovery_plan_rows": 1,
+            "candidate_recovery_notification_requested": False,
         },
     }
+
+
+def test_replay_candidate_recovery_task_records_successful_requested_notification(
+    monkeypatch,
+) -> None:
+    from datetime import datetime
+
+    captured = {}
+    merged = {}
+    released = []
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 22, 18, 30))
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-22")
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_daily_task_lock",
+        lambda *args: (True, "stock:daily-task:after-close-candidate-notify:2026-07-21"),
+    )
+    monkeypatch.setattr(tasks, "_release_daily_task_lock", released.append)
+    monkeypatch.setattr(
+        pipeline,
+        "_discover_next_session_candidates_step",
+        lambda **kwargs: captured.update(kwargs)
+        or pipeline.PipelineStepResult(
+            name="discover_next_session_candidates",
+            status="ok",
+            detail="候选恢复完成",
+            summary="候选恢复完成",
+            details=["钉钉提醒：dingtalk:ok"],
+            metrics={"candidate_written": 3, "candidate_retired": 2, "plan_written": 1},
+        ),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "merge_after_close_status",
+        lambda trade_date, updates: merged.update(trade_date=trade_date, updates=updates),
+    )
+
+    result = tasks.replay_candidate_recovery_task("2026-07-21", notify=True)
+
+    assert captured["suppress_candidate_notification"] is False
+    assert released == []
+    assert result["dingtalk_status"] == "ok"
+    assert merged["updates"]["dingtalk_statuses"] == ["dingtalk:ok"]
+    assert merged["updates"]["dingtalk_status"] == "ok"
+
+
+def test_replay_candidate_recovery_task_releases_notification_lock_after_send_failure(
+    monkeypatch,
+) -> None:
+    from datetime import datetime
+
+    released = []
+    lock_key = "stock:daily-task:after-close-candidate-notify:2026-07-21"
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 22, 18, 30))
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-22")
+    monkeypatch.setattr(tasks, "_acquire_daily_task_lock", lambda *args: (True, lock_key))
+    monkeypatch.setattr(tasks, "_release_daily_task_lock", released.append)
+    monkeypatch.setattr(
+        pipeline,
+        "_discover_next_session_candidates_step",
+        lambda **kwargs: pipeline.PipelineStepResult(
+            name="discover_next_session_candidates",
+            status="failed",
+            detail="候选恢复完成",
+            summary="候选恢复完成",
+            details=["钉钉提醒：dingtalk:failed"],
+        ),
+    )
+    monkeypatch.setattr(tasks, "merge_after_close_status", lambda *args: None)
+
+    result = tasks.replay_candidate_recovery_task("2026-07-21", notify=True)
+
+    assert result["dingtalk_status"] == "failed"
+    assert released == [lock_key]
+
+
+def test_replay_candidate_recovery_task_skips_duplicate_notification(monkeypatch) -> None:
+    from datetime import datetime
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 22, 18, 30))
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(tasks, "_is_open_trade_date", lambda db, trade_date: True)
+    monkeypatch.setattr(
+        tasks,
+        "_acquire_daily_task_lock",
+        lambda *args: (False, "stock:daily-task:after-close-candidate-notify:2026-07-21"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_discover_next_session_candidates_step",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("duplicate must not replay")),
+    )
+
+    result = tasks.replay_candidate_recovery_task("2026-07-21", notify=True)
+
+    assert result["status"] == "skipped"
+    assert "already sent" in result["message"]
 
 
 def test_compute_features_step_refreshes_low_dimensional_snapshot_cache(monkeypatch) -> None:

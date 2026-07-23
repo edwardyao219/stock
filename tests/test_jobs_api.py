@@ -319,16 +319,32 @@ def test_after_close_candidate_recovery_endpoint_enqueues_silent_historical_repl
     captured = {}
 
     class _Task:
-        def delay(self, trade_date):
-            captured["trade_date"] = trade_date
+        def delay(self, trade_date, *, notify=False):
+            captured.update(trade_date=trade_date, notify=notify)
 
     monkeypatch.setattr(jobs, "now_local", lambda: datetime(2026, 7, 22, 18, 30))
     monkeypatch.setattr(jobs, "replay_candidate_recovery_task", _Task())
 
     payload = jobs.recover_after_close_candidates(trade_date="2026-07-21")
 
-    assert captured == {"trade_date": "2026-07-21"}
-    assert payload == {"trade_date": "2026-07-21", "status": "queued"}
+    assert captured == {"trade_date": "2026-07-21", "notify": False}
+    assert payload == {"trade_date": "2026-07-21", "status": "queued", "notify": False}
+
+
+def test_after_close_candidate_recovery_endpoint_allows_explicit_notification(monkeypatch) -> None:
+    captured = {}
+
+    class _Task:
+        def delay(self, trade_date, *, notify=False):
+            captured.update(trade_date=trade_date, notify=notify)
+
+    monkeypatch.setattr(jobs, "now_local", lambda: datetime(2026, 7, 22, 18, 30))
+    monkeypatch.setattr(jobs, "replay_candidate_recovery_task", _Task())
+
+    payload = jobs.recover_after_close_candidates(trade_date="2026-07-21", notify=True)
+
+    assert captured == {"trade_date": "2026-07-21", "notify": True}
+    assert payload == {"trade_date": "2026-07-21", "status": "queued", "notify": True}
 
 
 def test_build_after_close_status_keeps_scheduler_health() -> None:

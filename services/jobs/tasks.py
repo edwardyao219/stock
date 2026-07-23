@@ -52,6 +52,8 @@ from services.jobs.pipeline import (
     run_intraday_trade_session,
 )
 from services.jobs.status import (
+    _dingtalk_status,
+    _extract_dingtalk_statuses,
     merge_after_close_status,
     read_after_close_status,
     write_after_close_status,
@@ -748,7 +750,7 @@ def sync_late_tushare_moneyflow_task(trade_date: str | None = None) -> dict[str,
 
 
 @celery_app.task(name="services.jobs.tasks.replay_candidate_recovery_task")
-def replay_candidate_recovery_task(trade_date: str) -> dict[str, object]:
+def replay_candidate_recovery_task(trade_date: str, notify: bool = False) -> dict[str, object]:
     target_date = date.fromisoformat(trade_date)
     trade_date = target_date.isoformat()
     if target_date > now_local().date():
@@ -765,6 +767,21 @@ def replay_candidate_recovery_task(trade_date: str) -> dict[str, object]:
                 "message": "非交易日，已跳过候选恢复。",
             }
 
+    if notify:
+        acquired, lock_key = _acquire_daily_task_lock(
+            "after-close-candidate-notify",
+            target_date,
+        )
+        if not acquired:
+            return {
+                "trade_date": trade_date,
+                "status": "skipped",
+                "message": "candidate notification already sent for this trade date",
+                "lock_key": lock_key,
+                "notify": True,
+            }
+
+    notification_statuses: list[str] = []
     next_trade_date = resolve_next_trade_date(trade_date)
     try:
         from services.jobs.pipeline import _discover_next_session_candidates_step
@@ -774,28 +791,43 @@ def replay_candidate_recovery_task(trade_date: str) -> dict[str, object]:
             next_trade_date=next_trade_date,
             limit=200,
             use_learning_adjustments=True,
-            suppress_candidate_notification=True,
+            suppress_candidate_notification=not notify,
         )
         status = recovery.status
         summary = recovery.summary or recovery.detail
         written = int(recovery.metrics.get("candidate_written") or 0)
         retired = int(recovery.metrics.get("candidate_retired") or 0)
         plan_rows = int(recovery.metrics.get("plan_written") or 0)
+        if notify:
+            notification_statuses = _extract_dingtalk_statuses(recovery.details)
     except Exception as exc:
         status = "failed"
         summary = f"候选恢复失败：{exc}"
         written = 0
         retired = 0
         plan_rows = 0
+    dingtalk_status = _dingtalk_status(notification_statuses) if notify else None
+    if notify and dingtalk_status != "ok":
+        _release_daily_task_lock(lock_key)
+
+    status_updates: dict[str, object] = {
+        "candidate_recovery_status": status,
+        "candidate_recovery_summary": summary,
+        "candidate_recovery_written": written,
+        "candidate_recovery_retired": retired,
+        "candidate_recovery_plan_rows": plan_rows,
+        "candidate_recovery_notification_requested": notify,
+    }
+    if notify:
+        status_updates.update(
+            {
+                "dingtalk_statuses": notification_statuses,
+                "dingtalk_status": dingtalk_status,
+            }
+        )
     merge_after_close_status(
         trade_date,
-        {
-            "candidate_recovery_status": status,
-            "candidate_recovery_summary": summary,
-            "candidate_recovery_written": written,
-            "candidate_recovery_retired": retired,
-            "candidate_recovery_plan_rows": plan_rows,
-        },
+        status_updates,
     )
     return {
         "trade_date": trade_date,
@@ -805,6 +837,9 @@ def replay_candidate_recovery_task(trade_date: str) -> dict[str, object]:
         "candidate_recovery_written": written,
         "candidate_recovery_retired": retired,
         "candidate_recovery_plan_rows": plan_rows,
+        "notify": notify,
+        "dingtalk_statuses": notification_statuses,
+        "dingtalk_status": dingtalk_status,
     }
 
 

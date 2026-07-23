@@ -381,15 +381,15 @@ def recover_after_close(trade_date: str | None = None) -> dict[str, str]:
 
 
 @router.post("/after-close/candidate-recovery")
-def recover_after_close_candidates(trade_date: str) -> dict[str, str]:
+def recover_after_close_candidates(trade_date: str, notify: bool = False) -> dict[str, str | bool]:
     try:
         target = date.fromisoformat(trade_date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="invalid trade date") from exc
     if target > now_local().date():
         raise HTTPException(status_code=400, detail="only current or past trade dates can be recovered")
-    replay_candidate_recovery_task.delay(target.isoformat())
-    return {"trade_date": target.isoformat(), "status": "queued"}
+    replay_candidate_recovery_task.delay(target.isoformat(), notify=notify)
+    return {"trade_date": target.isoformat(), "status": "queued", "notify": notify}
 
 
 @router.get("/rule-regression/status", response_model=RuleRegressionStatusResponse)
