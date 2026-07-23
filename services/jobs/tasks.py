@@ -986,6 +986,13 @@ def _write_after_close_step_heartbeat(
     )
 
 
+def _queue_after_close_safe_recovery() -> None:
+    try:
+        run_after_close_safe_recovery_task.delay()
+    except Exception:
+        return
+
+
 @celery_app.task(name="services.jobs.tasks.run_after_close_session_task")
 def run_after_close_session_task(force: bool = False) -> dict[str, object]:
     current_time = now_local()
@@ -1074,6 +1081,8 @@ def run_after_close_session_task(force: bool = False) -> dict[str, object]:
                 f"failed steps: {', '.join(failed_steps)}",
             )
         write_after_close_status(result)
+        if failed_steps:
+            _queue_after_close_safe_recovery()
         return result
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
@@ -1099,6 +1108,7 @@ def run_after_close_session_task(force: bool = False) -> dict[str, object]:
         }
         write_after_close_status(failed_result)
         _dispatch_after_close_failure_alert(today.isoformat(), "normal", error)
+        _queue_after_close_safe_recovery()
         raise
 
 

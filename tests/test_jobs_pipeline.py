@@ -1570,11 +1570,19 @@ def test_after_close_task_records_failure_when_pipeline_raises(monkeypatch) -> N
     from datetime import datetime
 
     writes = []
+    queued = []
+
+    class _SafeRecoveryTask:
+        @staticmethod
+        def delay():
+            queued.append(True)
+
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 30, 18, 0))
     monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-01")
     monkeypatch.setattr(tasks, "_acquire_daily_task_lock", lambda *args: (True, "lock"))
     monkeypatch.setattr(tasks, "write_after_close_status", writes.append)
     monkeypatch.setattr(tasks, "_dispatch_after_close_failure_alert", lambda *args: None)
+    monkeypatch.setattr(tasks, "run_after_close_safe_recovery_task", _SafeRecoveryTask())
     monkeypatch.setattr(
         tasks,
         "run_after_close_session",
@@ -1586,6 +1594,49 @@ def test_after_close_task_records_failure_when_pipeline_raises(monkeypatch) -> N
 
     assert writes[-1]["status"] == "failed"
     assert writes[-1]["scheduler_health"]["state"] == "failed"
+    assert queued == [True]
+
+
+def test_after_close_task_queues_recovery_for_failed_steps(monkeypatch) -> None:
+    from datetime import datetime
+
+    queued = []
+
+    class _Result:
+        def to_dict(self):
+            return {
+                "trade_date": "2026-06-30",
+                "next_trade_date": "2026-07-01",
+                "stage": "after_close",
+                "steps": [{"name": "discover_next_session_candidates", "status": "failed"}],
+            }
+
+    class _Db:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _SafeRecoveryTask:
+        @staticmethod
+        def delay():
+            queued.append(True)
+
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 30, 18, 0))
+    monkeypatch.setattr(tasks, "resolve_next_trade_date", lambda trade_date: "2026-07-01")
+    monkeypatch.setattr(tasks, "_acquire_daily_task_lock", lambda *args: (True, "lock"))
+    monkeypatch.setattr(tasks, "run_after_close_session", lambda *args, **kwargs: _Result())
+    monkeypatch.setattr(tasks, "SessionLocal", _Db)
+    monkeypatch.setattr(tasks, "inspect_tushare_evidence_health", lambda *args: {})
+    monkeypatch.setattr(tasks, "write_after_close_status", lambda result: None)
+    monkeypatch.setattr(tasks, "_dispatch_after_close_failure_alert", lambda *args: None)
+    monkeypatch.setattr(tasks, "run_after_close_safe_recovery_task", _SafeRecoveryTask())
+
+    result = tasks.run_after_close_session_task()
+
+    assert result["scheduler_health"]["state"] == "failed"
+    assert queued == [True]
 
 
 def test_after_close_task_skips_duplicate_daily_push(monkeypatch) -> None:
