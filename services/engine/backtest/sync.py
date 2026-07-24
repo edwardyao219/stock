@@ -33,18 +33,28 @@ def run_rules_backtest(
 
     with SessionLocal() as db:
         target_symbols = symbols if symbols is not None else list_active_symbols(db, limit=limit)
-        inputs = load_many_backtest_inputs(db, symbols=target_symbols, start_date=start_date, end_date=end_date)
+        inputs = load_many_backtest_inputs(
+            db,
+            symbols=target_symbols,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
-        for rule in target_rules:
-            rule_trades = []
-            for item in inputs:
-                rule_trades.extend(run_daily_rule_backtest(item, rule))
-            performance = summarize_rule_performance(rule.id, rule_trades)
-            trade_count += len(rule_trades)
-            summaries.append(performance.__dict__)
+    rule_results = []
+    for rule in target_rules:
+        rule_trades = []
+        for item in inputs:
+            rule_trades.extend(run_daily_rule_backtest(item, rule))
+        performance = summarize_rule_performance(rule.id, rule_trades)
+        trade_count += len(rule_trades)
+        summaries.append(performance.__dict__)
+        if persist:
+            rule_results.append((rule, rule_trades, performance))
 
-            if persist:
-                effective_run_date = run_date or end_date or date.today()
+    if persist:
+        effective_run_date = run_date or end_date or date.today()
+        with SessionLocal() as db:
+            for rule, rule_trades, performance in rule_results:
                 deleted_trades += delete_backtest_trades(
                     db,
                     effective_run_date,
@@ -53,8 +63,6 @@ def run_rules_backtest(
                 )
                 written_trades += upsert_backtest_trades(db, effective_run_date, rule_trades)
                 written_performance += upsert_rule_performance(db, effective_run_date, performance)
-
-        if persist:
             db.commit()
 
     return {
