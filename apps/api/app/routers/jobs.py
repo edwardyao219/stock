@@ -10,7 +10,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.engine.backtest.replay import run_historical_replay
-from services.engine.research_pool.repository import retired_reason_summary
 from services.engine.features.health import (
     assess_trade_data_evidence_risk,
     inspect_tushare_evidence_health,
@@ -19,6 +18,7 @@ from services.engine.features.late_market_turn_health import (
     late_market_turn_health,
     late_market_turn_snapshot,
 )
+from services.engine.research_pool.repository import retired_reason_summary
 from services.jobs.pipeline import (
     prepare_next_trade_session,
     resolve_next_trade_date,
@@ -32,9 +32,10 @@ from services.shared.database import get_db
 from services.shared.models import (
     BacktestTradeRecord,
     MarketRegimeDaily,
+    ResearchPoolItem,
     ReviewReport,
     RulePerformanceDaily,
-    ResearchPoolItem,
+    TradingCalendar,
 )
 from services.shared.time import now_local
 
@@ -319,6 +320,15 @@ def get_after_close_status(
         late_market_health,
     )
     if cached:
+        scheduler_health = dict(cached.get("scheduler_health") or {})
+        calendar_day = (
+            db.get(TradingCalendar, report_date) if db is not None and report_date else None
+        )
+        if late_snapshot is None and calendar_day is not None and calendar_day.is_open:
+            scheduler_health = {
+                **scheduler_health,
+                "scheduler_gap": "late_market_snapshot_missed",
+            }
         retire_reasons = (
             retired_reason_summary(
                 list(db.execute(select(ResearchPoolItem)).scalars()),
@@ -334,6 +344,7 @@ def get_after_close_status(
             "late_market_index_evidence": late_market_index_evidence,
             "tushare_evidence_health": tushare_evidence_health,
             "data_evidence_risk": data_evidence_risk,
+            "scheduler_health": scheduler_health,
         }
         if db is not None:
             try:

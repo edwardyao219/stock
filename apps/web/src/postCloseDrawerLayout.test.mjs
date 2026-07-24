@@ -39,6 +39,8 @@ assert(styles.includes(".after-close-evidence"), "尾盘证据需要使用独立
 assert(app.includes("afterCloseStepText"), "收盘抽屉需要把盘后步骤名转换为中文");
 assert(app.includes("health?.current_step"), "收盘抽屉需要展示当前执行步骤");
 assert(app.includes("health?.last_heartbeat_at"), "收盘抽屉需要展示最近心跳时间");
+assert(app.includes("health?.scheduler_gap"), "收盘抽屉需要识别调度断档状态");
+assert(app.includes("机器可能休眠"), "调度断档需要提示机器休眠风险");
 assert(app.includes("plan_rows_refreshed"), "收盘抽屉需要展示资金流到达后的计划刷新数量");
 assert(app.includes("moneyflow_updated_at"), "收盘抽屉需要展示基础资金流更新时间");
 assert(app.includes("cyq_perf_status"), "收盘抽屉需要展示筹码分布补采状态");

@@ -17,6 +17,7 @@ from services.shared.models import (
     ResearchPoolItem,
     ReviewReport,
     RulePerformanceDaily,
+    TradingCalendar,
 )
 
 
@@ -197,7 +198,12 @@ def test_after_close_status_exposes_late_market_index_evidence(monkeypatch) -> N
     monkeypatch.setattr(
         jobs,
         "read_after_close_status",
-        lambda trade_date: {"trade_date": trade_date, "status": "ok", "message": "已完成"},
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "status": "ok",
+            "message": "已完成",
+            "scheduler_health": {"state": "completed"},
+        },
     )
 
     with session() as db:
@@ -228,6 +234,56 @@ def test_after_close_status_exposes_late_market_index_evidence(monkeypatch) -> N
     assert payload.late_market_index_evidence["code"] == "sh000001"
     assert payload.late_market_index_evidence["change_pct"] == -0.0123
     assert payload.late_market_index_evidence["source"] == "akshare.stock_zh_index_spot_sina"
+    assert payload.scheduler_health == {"state": "completed"}
+
+
+def test_after_close_status_marks_missing_late_snapshot_as_scheduler_gap(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "status": "warning",
+            "message": "安全恢复已完成",
+            "candidate_count": 14,
+            "scheduler_health": {"state": "completed", "recovery_attempts": 1},
+        },
+    )
+
+    with session() as db:
+        db.add(TradingCalendar(trade_date=date(2026, 7, 23), is_open=True))
+        db.commit()
+        payload = jobs.get_after_close_status(db=db, trade_date="2026-07-23")
+
+    assert payload.scheduler_health["state"] == "completed"
+    assert payload.scheduler_health["scheduler_gap"] == "late_market_snapshot_missed"
+    assert payload.scheduler_health["recovery_attempts"] == 1
+
+
+def test_after_close_status_does_not_mark_scheduler_gap_on_closed_day(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "status": "skipped",
+            "message": "休市日跳过",
+            "scheduler_health": {"state": "completed"},
+        },
+    )
+
+    with session() as db:
+        db.add(TradingCalendar(trade_date=date(2026, 7, 25), is_open=False))
+        db.commit()
+        payload = jobs.get_after_close_status(db=db, trade_date="2026-07-25")
+
+    assert payload.scheduler_health == {"state": "completed"}
 
 
 def test_after_close_status_backfills_market_regime_from_daily_record(monkeypatch) -> None:

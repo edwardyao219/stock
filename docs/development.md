@@ -26,6 +26,10 @@ launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.stock-research.cel
 
 worker 默认 `--concurrency=2`，避免本机在盘中被大量 fork 进程抢占。状态确认：
 
+beat 模板通过系统自带的 `caffeinate -s` 在接通交流电时阻止整机休眠，避免盘中
+定时任务因 Mac 休眠漏跑；使用电池时仍遵循系统休眠设置。已错过的盘中任务不会
+补执行，盘后状态会把缺失的 14:50 尾盘快照标记为调度断档。
+
 ```bash
 redis-cli ping
 .venv/bin/celery -A services.jobs.celery_app.celery_app inspect ping --timeout=3

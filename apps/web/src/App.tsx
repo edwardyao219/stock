@@ -1336,6 +1336,7 @@ function afterCloseStepText(value: unknown) {
 function afterCloseSchedulerText(status: AfterCloseStatus | null) {
   const health = status?.scheduler_health;
   const state = String(health?.state ?? "unknown");
+  if (health?.scheduler_gap === "late_market_snapshot_missed") return "调度断档 / 机器可能休眠";
   if (state === "failed") return "需人工处理";
   if (state === "completed") return "正常";
   if (state !== "running") return "等待启动";

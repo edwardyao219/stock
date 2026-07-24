@@ -6,6 +6,8 @@
   <string>com.stock-research.celery-beat</string>
   <key>ProgramArguments</key>
   <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-s</string>
     <string>/Users/REPLACE_WITH_YOUR_USER/stock/.venv/bin/celery</string>
     <string>-A</string>
     <string>services.jobs.celery_app.celery_app</string>
