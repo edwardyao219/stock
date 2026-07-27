@@ -3101,10 +3101,25 @@ def discover_next_session_candidates(
                 )
             )
             continue
+        if _is_mean_reversion_match(matches):
+            observation_candidates.append(
+                _build_candidate(
+                    context,
+                    matches,
+                    selection_mode="observation",
+                    score_delta=score_delta,
+                    learning_notes=learning_notes,
+                    long_horizon_learning_notes=long_horizon_learning_notes_by_symbol.get(
+                        str(context["symbol"])
+                    ),
+                    market_regime=market_regime.regime,
+                    market_participation_snapshot=participation_snapshot,
+                )
+            )
+            continue
         if (
             matches
             and not formal_upgrade_blocked
-            and not _is_mean_reversion_match(matches)
             and _passes_market_regime_gate(
                 context,
                 regime=market_regime.regime,

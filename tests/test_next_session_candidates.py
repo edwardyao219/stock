@@ -173,15 +173,19 @@ def test_mean_reversion_candidate_cannot_bypass_rule_conditions(monkeypatch) -> 
 
 
 @pytest.mark.parametrize("regime", ["panic", "weak_trend", "rebound_unconfirmed", "unknown"])
-def test_mean_reversion_candidate_stays_out_of_formal_pool_in_unsafe_regimes(
+def test_mean_reversion_candidate_remains_observable_in_unsafe_regimes(
     monkeypatch, regime
 ) -> None:
-    result, _items = _run_mean_reversion_discovery(monkeypatch, regime)
+    result, items = _run_mean_reversion_discovery(monkeypatch, regime)
 
-    assert not any(
-        item["selected_rule_id"] == "R008" and item["selection_mode"] == "formal_strategy"
-        for item in result["candidates"]
+    candidate = next(
+        item for item in result["candidates"] if item["selected_rule_id"] == "R008"
     )
+    assert candidate["selected_rule_name"] == "[均值回归] 超跌修复"
+    assert candidate["selection_mode"] == "observation"
+    assert candidate["plan_availability"]["status"] == "watch_only"
+    assert "rule:R008" in items[0]["tags"]
+    assert "rule_name:[均值回归] 超跌修复" in items[0]["tags"]
 
 
 def test_discover_next_session_candidates_writes_strong_candidates_to_pool(monkeypatch) -> None:

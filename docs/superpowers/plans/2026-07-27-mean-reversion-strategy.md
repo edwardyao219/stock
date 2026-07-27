@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add `R008 [均值回归] 超跌修复` to formal candidate selection with confirmation-based trade parameters and a prominent strategy label in next-session, intraday, and DingTalk candidate views.
+**Goal:** Add `R008 [均值回归] 超跌修复` to candidate selection in every market regime, with confirmation-based trade parameters and a prominent strategy label in next-session, intraday, and DingTalk candidate views.
 
 **Architecture:** Reuse the existing declarative rule evaluator and candidate lifecycle. Dispatch only `R008` through a narrow mean-reversion candidate gate, persist its human-readable rule name with the candidate, and carry the existing rule identity through intraday APIs to shared web-label helpers.
 
@@ -413,3 +413,84 @@ git commit -m "feat: add mean reversion candidate strategy"
 Run: `git push origin main`
 
 Expected: push succeeds, or the exact network error is reported while the local commit remains intact.
+
+### Task 7: Retain R008 signals in every market regime
+
+**Files:**
+- Modify: `tests/test_next_session_candidates.py`
+- Modify: `services/engine/research_pool/candidates.py`
+
+- [x] **Step 1: Strengthen the unsafe-regime regression test**
+
+For `panic`, `weak_trend`, `rebound_unconfirmed`, and `unknown`, assert the valid
+R008 snapshot remains in the result with its original identity but is not formal:
+
+```python
+candidate = next(
+    item for item in result["candidates"] if item["selected_rule_id"] == "R008"
+)
+assert candidate["selected_rule_name"] == "[均值回归] 超跌修复"
+assert candidate["selection_mode"] == "observation"
+assert candidate["plan_availability"]["status"] == "watch_only"
+```
+
+- [x] **Step 2: Run the test and verify RED**
+
+Run: `pytest tests/test_next_session_candidates.py -k mean_reversion -q`
+
+Expected: FAIL because unsafe regimes currently remove R008 from the selected result.
+
+- [x] **Step 3: Add the minimal observation fallback**
+
+Immediately after the formal selection branch, preserve an unmatched formal R008 as
+an observation candidate without applying the generic trend observation gate:
+
+```python
+if _is_mean_reversion_match(matches):
+    observation_candidates.append(
+        _build_candidate(
+            context,
+            matches,
+            selection_mode="observation",
+            score_delta=score_delta,
+            learning_notes=learning_notes,
+            long_horizon_learning_notes=long_horizon_learning_notes_by_symbol.get(
+                str(context["symbol"])
+            ),
+            market_regime=market_regime.regime,
+            market_participation_snapshot=participation_snapshot,
+        )
+    )
+    continue
+```
+
+This preserves `rule:R008` and `rule_name:` while the existing non-formal plan guard
+keeps the candidate non-executable.
+
+- [x] **Step 4: Verify candidate and plan behavior**
+
+Run: `pytest tests/test_next_session_candidates.py -k mean_reversion -q`
+
+Run: `pytest tests/test_next_session_candidates.py tests/test_trade_plan_generator.py -q`
+
+Expected: all selected tests PASS.
+
+- [x] **Step 5: Run full verification and rerun today's screening**
+
+Run: `pytest -q`
+
+Run: `ruff check --select F,B services/engine/research_pool/candidates.py tests/test_next_session_candidates.py`
+
+Run: `python -m services.jobs.run_pipeline --stage after-close --trade-date 2026-07-27 --full-market-sync --limit 200`
+
+Expected: verification passes and the candidate output retains any matching R008 signal
+as formal or observation according to market actionability.
+
+- [ ] **Step 6: Commit and push main**
+
+```bash
+git add services/engine/research_pool/candidates.py tests/test_next_session_candidates.py \
+  docs/superpowers/plans/2026-07-27-mean-reversion-strategy.md
+git commit -m "fix: retain mean reversion signals across regimes"
+git push origin main
+```
