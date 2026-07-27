@@ -40,11 +40,19 @@ The current formal-candidate filter assumes a trend strategy and rejects low-tre
 
 - Existing rules continue through the current formal-candidate and market-regime gates unchanged.
 - A candidate whose selected rule is `R008` uses a dedicated mean-reversion gate based on the rule conditions and hard safety filters.
-- `R008` may participate only in `strong_trend`, `rebound`, and `range` regimes.
-- It is excluded in `panic`, `weak_trend`, `rebound_unconfirmed`, and `unknown` regimes.
+- `R008` is evaluated in every market regime so valid oversold-repair signals are not
+  hidden by the market classifier.
+- In `strong_trend`, `rebound`, and `range`, a valid `R008` match may enter the formal
+  candidate pool.
+- In `panic`, `weak_trend`, `rebound_unconfirmed`, and `unknown`, the same match is
+  retained as an `observation` candidate with its `R008` identity and visible
+  `均值回归` label.
+- Observation-mode `R008` candidates do not generate trade plans or become executable
+  paper entries. The market regime changes actionability, not signal discovery.
 - It receives a small rule score bonus so it participates in normal ranking, but it gets no reserved slot and cannot bypass sector balancing or the global candidate limit.
 
-This keeps mean reversion inside the existing candidate lifecycle while avoiding a broad weakening of trend-rule filters.
+This keeps mean reversion inside the existing candidate lifecycle, avoids missed signals,
+and does not weaken trend-rule filters or risk-state execution controls.
 
 ## Visible Strategy Marking
 
@@ -74,7 +82,9 @@ Use test-first development for each behavior:
 
 - Rule-definition tests assert the exact `R008` entry bounds, status, holding period, and tag.
 - Candidate tests prove an eligible `R008` snapshot can become a formal candidate in a range market despite failing the trend filter.
-- Candidate tests prove the same snapshot is rejected in panic, weak, unconfirmed-rebound, and unknown regimes.
+- Candidate tests prove the same snapshot remains visible as an `R008` observation
+  candidate in panic, weak, unconfirmed-rebound, and unknown regimes while producing
+  no executable plan.
 - Trade-parameter tests prove short-mean confirmation, 3% gap protection, MA10/MA20 recovery targets, position cap, and holding period.
 - Persistence tests prove the human-readable `rule_name:` tag is stored and old tag cleanup does not leave stale rule names.
 - Intraday engine/API tests prove rule identity survives from the research-pool item to the response.
@@ -84,4 +94,9 @@ Use test-first development for each behavior:
 
 ## Rollout And Measurement
 
-No live jobs are run as part of deployment. After normal scheduled data produces `R008` samples, its backtest and paper results remain separate from other rules. Promotion beyond `TESTING`, parameter relaxation, or the future `R009` valuation strategy requires accumulated out-of-sample evidence; it is not automatic in this change.
+The initial implementation did not run live jobs. This approved follow-up reruns the
+current after-close screening once after verification so the updated discovery behavior
+is reflected in the candidate pool and DingTalk. Backtest and paper results remain
+separate from other rules. Promotion beyond `TESTING`, parameter relaxation, or the
+future `R009` valuation strategy requires accumulated out-of-sample evidence; it is not
+automatic in this change.
