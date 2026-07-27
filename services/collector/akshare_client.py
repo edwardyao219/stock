@@ -108,6 +108,10 @@ def _fetch_sina_full_market_quotes(ak: Any) -> pd.DataFrame:
             return ak.stock_zh_a_spot()
 
 
+def fetch_sina_full_market_quotes() -> pd.DataFrame:
+    return _fetch_sina_full_market_quotes(_akshare())
+
+
 @contextmanager
 def _without_proxy_env():
     previous = {key: os.environ.pop(key, None) for key in _PROXY_ENV_KEYS}

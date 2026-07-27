@@ -1420,9 +1420,19 @@ def monitor_paper_positions_realtime(
 
     notifications = dispatch_paper_alerts([alert.to_dict() for alert in alerts])
 
+    if not target_symbols:
+        status = "skipped"
+        message = "realtime paper monitor skipped: no target symbols"
+    elif not quote_rows:
+        status = "warning"
+        message = "realtime paper monitor received no quotes for target symbols"
+    else:
+        status = "ok"
+        message = "realtime paper monitor completed"
+
     return RealtimePaperMonitorResult(
-        status="ok",
-        message="realtime paper monitor completed",
+        status=status,
+        message=message,
         quote_time=current_time.isoformat(timespec="seconds"),
         target_symbols=len(target_symbols),
         quotes=len(quote_rows),

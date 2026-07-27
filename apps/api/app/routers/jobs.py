@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
@@ -44,6 +44,8 @@ router = APIRouter()
 PipelineStage = Literal["daily", "prepare", "intraday", "after-close"]
 DbSession = Annotated[Session, Depends(get_db)]
 RULE_REGRESSION_TASK = "services.jobs.tasks.run_rule_regression_task"
+AFTER_CLOSE_TASK = "services.jobs.tasks.run_after_close_session_task"
+AFTER_CLOSE_HEARTBEAT_TIMEOUT_SECONDS = 30 * 60
 
 
 class PipelineRunRequest(BaseModel):
@@ -231,6 +233,49 @@ def _rule_regression_celery_counts() -> dict[str, int]:
         return {"active": 0, "reserved": 0, "scheduled": 0}
 
 
+def _is_after_close_task_active() -> bool:
+    try:
+        from services.jobs.celery_app import celery_app
+
+        active = celery_app.control.inspect(timeout=1).active()
+    except Exception:
+        return True
+    if active is None:
+        return True
+    return any(
+        _task_name(task) == AFTER_CLOSE_TASK
+        for worker_tasks in active.values()
+        for task in worker_tasks or []
+    )
+
+
+def _scheduler_health_with_overdue(scheduler_health: dict[str, Any]) -> dict[str, Any]:
+    if scheduler_health.get("state") != "running":
+        return scheduler_health
+    try:
+        heartbeat = datetime.fromisoformat(str(scheduler_health["last_heartbeat_at"]))
+    except (KeyError, TypeError, ValueError):
+        return scheduler_health
+
+    current = now_local()
+    if heartbeat.tzinfo is None:
+        current = current.replace(tzinfo=None)
+    elif current.tzinfo is None:
+        current = current.replace(tzinfo=heartbeat.tzinfo)
+    else:
+        current = current.astimezone(heartbeat.tzinfo)
+    elapsed_seconds = max(0, int((current - heartbeat).total_seconds()))
+    if elapsed_seconds <= AFTER_CLOSE_HEARTBEAT_TIMEOUT_SECONDS:
+        return scheduler_health
+    if _is_after_close_task_active():
+        return scheduler_health
+    return {
+        **scheduler_health,
+        "state": "overdue",
+        "overdue_seconds": elapsed_seconds,
+    }
+
+
 @router.post("/pipeline/run", response_model=PipelineRunResponse)
 def run_pipeline_stage(payload: PipelineRunRequest) -> PipelineRunResponse:
     trade_date = payload.trade_date or _today()
@@ -322,7 +367,9 @@ def get_after_close_status(
         late_market_health,
     )
     if cached:
-        scheduler_health = dict(cached.get("scheduler_health") or {})
+        scheduler_health = _scheduler_health_with_overdue(
+            dict(cached.get("scheduler_health") or {})
+        )
         calendar_day = (
             db.get(TradingCalendar, report_date) if db is not None and report_date else None
         )

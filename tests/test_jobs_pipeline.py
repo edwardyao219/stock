@@ -986,6 +986,13 @@ def test_rule_regression_task_reports_elapsed_seconds(monkeypatch) -> None:
 
     assert result["status"] == "ok"
     assert result["elapsed_seconds"] == 2.345
+    assert updates[0] == (
+        "2026-07-27",
+        {
+            "rule_regression_status": "running",
+            "rule_regression_error": None,
+        },
+    )
     assert updates[-1] == (
         "2026-07-27",
         {
@@ -995,6 +1002,42 @@ def test_rule_regression_task_reports_elapsed_seconds(monkeypatch) -> None:
             "rule_regression_performance_rows": 3,
         },
     )
+
+
+def test_rule_regression_task_persists_failure_and_reraises(monkeypatch) -> None:
+    from services.engine.backtest import sync as backtest_sync
+
+    ticks = iter((10.0, 12.5))
+    updates = []
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 27, 21, 0))
+    monkeypatch.setattr(tasks, "monotonic", lambda: next(ticks), raising=False)
+    monkeypatch.setattr(tasks, "merge_after_close_status", lambda *args: updates.append(args))
+    monkeypatch.setattr(
+        backtest_sync,
+        "run_rules_backtest",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("regression unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="regression unavailable"):
+        tasks.run_rule_regression_task()
+
+    assert updates == [
+        (
+            "2026-07-27",
+            {
+                "rule_regression_status": "running",
+                "rule_regression_error": None,
+            },
+        ),
+        (
+            "2026-07-27",
+            {
+                "rule_regression_status": "failed",
+                "rule_regression_elapsed_seconds": 2.5,
+                "rule_regression_error": "RuntimeError: regression unavailable",
+            },
+        ),
+    ]
 
 
 def test_generate_trade_plans_step_uses_latest_candidate_pool(monkeypatch) -> None:
@@ -2150,6 +2193,7 @@ def test_intraday_session_passes_stage_and_as_of_to_monitor(monkeypatch) -> None
     captured = {}
 
     class _Result:
+        status = "ok"
         quotes = 3
         executed_entries = 1
         alerts = []
@@ -2187,6 +2231,34 @@ def test_intraday_session_passes_stage_and_as_of_to_monitor(monkeypatch) -> None
     assert captured["quote_time"] == datetime(2026, 6, 24, 11, 35)
     assert captured["snapshot_stage"] == "midday_snapshot"
     assert captured["market_overview"] == {"up_ratio": 0.42, "avg_change_pct": 0.006}
+
+
+def test_realtime_monitor_step_preserves_monitor_warning(monkeypatch) -> None:
+    from apps.api.app.routers import market
+
+    monkeypatch.setattr(
+        "services.engine.paper.realtime.monitor_paper_positions_realtime",
+        lambda **kwargs: SimpleNamespace(
+            status="warning",
+            message="no realtime quotes returned",
+            quotes=0,
+            executed_entries=0,
+            alerts=[],
+            executed_exits=0,
+        ),
+    )
+    monkeypatch.setattr(market, "_try_cached_live_a_share_overview", lambda timeout: None)
+
+    result = pipeline._run_realtime_monitor_step(
+        "2026-06-24",
+        account="default",
+        execute_entries=True,
+        execute_exits=False,
+        force=True,
+        as_of=datetime(2026, 6, 24, 10, 5),
+    )
+
+    assert result.status == "warning"
 
 
 def test_early_midday_and_late_snapshot_tasks_use_current_as_of(monkeypatch) -> None:

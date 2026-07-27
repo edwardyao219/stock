@@ -966,12 +966,31 @@ def run_rule_regression_task() -> dict[str, object]:
 
     today = now_local().date().isoformat()
     started_at = monotonic()
-    result = run_rules_backtest(
-        end_date=date.fromisoformat(today),
-        run_date=date.fromisoformat(today),
-        persist=True,
-        limit=500,
+    merge_after_close_status(
+        today,
+        {
+            "rule_regression_status": "running",
+            "rule_regression_error": None,
+        },
     )
+    try:
+        result = run_rules_backtest(
+            end_date=date.fromisoformat(today),
+            run_date=date.fromisoformat(today),
+            persist=True,
+            limit=500,
+        )
+    except Exception as exc:
+        elapsed_seconds = round(monotonic() - started_at, 3)
+        merge_after_close_status(
+            today,
+            {
+                "rule_regression_status": "failed",
+                "rule_regression_elapsed_seconds": elapsed_seconds,
+                "rule_regression_error": f"{type(exc).__name__}: {exc}",
+            },
+        )
+        raise
     elapsed_seconds = round(monotonic() - started_at, 3)
     merge_after_close_status(
         today,

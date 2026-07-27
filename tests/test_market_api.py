@@ -1,3 +1,4 @@
+import sys
 import time
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -31,6 +32,32 @@ from services.shared.models import (
     StockFeatureDaily,
     TushareMoneyflowIndDc,
 )
+
+
+def test_sina_market_overview_uses_silenced_collector_fetch(monkeypatch) -> None:
+    class _DirectAkshare:
+        def stock_zh_a_spot(self):
+            raise AssertionError("market overview bypassed the silenced collector fetch")
+
+    monkeypatch.setitem(sys.modules, "akshare", _DirectAkshare())
+    monkeypatch.setattr(
+        market,
+        "fetch_sina_full_market_quotes",
+        lambda: pd.DataFrame(
+            [
+                {"涨跌幅": 2.0, "成交额": 100.0},
+                {"涨跌幅": -1.0, "成交额": 200.0},
+            ]
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(market, "_safe_live_market_indexes", lambda: [])
+
+    result = market._sina_a_share_overview()
+
+    assert result.stock_count == 2
+    assert result.up_count == 1
+    assert result.down_count == 1
 
 
 def test_get_intraday_market_turn_returns_latest_current_snapshot() -> None:

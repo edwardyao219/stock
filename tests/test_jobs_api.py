@@ -191,6 +191,67 @@ def test_after_close_status_returns_unknown_without_cache(monkeypatch) -> None:
     assert "还没有收盘推送记录" in payload.message
 
 
+def test_after_close_status_marks_stale_inactive_run_overdue(monkeypatch) -> None:
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "status": "running",
+            "message": "盘后任务正在执行",
+            "scheduler_health": {
+                "state": "running",
+                "last_heartbeat_at": "2026-07-27T18:20:00+08:00",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        jobs,
+        "now_local",
+        lambda: datetime.fromisoformat("2026-07-27T19:20:00+08:00"),
+    )
+    monkeypatch.setattr(jobs, "_is_after_close_task_active", lambda: False, raising=False)
+
+    payload = jobs.get_after_close_status(db=None, trade_date="2026-07-27")
+
+    assert payload.scheduler_health["state"] == "overdue"
+    assert payload.scheduler_health["overdue_seconds"] == 3600
+
+
+def test_after_close_status_keeps_stale_active_run_running(monkeypatch) -> None:
+    active_checks = []
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {
+            "trade_date": trade_date,
+            "status": "running",
+            "message": "盘后任务正在执行",
+            "scheduler_health": {
+                "state": "running",
+                "last_heartbeat_at": "2026-07-27T18:20:00+08:00",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        jobs,
+        "now_local",
+        lambda: datetime.fromisoformat("2026-07-27T19:20:00+08:00"),
+    )
+    monkeypatch.setattr(
+        jobs,
+        "_is_after_close_task_active",
+        lambda: active_checks.append(True) or True,
+        raising=False,
+    )
+
+    payload = jobs.get_after_close_status(db=None, trade_date="2026-07-27")
+
+    assert active_checks == [True]
+    assert payload.scheduler_health["state"] == "running"
+    assert "overdue_seconds" not in payload.scheduler_health
+
+
 def test_after_close_status_exposes_late_market_index_evidence(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

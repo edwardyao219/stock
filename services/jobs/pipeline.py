@@ -392,7 +392,7 @@ def _run_realtime_monitor_step(
     )
     return PipelineStepResult(
         name="monitor_paper_positions_realtime",
-        status="ok",
+        status=result.status,
         detail=detail,
         summary=f"{stage} @ {analysis_time.isoformat(timespec='seconds')}",
         details=[f"analysis_time={analysis_time.isoformat(timespec='seconds')}"],

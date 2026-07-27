@@ -81,6 +81,51 @@ def _strong_entry_condition() -> dict:
     }
 
 
+def test_realtime_monitor_skips_when_there_are_no_target_symbols(monkeypatch) -> None:
+    from services.engine.paper import realtime
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(realtime, "SessionLocal", session)
+    monkeypatch.setattr(realtime, "dispatch_paper_alerts", lambda alerts: [])
+
+    result = realtime.monitor_paper_positions_realtime(
+        trade_date="2026-06-24",
+        quotes=[],
+        quote_time=datetime(2026, 6, 24, 10, 5),
+        execute_entries=False,
+        execute_exits=False,
+    )
+
+    assert result.status == "skipped"
+    assert result.target_symbols == 0
+    assert result.quotes == 0
+
+
+def test_realtime_monitor_warns_when_targets_have_no_quotes(monkeypatch) -> None:
+    from services.engine.paper import realtime
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(realtime, "SessionLocal", session)
+    monkeypatch.setattr(realtime, "_target_symbols", lambda db, account_id, trade_date: {"000001"})
+    monkeypatch.setattr(realtime, "dispatch_paper_alerts", lambda alerts: [])
+
+    result = realtime.monitor_paper_positions_realtime(
+        trade_date="2026-06-24",
+        quotes=[],
+        quote_time=datetime(2026, 6, 24, 10, 5),
+        execute_entries=False,
+        execute_exits=False,
+    )
+
+    assert result.status == "warning"
+    assert result.target_symbols == 1
+    assert result.quotes == 0
+
+
 def test_fetch_sina_realtime_quotes_parses_snapshot(monkeypatch) -> None:
     class Response:
         encoding = "utf-8"

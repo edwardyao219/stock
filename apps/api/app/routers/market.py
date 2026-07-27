@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from services.collector.akshare_client import (
     RealtimeQuoteRow,
     fetch_realtime_quotes,
+    fetch_sina_full_market_quotes,
     fetch_sina_realtime_quotes,
 )
 from services.engine.features.health import (
@@ -1075,9 +1076,7 @@ def _eastmoney_a_share_overview() -> MarketOverviewResponse:
 
 
 def _sina_a_share_overview() -> MarketOverviewResponse:
-    import akshare as ak
-
-    df = ak.stock_zh_a_spot()
+    df = fetch_sina_full_market_quotes()
     changes = pd.to_numeric(df.get("涨跌幅"), errors="coerce").dropna() / 100
     if changes.empty:
         raise ValueError("No Sina A-share quote changes available")
