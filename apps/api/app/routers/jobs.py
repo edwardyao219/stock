@@ -144,6 +144,8 @@ class RuleRegressionStatusResponse(BaseModel):
     latest_run_date: str | None
     latest_trade_count: int
     latest_performance_rows: int
+    latest_execution_status: str | None = None
+    latest_elapsed_seconds: float | None = None
     message: str
 
 
@@ -429,6 +431,10 @@ def get_rule_regression_status(db: DbSession) -> RuleRegressionStatusResponse:
             )
         ).scalar_one()
 
+    cached = read_after_close_status(latest_run_date_text or now_local().date().isoformat()) or {}
+    latest_execution_status = cached.get("rule_regression_status")
+    latest_elapsed_seconds = cached.get("rule_regression_elapsed_seconds")
+
     if active > 0:
         status: Literal["running", "queued", "idle", "never_run"] = "running"
         message = f"规则回归运行中；active {active}，排队 {reserved + scheduled}。"
@@ -454,5 +460,7 @@ def get_rule_regression_status(db: DbSession) -> RuleRegressionStatusResponse:
         latest_run_date=latest_run_date_text,
         latest_trade_count=latest_trade_count,
         latest_performance_rows=latest_performance_rows,
+        latest_execution_status=(str(latest_execution_status) if latest_execution_status else None),
+        latest_elapsed_seconds=(float(latest_elapsed_seconds) if latest_elapsed_seconds else None),
         message=message,
     )

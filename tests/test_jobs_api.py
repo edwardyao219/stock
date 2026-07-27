@@ -513,6 +513,31 @@ def test_rule_regression_status_reads_latest_persisted_run(monkeypatch) -> None:
     assert "空闲" in payload.message
 
 
+def test_rule_regression_status_exposes_cached_duration(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(
+        jobs,
+        "_rule_regression_celery_counts",
+        lambda: {"active": 0, "reserved": 0, "scheduled": 0},
+    )
+    monkeypatch.setattr(
+        jobs,
+        "read_after_close_status",
+        lambda trade_date: {
+            "rule_regression_status": "ok",
+            "rule_regression_elapsed_seconds": 321.5,
+        },
+    )
+
+    with session() as db:
+        payload = jobs.get_rule_regression_status(db=db)
+
+    assert payload.latest_elapsed_seconds == 321.5
+    assert payload.latest_execution_status == "ok"
+
+
 def test_rule_regression_status_reports_running_when_celery_has_active_task(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
