@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from services.engine.workspace.repository import WorkspaceItem
 from services.shared.models import StockTrackingSnapshot
+from services.shared.time import now_utc
 
 
 @dataclass(frozen=True)
@@ -412,7 +413,7 @@ def upsert_tracking_snapshot(
     row.evidence_json = {"items": payload.evidence}
     row.risks_json = {"items": payload.risks}
     row.source_json = payload.source
-    row.updated_at = datetime.utcnow()
+    row.updated_at = now_utc()
     db.flush()
     return row
 

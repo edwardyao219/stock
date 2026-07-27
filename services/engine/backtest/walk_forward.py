@@ -5,7 +5,7 @@ import re
 from calendar import monthrange
 from collections import Counter
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,7 @@ from services.shared.models import (
     Security,
     StockFeatureDaily,
 )
+from services.shared.time import now_utc
 
 MAINLINE_RETURN_20D_MIN = 0.08
 MAINLINE_RETURN_20D_MAX = 0.18
@@ -1210,7 +1211,7 @@ def _store_candidate_discovery_db_cache(
         limit=limit,
         include_fundamentals=include_fundamentals,
     )
-    now = datetime.utcnow()
+    now = now_utc()
     if row is None:
         db.add(
             CandidateDiscoverySnapshot(
@@ -1241,7 +1242,7 @@ def _store_candidate_discovery_db_cache(
         if row is None:
             raise
         row.discovery_json = payload
-        row.updated_at = datetime.utcnow()
+        row.updated_at = now_utc()
         db.commit()
 
 

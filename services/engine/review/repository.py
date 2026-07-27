@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ from services.shared.models import (
     TradingCalendar,
     TushareMoneyflowIndDc,
 )
+from services.shared.time import now_utc
 
 ACTIVE_RULE_IDS = tuple(rule.id for rule in MVP_RULES)
 PARAMETER_RECOMMENDATION_STATUSES = {"pending", "approved", "rejected", "applied"}
@@ -577,7 +578,7 @@ def upsert_parameter_recommendations(
 
         for key, value in payload.items():
             setattr(existing, key, value)
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = now_utc()
         changed += 1
 
     return changed
@@ -638,5 +639,5 @@ def update_parameter_recommendation_decision(
 
     item.status = status
     item.decision_reason = decision_reason
-    item.updated_at = datetime.utcnow()
+    item.updated_at = now_utc()
     return item

@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from services.shared.models import ResearchPoolItem
+from services.shared.time import now_utc
 
 CANDIDATE_NOTE_PREFIX = "候选理由："
 
@@ -200,7 +201,7 @@ def add_symbols_to_pool(
     tags: list[str] | None = None,
     replace_tag_prefixes: tuple[str, ...] | None = None,
 ) -> int:
-    now = datetime.utcnow()
+    now = now_utc()
     written = 0
     for symbol in symbols:
         incoming_tags = tags or []
@@ -292,7 +293,7 @@ def retire_pool_symbols(
         .where(ResearchPoolItem.symbol.in_(symbols))
     )
     rows = list(db.execute(stmt).scalars())
-    now = datetime.utcnow()
+    now = now_utc()
     for item in rows:
         item.status = status
         item.updated_at = now

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -40,6 +40,7 @@ from services.shared.models import (
     TushareLimitListD,
 )
 from services.shared.symbols import is_growth_board_symbol
+from services.shared.time import now_utc
 
 LEARNING_SOURCE_REPORT_TYPES = (
     "backtest_learning_review",
@@ -3287,7 +3288,7 @@ def discover_next_session_candidates(
     )
     selected_symbol_set = {item.symbol for item in selected}
     previous_items = list_pool_items(db, pool_name=pool_name)
-    today = datetime.utcnow().date()
+    today = now_utc().date()
     stale_auto_items = [
         item
         for item in previous_items
@@ -3307,7 +3308,7 @@ def discover_next_session_candidates(
     ]
 
     retired = 0
-    now = datetime.utcnow()
+    now = now_utc()
     for stale in stale_auto_items:
         item = db.execute(
             select(ResearchPoolItem)
@@ -3338,7 +3339,7 @@ def discover_next_session_candidates(
             item.status = "active"
 
     written = 0
-    candidate_batch_id = datetime.utcnow().isoformat(timespec="seconds")
+    candidate_batch_id = now_utc().isoformat(timespec="seconds")
     for rank, item in enumerate(selected, start=1):
         tags = [
             "after_close_candidate",
