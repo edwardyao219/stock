@@ -322,7 +322,7 @@ def test_after_close_status_backfills_market_regime_from_daily_record(monkeypatc
     assert payload.market_regime_risk_level == "high"
 
 
-def test_after_close_status_marks_delayed_review_complete_when_report_exists(monkeypatch) -> None:
+def test_after_close_status_backfills_not_run_review_when_report_exists(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -333,7 +333,7 @@ def test_after_close_status_marks_delayed_review_complete_when_report_exists(mon
             "trade_date": trade_date,
             "status": "warning",
             "message": "候选已推送，复盘任务延后。",
-            "review_status": "skipped",
+            "review_status": "not_run",
             "source": "cache",
         },
     )

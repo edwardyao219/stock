@@ -2300,7 +2300,7 @@ def test_intraday_session_skips_outside_window(monkeypatch) -> None:
     assert result.steps[0].detail == "当前不在 A 股盘中时段，已跳过实时监控。"
 
 
-def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatch) -> None:
+def test_after_close_session_ends_after_paper_review(monkeypatch) -> None:
     captured = {}
     progress = []
 
@@ -2337,21 +2337,18 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         ),
     )
     monkeypatch.setattr(pipeline, "_generate_paper_reviews_step", lambda trade_date: "reviews")
-    monkeypatch.setattr(pipeline, "_run_rule_regression_step", lambda trade_date, limit: "backtest")
-    monkeypatch.setattr(
-        pipeline,
+    for name in (
+        "_run_rule_regression_step",
         "_generate_backtest_learning_step",
-        lambda trade_date: "backtest-learning",
-    )
-    monkeypatch.setattr(
-        pipeline,
         "_prewarm_candidate_replay_effect_step",
-        lambda trade_date: pipeline.PipelineStepResult(
-            name="prewarm_candidate_replay_effect",
-            status="ok",
-            detail=f"prewarm:{trade_date}",
-        ),
-    )
+        "_generate_daily_review_step",
+    ):
+        monkeypatch.setattr(
+            pipeline,
+            name,
+            lambda *args, _name=name, **kwargs: (_ for _ in ()).throw(AssertionError(_name)),
+            raising=False,
+        )
     monkeypatch.setattr(
         pipeline,
         "_record_tracking_snapshots_step",
@@ -2361,7 +2358,6 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
             detail=f"tracking:{trade_date}:{limit}",
         ),
     )
-    monkeypatch.setattr(pipeline, "_generate_daily_review_step", lambda trade_date: "daily")
     monkeypatch.setattr(
         pipeline,
         "_prepare_market_feature_universe_step",
@@ -2421,10 +2417,6 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
         "record_tracking_snapshots",
         "run_daily_paper_simulation",
         "generate_paper_trading_review",
-        "run_rule_regression",
-        "generate_backtest_learning_review",
-        "prewarm_candidate_replay_effect",
-        "generate_daily_review",
     ]
     assert result.steps[4].detail == "regime:2026-06-24"
     assert result.steps[5].detail == "candidates:2026-06-25:False"
@@ -2433,12 +2425,10 @@ def test_after_close_session_sends_candidates_before_heavy_regression(monkeypatc
     assert captured["sync_daily"] is False
     assert captured["execute_entries"] is True
     assert result.steps[8].detail == "reviews"
-    assert result.steps[-1].detail == "daily"
-    assert result.steps[-2].detail == "prewarm:2026-06-24"
     assert progress[0] == ("sync_daily_market_data", [])
     assert progress[1] == ("sync_sector_moneyflow", ["sync_daily_market_data"])
-    assert progress[-1][0] == "generate_daily_review"
-    assert "run_rule_regression" in progress[-1][1]
+    assert progress[-1][0] == "generate_paper_trading_review"
+    assert "run_rule_regression" not in progress[-1][1]
 
 
 def test_after_close_session_blocks_candidates_when_daily_data_gate_fails(monkeypatch) -> None:
@@ -2498,18 +2488,6 @@ def test_after_close_session_blocks_candidates_when_daily_data_gate_fails(monkey
 
     monkeypatch.setattr(pipeline, "_run_daily_paper_simulation_step", fake_paper_simulation)
     monkeypatch.setattr(pipeline, "_generate_paper_reviews_step", lambda trade_date: "reviews")
-    monkeypatch.setattr(pipeline, "_run_rule_regression_step", lambda trade_date, limit: "backtest")
-    monkeypatch.setattr(
-        pipeline,
-        "_generate_backtest_learning_step",
-        lambda trade_date: "backtest-learning",
-    )
-    monkeypatch.setattr(
-        pipeline,
-        "_prewarm_candidate_replay_effect_step",
-        lambda trade_date: "prewarm",
-    )
-    monkeypatch.setattr(pipeline, "_generate_daily_review_step", lambda trade_date: "daily")
 
     result = pipeline.run_after_close_session("2026-06-24", "2026-06-25")
 
@@ -2521,7 +2499,7 @@ def test_after_close_session_blocks_candidates_when_daily_data_gate_fails(monkey
     assert captured["execute_entries"] is False
 
 
-def test_after_close_safe_recovery_skips_paper_and_regression_steps(monkeypatch) -> None:
+def test_after_close_safe_recovery_skips_paper_steps(monkeypatch) -> None:
     monkeypatch.setattr(
         pipeline,
         "_sync_daily_market_data_step",
@@ -2553,10 +2531,6 @@ def test_after_close_safe_recovery_skips_paper_and_regression_steps(monkeypatch)
     for name in (
         "_run_daily_paper_simulation_step",
         "_generate_paper_reviews_step",
-        "_run_rule_regression_step",
-        "_generate_backtest_learning_step",
-        "_prewarm_candidate_replay_effect_step",
-        "_generate_daily_review_step",
     ):
         monkeypatch.setattr(
             pipeline,
@@ -2664,6 +2638,7 @@ def test_generate_daily_review_task_uses_mechanical_review(monkeypatch) -> None:
     from datetime import datetime
 
     calls = []
+    merges = []
 
     class _Review:
         title = "2026-06-24 每日机械复盘"
@@ -2686,6 +2661,11 @@ def test_generate_daily_review_task_uses_mechanical_review(monkeypatch) -> None:
 
     monkeypatch.setattr(tasks, "_sync_sector_moneyflow_step", fake_sync_moneyflow)
     monkeypatch.setattr(tasks, "generate_daily_mechanical_review", fake_review)
+    monkeypatch.setattr(
+        tasks,
+        "merge_after_close_status",
+        lambda trade_date, updates: merges.append((trade_date, updates)),
+    )
     monkeypatch.setattr(tasks, "run_after_close_session", fail_if_called)
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 6, 24, 18, 30))
 
@@ -2696,6 +2676,7 @@ def test_generate_daily_review_task_uses_mechanical_review(monkeypatch) -> None:
     assert result["status"] == "ok"
     assert result["message"] == "2026-06-24 每日机械复盘"
     assert result["moneyflow_status"] == "ok"
+    assert merges == [("2026-06-24", {"review_status": "ok"})]
 
 
 def test_discover_next_session_candidates_step_dispatches_screening_summary(monkeypatch) -> None:

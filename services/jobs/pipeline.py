@@ -14,7 +14,6 @@ from services.engine.research_signal_ledger import (
     build_daily_candidate_signals,
     record_research_signals,
 )
-from services.engine.review.mechanical import generate_daily_mechanical_review
 from services.engine.tracking.repository import (
     build_tracking_snapshot_payload,
     upsert_tracking_snapshot,
@@ -405,50 +404,6 @@ def _generate_paper_reviews_step(trade_date: str) -> str:
     )
 
 
-def _run_rule_regression_step(trade_date: str, limit: int) -> str:
-    from services.engine.backtest.sync import run_rules_backtest
-
-    backtest_result = run_rules_backtest(
-        end_date=date.fromisoformat(trade_date),
-        run_date=date.fromisoformat(trade_date),
-        persist=True,
-        limit=limit,
-    )
-    return (
-        f"回归完成：{backtest_result['trade_count']} 笔交易样本，"
-        f"{backtest_result['written_performance']} 条表现记录。"
-    )
-
-
-def _generate_backtest_learning_step(trade_date: str) -> str:
-    from services.engine.backtest.learning import generate_backtest_learning_report
-
-    changed = generate_backtest_learning_report(trade_date)
-    return f"回归学习完成：生成或更新 {changed} 条策略适配建议。"
-
-
-def _prewarm_candidate_replay_effect_step(trade_date: str) -> PipelineStepResult:
-    from apps.api.app.routers.rules import prewarm_candidate_replay_effect_cache
-
-    result = prewarm_candidate_replay_effect_cache(end_date=trade_date)
-    detail = (
-        f"候选回放缓存预热：{result['start_date']} ~ {result['end_date']}，"
-        f"{result.get('cache_mode') or 'range_cache'}，"
-        f"分片 {result.get('shard_count') or 0} 个。"
-    )
-    return PipelineStepResult(
-        name="prewarm_candidate_replay_effect",
-        status=str(result.get("status") or "ok"),
-        detail=detail,
-        summary=detail,
-        details=[
-            f"缓存命中：{'是' if result.get('cache_hit') else '否'}",
-            f"分片命中：{result.get('shard_hits') or 0}",
-            f"分片重算：{result.get('shard_misses') or 0}",
-        ],
-    )
-
-
 def _record_tracking_snapshots_step(trade_date: str, limit: int = 200) -> PipelineStepResult:
     target_date = date.fromisoformat(trade_date)
     with SessionLocal() as db:
@@ -474,11 +429,6 @@ def _record_tracking_snapshots_step(trade_date: str, limit: int = 200) -> Pipeli
         summary=f"追踪快照 {len(rows)} 只",
         details=symbols,
     )
-
-
-def _generate_daily_review_step(trade_date: str) -> str:
-    review = generate_daily_mechanical_review(trade_date)
-    return review.title
 
 
 def _prepare_market_feature_universe_step(
@@ -1379,16 +1329,6 @@ def run_after_close_session(
         "generate_paper_trading_review",
         lambda: _generate_paper_reviews_step(trade_date),
     )
-    run_step("run_rule_regression", lambda: _run_rule_regression_step(trade_date, limit))
-    run_step(
-        "generate_backtest_learning_review",
-        lambda: _generate_backtest_learning_step(trade_date),
-    )
-    run_step(
-        "prewarm_candidate_replay_effect",
-        lambda: _prewarm_candidate_replay_effect_step(trade_date),
-    )
-    run_step("generate_daily_review", lambda: _generate_daily_review_step(trade_date))
     return DailyPipelineResult(
         trade_date=trade_date,
         next_trade_date=next_trade_date,

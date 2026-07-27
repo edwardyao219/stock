@@ -985,6 +985,7 @@ def generate_daily_review_task() -> dict[str, str]:
     today = now_local().date().isoformat()
     moneyflow_step = _sync_sector_moneyflow_step(today)
     review = generate_daily_mechanical_review(today)
+    merge_after_close_status(today, {"review_status": "ok"})
     return {
         "trade_date": today,
         "status": "warning" if moneyflow_step.status == "failed" else "ok",

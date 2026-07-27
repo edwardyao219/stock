@@ -358,7 +358,7 @@ def get_after_close_status(
                     "market_regime": regime.regime,
                     "market_regime_risk_level": regime.risk_level,
                 }
-        if cached.get("review_status") == "skipped":
+        if cached.get("review_status") in {"skipped", "not_run"}:
             try:
                 report_date = date.fromisoformat(target_date)
             except ValueError:
