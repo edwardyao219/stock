@@ -23,6 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON, TypeDecorator
 
 from services.shared.database import Base
+from services.shared.time import now_utc
 
 logger = logging.getLogger(__name__)
 MYSQL_LONGTEXT = Text().with_variant(mysql.LONGTEXT(), "mysql")
@@ -79,8 +80,8 @@ class Security(Base):
     holding_style: Mapped[Optional[str]] = mapped_column(String(64))
     is_st: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class TradingCalendar(Base):
@@ -132,7 +133,7 @@ class RealtimeQuote(Base):
     amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
     turnover_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4))
     source: Mapped[str] = mapped_column(String(64), default="akshare.stock_zh_a_spot_em")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class SectorDaily(Base):
@@ -279,7 +280,7 @@ class TushareDatasetSyncReceipt(Base):
     dataset: Mapped[str] = mapped_column(String(32), index=True)
     trade_date: Mapped[date] = mapped_column(Date, index=True)
     row_count: Mapped[int] = mapped_column(Integer, default=0)
-    completed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class TushareCyqPerf(Base):
@@ -374,7 +375,7 @@ class LowDimensionalFeatureSnapshot(Base):
     max_drawdown_20d: Mapped[Optional[float]] = mapped_column(Float)
     overheat_score: Mapped[Optional[float]] = mapped_column(Float)
     volume_trap_risk_score: Mapped[Optional[float]] = mapped_column(Float)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class MarketRegimeDaily(Base):
@@ -388,8 +389,8 @@ class MarketRegimeDaily(Base):
     volatility_score: Mapped[Optional[float]] = mapped_column(Float)
     risk_level: Mapped[Optional[str]] = mapped_column(String(16))
     source: Mapped[str] = mapped_column(String(32), default="candidate_discovery")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class StockTrackingSnapshot(Base):
@@ -419,8 +420,8 @@ class StockTrackingSnapshot(Base):
     evidence_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
     risks_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
     source_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class CandidateDiscoverySnapshot(Base):
@@ -444,8 +445,8 @@ class CandidateDiscoverySnapshot(Base):
     candidate_limit: Mapped[int] = mapped_column(Integer)
     include_fundamentals: Mapped[bool] = mapped_column(Boolean, default=True)
     discovery_json: Mapped[dict[str, Any]] = mapped_column(LargePortableJSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class ResearchSignalLedger(Base):
@@ -475,7 +476,7 @@ class ResearchSignalLedger(Base):
     market_state: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     executable: Mapped[bool] = mapped_column(Boolean, default=False)
     evidence_json: Mapped[dict[str, Any]] = mapped_column(LargePortableJSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class MarketMessageSnapshot(Base):
@@ -488,7 +489,7 @@ class MarketMessageSnapshot(Base):
     message: Mapped[str] = mapped_column(Text)
     raw_messages_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
     catalysts_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class ExternalMarketSignal(Base):
@@ -501,7 +502,7 @@ class ExternalMarketSignal(Base):
     change_pct: Mapped[Optional[float]] = mapped_column(Float)
     a_share_sectors_json: Mapped[list[str]] = mapped_column(PortableJSON, default=list)
     source_url: Mapped[Optional[str]] = mapped_column(String(512))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class IntradayMarketTurnSnapshot(Base):
@@ -519,7 +520,7 @@ class IntradayMarketTurnSnapshot(Base):
     index_change_pct: Mapped[Optional[float]] = mapped_column(Float)
     sector_expansion_count: Mapped[int] = mapped_column(Integer)
     state_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class SectorProfile(Base):
@@ -533,8 +534,8 @@ class SectorProfile(Base):
     preferred_holding_style: Mapped[str] = mapped_column(String(64))
     key_drivers_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
     risk_notes: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class FundamentalSnapshot(Base):
@@ -557,7 +558,7 @@ class FundamentalSnapshot(Base):
     net_margin: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
     debt_ratio: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
     extra_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class StrategyRuleRecord(Base):
@@ -569,8 +570,8 @@ class StrategyRuleRecord(Base):
     version: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32), index=True)
     rule_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class RiskProfileRecord(Base):
@@ -585,8 +586,8 @@ class RiskProfileRecord(Base):
     priority: Mapped[int] = mapped_column(Integer, default=0)
     config_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
     status: Mapped[str] = mapped_column(String(32), default="active")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class TradePlan(Base):
@@ -626,7 +627,7 @@ class ReviewReport(Base):
     generator: Mapped[str] = mapped_column(String(64), default="mechanical")
     content_md: Mapped[str] = mapped_column(MYSQL_LONGTEXT)
     metrics_json: Mapped[dict[str, Any]] = mapped_column(LargePortableJSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class ParameterRecommendation(Base):
@@ -661,8 +662,8 @@ class ParameterRecommendation(Base):
     source_report_type: Mapped[str] = mapped_column(String(64), default="daily_mechanical")
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     decision_reason: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class BacktestTradeRecord(Base):
@@ -691,7 +692,7 @@ class BacktestTradeRecord(Base):
     mfe_pct: Mapped[Decimal] = mapped_column(Numeric(12, 6))
     mae_pct: Mapped[Decimal] = mapped_column(Numeric(12, 6))
     exit_reason: Mapped[str] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class RulePerformanceDaily(Base):
@@ -714,7 +715,7 @@ class RulePerformanceDaily(Base):
     avg_mae: Mapped[Decimal] = mapped_column(Numeric(12, 6))
     score: Mapped[Decimal] = mapped_column(Numeric(12, 6))
     notes: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class ResearchPoolItem(Base):
@@ -729,8 +730,8 @@ class ResearchPoolItem(Base):
     note: Mapped[Optional[str]] = mapped_column(Text)
     tags_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="active", index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class PaperAccount(Base):
@@ -741,8 +742,8 @@ class PaperAccount(Base):
     initial_cash: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     cash: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     status: Mapped[str] = mapped_column(String(32), default="active")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class PaperOrder(Base):
@@ -761,8 +762,8 @@ class PaperOrder(Base):
     quantity: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(32), default="created")
     reason: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class PaperPosition(Base):
@@ -790,8 +791,8 @@ class PaperPosition(Base):
     exit_reason: Mapped[Optional[str]] = mapped_column(String(64))
     pnl: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4))
     pnl_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class PaperAlert(Base):
@@ -812,7 +813,7 @@ class PaperAlert(Base):
     pnl_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
     message: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="open", index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class PaperTradeReview(Base):
@@ -842,8 +843,8 @@ class PaperTradeReview(Base):
     evidence_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
     verdict: Mapped[str] = mapped_column(String(32), index=True)
     summary: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class PaperTrade(Base):
@@ -861,4 +862,4 @@ class PaperTrade(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     fee: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
     reason: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
