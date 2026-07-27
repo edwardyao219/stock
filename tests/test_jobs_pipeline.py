@@ -968,6 +968,24 @@ def test_compute_features_step_warns_when_scanned_symbols_produce_no_features(mo
     assert result.summary == "特征数据不足"
 
 
+def test_rule_regression_task_reports_elapsed_seconds(monkeypatch) -> None:
+    from services.engine.backtest import sync as backtest_sync
+
+    ticks = iter((10.0, 12.345))
+    monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 27, 21, 0))
+    monkeypatch.setattr(tasks, "monotonic", lambda: next(ticks), raising=False)
+    monkeypatch.setattr(
+        backtest_sync,
+        "run_rules_backtest",
+        lambda **kwargs: {"trade_count": 12, "written_performance": 3},
+    )
+
+    result = tasks.run_rule_regression_task()
+
+    assert result["status"] == "ok"
+    assert result["elapsed_seconds"] == 2.345
+
+
 def test_generate_trade_plans_step_uses_latest_candidate_pool(monkeypatch) -> None:
     captured = {}
 

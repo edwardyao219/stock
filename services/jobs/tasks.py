@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from datetime import date, datetime
+from time import monotonic
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -958,12 +959,13 @@ def paper_late_session_snapshot_task() -> dict[str, object]:
 
 
 @celery_app.task(name="services.jobs.tasks.run_rule_regression_task")
-def run_rule_regression_task() -> dict[str, str]:
+def run_rule_regression_task() -> dict[str, object]:
     from datetime import date
 
     from services.engine.backtest.sync import run_rules_backtest
 
     today = now_local().date().isoformat()
+    started_at = monotonic()
     result = run_rules_backtest(
         end_date=date.fromisoformat(today),
         run_date=date.fromisoformat(today),
@@ -973,6 +975,7 @@ def run_rule_regression_task() -> dict[str, str]:
     return {
         "trade_date": today,
         "status": "ok",
+        "elapsed_seconds": round(monotonic() - started_at, 3),
         "message": (
             f"{result['trade_count']} trades, "
             f"{result['written_performance']} performance rows written."
