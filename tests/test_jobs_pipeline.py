@@ -972,8 +972,10 @@ def test_rule_regression_task_reports_elapsed_seconds(monkeypatch) -> None:
     from services.engine.backtest import sync as backtest_sync
 
     ticks = iter((10.0, 12.345))
+    updates = []
     monkeypatch.setattr(tasks, "now_local", lambda: datetime(2026, 7, 27, 21, 0))
     monkeypatch.setattr(tasks, "monotonic", lambda: next(ticks), raising=False)
+    monkeypatch.setattr(tasks, "merge_after_close_status", lambda *args: updates.append(args))
     monkeypatch.setattr(
         backtest_sync,
         "run_rules_backtest",
@@ -984,6 +986,15 @@ def test_rule_regression_task_reports_elapsed_seconds(monkeypatch) -> None:
 
     assert result["status"] == "ok"
     assert result["elapsed_seconds"] == 2.345
+    assert updates[-1] == (
+        "2026-07-27",
+        {
+            "rule_regression_status": "ok",
+            "rule_regression_elapsed_seconds": 2.345,
+            "rule_regression_trade_count": 12,
+            "rule_regression_performance_rows": 3,
+        },
+    )
 
 
 def test_generate_trade_plans_step_uses_latest_candidate_pool(monkeypatch) -> None:

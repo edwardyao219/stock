@@ -972,10 +972,20 @@ def run_rule_regression_task() -> dict[str, object]:
         persist=True,
         limit=500,
     )
+    elapsed_seconds = round(monotonic() - started_at, 3)
+    merge_after_close_status(
+        today,
+        {
+            "rule_regression_status": "ok",
+            "rule_regression_elapsed_seconds": elapsed_seconds,
+            "rule_regression_trade_count": int(result["trade_count"]),
+            "rule_regression_performance_rows": int(result["written_performance"]),
+        },
+    )
     return {
         "trade_date": today,
         "status": "ok",
-        "elapsed_seconds": round(monotonic() - started_at, 3),
+        "elapsed_seconds": elapsed_seconds,
         "message": (
             f"{result['trade_count']} trades, "
             f"{result['written_performance']} performance rows written."
