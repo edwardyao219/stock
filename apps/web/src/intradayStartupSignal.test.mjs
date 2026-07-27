@@ -7,6 +7,7 @@ function assert(condition, message) {
 const app = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 const api = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
 const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const desktopStyles = styles.slice(0, styles.indexOf("@media (max-width: 760px)"));
 const mobileStyles = styles.slice(styles.indexOf("@media (max-width: 760px)"));
 
 for (const field of [
@@ -61,6 +62,12 @@ assert(styles.includes(".history-health-strip"), "历史数据门禁需要独立
 assert(styles.includes(".startup-state.startup-probing"), "启动试探需要独立状态色");
 assert(styles.includes(".startup-state.startup-invalidated"), "启动失效需要独立状态色");
 assert(!app.includes('startup_label === "'), "不能通过中文标签推断启动状态");
+assert(
+  /\.intraday-watch-item\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s.test(
+    desktopStyles,
+  ),
+  "桌面端盘中候选必须为股票名称保留可见列宽",
+);
 assert(
   /\.intraday-watch-strip\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s.test(
     mobileStyles,
