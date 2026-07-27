@@ -13,6 +13,8 @@ from typing import Any
 import pandas as pd
 import requests
 
+from services.shared.time import now_utc
+
 
 @dataclass(frozen=True)
 class AShareSecurity:
@@ -271,7 +273,7 @@ def _fetch_realtime_quotes_unlocked(
     quote_time: datetime | None = None,
 ) -> list[RealtimeQuoteRow]:
     ak = _akshare()
-    current_time = quote_time or datetime.utcnow()
+    current_time = quote_time or now_utc()
     target_symbols = symbols or set()
     source = "akshare.stock_zh_a_spot_em"
     used_legacy_source = False
@@ -373,7 +375,7 @@ def fetch_sina_realtime_quotes(
     symbols: set[str],
     quote_time: datetime | None = None,
 ) -> list[RealtimeQuoteRow]:
-    current_time = quote_time or datetime.utcnow()
+    current_time = quote_time or now_utc()
     sina_symbols = [
         f"{_market_prefix_for_symbol(symbol)}{symbol}"
         for symbol in sorted(symbols)

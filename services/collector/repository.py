@@ -21,6 +21,7 @@ from services.shared.models import (
     TradingCalendar,
     TushareDatasetSyncReceipt,
 )
+from services.shared.time import now_utc
 from services.shared.upsert import upsert_rows
 
 
@@ -60,7 +61,7 @@ def upsert_trade_calendar(db: Session, trade_dates: list[str]) -> int:
 def upsert_securities(db: Session, securities: list[AShareSecurity]) -> int:
     if not securities:
         return 0
-    now = datetime.utcnow()
+    now = now_utc()
     rows = [
         {
             "symbol": item.symbol,
@@ -211,7 +212,7 @@ def upsert_industry_constituents(db: Session, constituents: list[IndustryConstit
         return 0
 
     seed_sector_profiles(db)
-    now = datetime.utcnow()
+    now = now_utc()
     rows = []
     for item in constituents:
         profile = load_sector_profile(db, item.board_name)

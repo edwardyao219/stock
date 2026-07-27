@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 from sqlalchemy import select
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from services.engine.features.market_regime import MarketRegimeSnapshot
 from services.shared.models import CandidateDiscoverySnapshot, MarketRegimeDaily
+from services.shared.time import now_utc
 from services.shared.upsert import upsert_rows
 
 
@@ -18,7 +19,7 @@ def store_market_regime_daily(
     *,
     source: str = "candidate_discovery",
 ) -> int:
-    now = datetime.utcnow()
+    now = now_utc()
     return upsert_rows(
         db,
         MarketRegimeDaily,
