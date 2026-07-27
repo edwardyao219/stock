@@ -948,6 +948,26 @@ def test_compute_features_step_refreshes_low_dimensional_snapshot_cache(monkeypa
     assert "2 条低维缓存" in result
 
 
+def test_compute_features_step_warns_when_scanned_symbols_produce_no_features(monkeypatch) -> None:
+    monkeypatch.setattr(
+        pipeline,
+        "_compute_features_for_date",
+        lambda trade_date, limit: {
+            "stock_symbols": 200,
+            "stock_feature_rows": 0,
+            "sectors": 0,
+            "sector_feature_rows": 0,
+            "snapshot_rows": 0,
+        },
+    )
+
+    result = pipeline._compute_features_step("2026-07-27", limit=200)
+
+    assert isinstance(result, pipeline.PipelineStepResult)
+    assert result.status == "warning"
+    assert result.summary == "特征数据不足"
+
+
 def test_generate_trade_plans_step_uses_latest_candidate_pool(monkeypatch) -> None:
     captured = {}
 

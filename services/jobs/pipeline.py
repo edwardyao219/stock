@@ -216,15 +216,24 @@ def _compute_features_for_date(trade_date: str, limit: int) -> dict[str, int]:
     }
 
 
-def _compute_features_step(trade_date: str, limit: int) -> str:
+def _compute_features_step(trade_date: str, limit: int) -> str | PipelineStepResult:
     result = _compute_features_for_date(trade_date, limit)
-    return (
+    detail = (
         f"计算完成：{result['stock_symbols']} 只股票、"
         f"{result['stock_feature_rows']} 条股票特征；"
         f"{result['sectors']} 个板块、"
         f"{result['sector_feature_rows']} 条板块特征；"
         f"{result['snapshot_rows']} 条低维缓存。"
     )
+    if result["stock_symbols"] and not result["stock_feature_rows"]:
+        return PipelineStepResult(
+            name="compute_features",
+            status="warning",
+            detail=detail + " 日线数据尚未就绪，不能生成可用候选。",
+            summary="特征数据不足",
+            metrics=result,
+        )
+    return detail
 
 
 def _sync_sector_moneyflow_step(
