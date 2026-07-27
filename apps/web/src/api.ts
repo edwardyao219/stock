@@ -760,6 +760,8 @@ export interface IntradayCandidate {
   selection_tier: string;
   selection_tier_label: string;
   selection_reason: string;
+  selected_rule_id: string | null;
+  selected_rule_name: string | null;
   summary: string;
   theme_signal_label: string | null;
   theme_signal_reason: string | null;

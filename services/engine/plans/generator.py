@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
@@ -104,7 +104,8 @@ def _build_plan_from_context(
         "route_momentum_score": route.momentum_score,
         "route_components": route.route_components,
     }
-    params = build_trade_parameters(rule=rule, context=context, profile=risk_profile)
+    base_params = build_trade_parameters(rule=rule, context=context, profile=risk_profile)
+    params = base_params
     evidence = build_trade_evidence(context, risk_profile.evidence_thresholds)
     learning_recommendations = []
     if learning_adjustment_loader:
@@ -120,6 +121,22 @@ def _build_plan_from_context(
                 feature_date=_feature_date(context),
             )
         )
+        if rule.id == "R008":
+            params = replace(
+                params,
+                initial_stop=base_params.initial_stop,
+                risk_per_share=base_params.risk_per_share,
+                take_profit_1=base_params.take_profit_1,
+                take_profit_2=base_params.take_profit_2,
+                position_size_pct=min(
+                    params.position_size_pct,
+                    rule.position.max_position_pct,
+                ),
+                max_holding_days=min(
+                    params.max_holding_days,
+                    base_params.max_holding_days,
+                ),
+            )
     else:
         learning_confidence_delta = 0.0
         applied_learning_adjustments = []

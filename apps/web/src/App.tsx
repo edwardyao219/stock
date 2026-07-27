@@ -102,8 +102,10 @@ import {
 import { StrategyEvidenceChart } from "./StrategyEvidenceChart";
 import {
   candidatePoolTextForStock,
+  candidateRuleName,
   cleanDisplayText,
   manualTagTextForStock,
+  meanReversionLabel,
   styleLabelForValue,
 } from "./stockLabels";
 import {
@@ -433,6 +435,8 @@ function candidatePoolText(stock: WorkspaceStock) {
 }
 
 function candidateStrategyText(stock: WorkspaceStock) {
+  const ruleName = candidateRuleName(stock.manual_tags);
+  if (ruleName) return `策略 ${ruleName}`;
   if (stock.manual_tags.includes("mode:exploration")) return "探索池";
   if (stock.manual_tags.includes("mode:observation")) return "观察池";
   if (stock.manual_tags.includes("mode:potential_watch")) return "潜力观察";
@@ -442,6 +446,11 @@ function candidateStrategyText(stock: WorkspaceStock) {
   const strategyTag = stock.manual_tags.find((item) => item.startsWith("strategy:"));
   if (strategyTag) return `策略 ${strategyTag.slice(9)}`;
   return null;
+}
+
+function candidateMeanReversionLabel(stock: WorkspaceStock) {
+  const ruleTag = stock.manual_tags.find((item) => item.startsWith("rule:"));
+  return meanReversionLabel(ruleTag?.slice("rule:".length), candidateRuleName(stock.manual_tags));
 }
 
 function candidateHorizonText(stock: WorkspaceStock) {
@@ -2248,6 +2257,9 @@ export function App() {
           <span className={`source-pill ${stockActionClass(item)}`}>
             {stockActionLabel(item)}
           </span>
+          {candidateMeanReversionLabel(item) ? (
+            <i className="strategy-pill mean-reversion">均值回归</i>
+          ) : null}
           {tierMeta ? (
             <span className={`source-pill tier-${tierMeta.tier.replace("_", "-")}`}>
               {tierMeta.label}
@@ -2610,6 +2622,9 @@ export function App() {
                           <i className={`tier-pill ${selectionTierTone(item.selection_tier)}`}>
                             {item.selection_tier_label}
                           </i>
+                          {meanReversionLabel(item.selected_rule_id, item.selected_rule_name) ? (
+                            <i className="strategy-pill mean-reversion">均值回归</i>
+                          ) : null}
                         </strong>
                         <small>{item.name ?? "-"} / {item.sector ?? "-"}</small>
                         <em>{candidateExplanationText(item)}</em>

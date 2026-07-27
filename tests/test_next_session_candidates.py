@@ -1,9 +1,11 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
+from services.engine.features.market_regime import MarketRegimeSnapshot
 from services.engine.research_pool import candidates as candidate_module
 from services.engine.research_pool.candidates import (
     _regime_candidate_limit,
@@ -80,6 +82,106 @@ def _dated_feature(symbol: str, trade_date: date, **overrides) -> StockFeatureDa
     item = _feature(symbol, **overrides)
     item.trade_date = trade_date
     return item
+
+
+def _run_mean_reversion_discovery(monkeypatch, regime: str, *, rsi_14: float = 30):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(
+        candidate_module,
+        "_candidate_data_evidence_risk",
+        lambda db, feature_date: {"status": "ok", "reasons": []},
+    )
+    monkeypatch.setattr(
+        candidate_module,
+        "_market_regime_snapshot",
+        lambda contexts, feature_date: MarketRegimeSnapshot(
+            trade_date=feature_date.isoformat(),
+            regime=regime,
+            trend_score=50.0,
+            breadth_score=50.0,
+            emotion_score=50.0,
+            volatility_score=50.0,
+            risk_level="medium",
+        ),
+    )
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="600001",
+                    name="超跌修复股",
+                    exchange="SH",
+                    industry="食品饮料",
+                    is_active=True,
+                    is_st=False,
+                ),
+                _bar("600001"),
+                _feature(
+                    "600001",
+                    trend_score=25,
+                    relative_strength_score=35,
+                    sector_strength_score=40,
+                    volume_confirmation_score=45,
+                    risk_score=75,
+                    overheat_score=20,
+                    volume_trap_risk_score=30,
+                    rsi_14=rsi_14,
+                    distance_to_ma20=-0.08,
+                    return_1d=0.01,
+                    return_5d=-0.08,
+                    return_20d=-0.12,
+                    ma20_slope_20d=-0.01,
+                    max_drawdown_20d=-0.18,
+                    close_position_in_range=0.65,
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            limit=10,
+        )
+        db.commit()
+        items = list_pool_items(db, pool_name="experiment")
+    return result, items
+
+
+def test_mean_reversion_candidate_can_join_formal_pool_in_range_market(monkeypatch) -> None:
+    result, items = _run_mean_reversion_discovery(monkeypatch, "range")
+
+    candidate = next(item for item in result["candidates"] if item["symbol"] == "600001")
+    assert candidate["selected_rule_id"] == "R008"
+    assert candidate["selected_rule_name"] == "[均值回归] 超跌修复"
+    assert candidate["selection_mode"] == "formal_strategy"
+    assert "rule:R008" in items[0]["tags"]
+    assert "rule_name:[均值回归] 超跌修复" in items[0]["tags"]
+
+
+def test_mean_reversion_candidate_cannot_bypass_rule_conditions(monkeypatch) -> None:
+    result, _items = _run_mean_reversion_discovery(monkeypatch, "range", rsi_14=45)
+
+    assert not any(
+        item["selected_rule_id"] == "R008" and item["selection_mode"] == "formal_strategy"
+        for item in result["candidates"]
+    )
+
+
+@pytest.mark.parametrize("regime", ["panic", "weak_trend", "rebound_unconfirmed", "unknown"])
+def test_mean_reversion_candidate_stays_out_of_formal_pool_in_unsafe_regimes(
+    monkeypatch, regime
+) -> None:
+    result, _items = _run_mean_reversion_discovery(monkeypatch, regime)
+
+    assert not any(
+        item["selected_rule_id"] == "R008" and item["selection_mode"] == "formal_strategy"
+        for item in result["candidates"]
+    )
 
 
 def test_discover_next_session_candidates_writes_strong_candidates_to_pool(monkeypatch) -> None:

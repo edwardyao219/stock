@@ -64,6 +64,8 @@ class IntradayCandidate:
     selection_tier_label: str
     selection_reason: str
     summary: str
+    selected_rule_id: str | None = None
+    selected_rule_name: str | None = None
     startup_tracked: bool = False
     startup_prior_state: str | None = None
     startup_confirmation_evidence: list[str] = field(default_factory=list)
@@ -1530,6 +1532,8 @@ def discover_intraday_candidates(
                 selection_tier=selection_tier,
                 selection_tier_label=selection_tier_label,
                 selection_reason=selection_reason,
+                selected_rule_id=_tag_text(tags, "rule:"),
+                selected_rule_name=_tag_text(tags, "rule_name:"),
                 summary=_summary(
                     quote,
                     state,

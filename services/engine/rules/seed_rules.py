@@ -217,6 +217,53 @@ MVP_RULES: list[StrategyRule] = [
         tags=["trend", "volume-confirmation", "baseline"],
     ),
     StrategyRule(
+        id="R008",
+        name="[均值回归] 超跌修复",
+        strategy_type=StrategyType.SWING,
+        status=RuleStatus.TESTING,
+        description="寻找偏离MA20且短线超卖、但跌势已开始收敛的个股，次日站回短均线后参与修复。",
+        entry=ConditionGroup(
+            all=[
+                Condition(feature="fundamental_verdict", op="!=", value="weak"),
+                Condition(feature="rsi_14", op=">=", value=20),
+                Condition(feature="rsi_14", op="<=", value=38),
+                Condition(feature="distance_to_ma20", op=">=", value=-0.12),
+                Condition(feature="distance_to_ma20", op="<=", value=-0.04),
+                Condition(feature="return_5d", op=">=", value=-0.15),
+                Condition(feature="return_5d", op="<=", value=-0.04),
+                Condition(feature="return_20d", op=">=", value=-0.22),
+                Condition(feature="ma20_slope_20d", op=">=", value=-0.03),
+                Condition(feature="max_drawdown_20d", op=">=", value=-0.22),
+                Condition(feature="close_position_in_range", op=">=", value=0.45),
+                Condition(feature="volume_trap_risk_score", op="<=", value=65),
+                Condition(feature="is_st", op="==", value=False),
+                Condition(feature="is_suspended", op="==", value=False),
+            ]
+        ),
+        trigger=ConditionGroup(
+            all=[Condition(field="price", op=">=", ref="entry_trigger_price")]
+        ),
+        stop=StopRule(
+            type="composite",
+            params={
+                "atr_multiple": 1.5,
+                "structure_ref": "support_level",
+                "mode": "tighter",
+            },
+        ),
+        take_profit=TakeProfitRule(
+            type="target_then_trailing",
+            params={
+                "first_target_ref": "ma10",
+                "second_target_ref": "ma20",
+                "drawdown_from_high_pct": 0.05,
+            },
+        ),
+        time_exit=TimeExitRule(max_holding_days=8, exit_if_no_new_high_days=4),
+        position=PositionRule(base_position_pct=0.04, max_position_pct=0.08),
+        tags=["mean-reversion", "oversold-repair", "swing"],
+    ),
+    StrategyRule(
         id="R003",
         name="弱势市场防守过滤",
         strategy_type=StrategyType.FILTER,

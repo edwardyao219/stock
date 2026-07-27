@@ -2027,6 +2027,37 @@ def test_format_candidate_screening_text_groups_multiple_rules_by_symbol() -> No
     assert "板块20日主线扩散较好" in text
 
 
+def test_format_candidate_screening_text_marks_mean_reversion_rule() -> None:
+    candidate = {
+        "symbol": "600001",
+        "name": "均值修复股",
+        "sector": "食品饮料",
+        "selection_mode": "formal_strategy",
+        "score": 72.5,
+        "selected_rule_id": "R008",
+        "selected_rule_name": "[均值回归] 超跌修复",
+        "selected_strategy_type": "swing",
+        "reasons": ["价格偏离MA20，短线超卖后开始修复"],
+        "risk_flags": [],
+    }
+    text = format_candidate_screening_text(
+        {
+            "feature_date": "2026-06-24",
+            "universe_size": 100,
+            "retired": 0,
+            "candidates": [candidate],
+            "candidate_tiers": {
+                "core_action": [candidate],
+                "sector_watch": [],
+                "watch_wait": [],
+                "risk_reject": [],
+            },
+        }
+    )
+
+    assert "规则：R008 [均值回归] 超跌修复" in text
+
+
 def test_format_candidate_screening_text_keeps_only_formal_selection_tier_when_present() -> None:
     text = format_candidate_screening_text(
         {

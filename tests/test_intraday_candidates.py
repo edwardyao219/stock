@@ -57,18 +57,28 @@ def _quote(
     )
 
 
-def _candidate(symbol: str, *, rank: int, score: float) -> ResearchPoolItem:
+def _candidate(
+    symbol: str,
+    *,
+    rank: int,
+    score: float,
+    rule_id: str | None = None,
+    rule_name: str | None = None,
+) -> ResearchPoolItem:
+    tags = [
+        "after_close_candidate",
+        "next_session",
+        f"rank:{rank}",
+        f"score:{score}",
+    ]
+    if rule_id:
+        tags.append(f"rule:{rule_id}")
+    if rule_name:
+        tags.append(f"rule_name:{rule_name}")
     return ResearchPoolItem(
         pool_name="experiment",
         symbol=symbol,
-        tags_json={
-            "tags": [
-                "after_close_candidate",
-                "next_session",
-                f"rank:{rank}",
-                f"score:{score}",
-            ]
-        },
+        tags_json={"tags": tags},
         status="active",
     )
 
@@ -168,6 +178,38 @@ def test_discover_intraday_candidates_prioritizes_live_supportive_candidate() ->
         "sector_count": 1,
         "top_sectors": [{"sector": "通信设备", "count": 2, "ratio": 1.0}],
     }
+
+
+def test_discover_intraday_candidates_carries_candidate_rule_identity() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _security("600001", "均值修复"),
+                _candidate(
+                    "600001",
+                    rank=1,
+                    score=80,
+                    rule_id="R008",
+                    rule_name="[均值回归] 超跌修复",
+                ),
+                _quote("600001", datetime(2026, 6, 30, 10, 5), price="10.1"),
+            ]
+        )
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=date(2026, 6, 30),
+            pool_name="experiment",
+            limit=10,
+        )
+
+    item = result["candidates"][0]
+    assert item["selected_rule_id"] == "R008"
+    assert item["selected_rule_name"] == "[均值回归] 超跌修复"
 
 
 def test_discover_intraday_candidates_uses_latest_candidate_feature_date_only() -> None:

@@ -89,6 +89,10 @@ def build_trade_parameters(
         signal_high = _float(context, "high", close) or close
         entry_reference_price = min(max(close, ma10), signal_high)
         entry_reason = "trend_volume_confirmation_reference"
+    elif rule.id == "R008":
+        ma5 = _float(context, "ma5", close) or close
+        entry_reference_price = max(close, ma5)
+        entry_reason = "mean_reversion_confirmation_reference"
     elif rule.id == "R004":
         ma20 = _float(context, "ma20", close) or close
         entry_reference_price = min(close, ma20 * 1.03)
@@ -114,6 +118,22 @@ def build_trade_parameters(
     take_profit_1 = entry_trigger_price + risk_per_share * profile.take_profit_1_r
     take_profit_2 = entry_trigger_price + risk_per_share * profile.take_profit_2_r
     position_size_pct = _position_size_pct(entry_trigger_price, initial_stop, profile)
+    max_gap_up_pct = profile.max_gap_up_pct
+    if rule.id == "R008":
+        ma10 = _float(context, "ma10")
+        ma20 = _float(context, "ma20")
+        take_profit_1 = (
+            ma10
+            if ma10 is not None and ma10 > entry_trigger_price
+            else entry_trigger_price + risk_per_share
+        )
+        take_profit_2 = (
+            ma20
+            if ma20 is not None and ma20 > take_profit_1
+            else take_profit_1 + risk_per_share * 0.5
+        )
+        position_size_pct = min(position_size_pct, rule.position.max_position_pct)
+        max_gap_up_pct = 0.03
     _effective_stop_loss_pct, trailing_drawdown_pct = guard_parameters_for_features(
         context,
         stop_loss_pct=profile.max_stop_loss_pct,
@@ -126,7 +146,7 @@ def build_trade_parameters(
     )
 
     invalid_conditions = [
-        f"高开超过{profile.max_gap_up_pct:.2%}",
+        f"高开超过{max_gap_up_pct:.2%}",
         "交易日未触发入场价",
     ]
     if support:
@@ -168,7 +188,7 @@ def build_trade_parameters(
     return TradeParameters(
         entry_reference_price=_round_price(entry_reference_price),
         entry_trigger_price=_round_price(entry_trigger_price),
-        max_gap_up_pct=profile.max_gap_up_pct,
+        max_gap_up_pct=max_gap_up_pct,
         initial_stop=_round_price(initial_stop),
         risk_per_share=_round_price(risk_per_share),
         take_profit_1=_round_price(take_profit_1),

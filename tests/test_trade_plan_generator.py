@@ -1,9 +1,116 @@
+from datetime import date
+
 import pytest
 
 from services.engine.plans.evidence import build_trade_evidence
 from services.engine.plans.generator import generate_trade_plans
 from services.engine.risk.profiles import RiskProfile
 from services.engine.rules.seed_rules import MVP_RULES
+from services.shared.models import ParameterRecommendation
+
+
+def test_mean_reversion_rule_has_conservative_oversold_bounds() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R008")
+    conditions = {(item.feature, item.op, item.value) for item in rule.entry.all}
+
+    assert rule.name == "[均值回归] 超跌修复"
+    assert rule.status.value == "testing"
+    assert ("rsi_14", ">=", 20) in conditions
+    assert ("rsi_14", "<=", 38) in conditions
+    assert ("distance_to_ma20", ">=", -0.12) in conditions
+    assert ("distance_to_ma20", "<=", -0.04) in conditions
+    assert rule.time_exit.max_holding_days == 8
+    assert "mean-reversion" in rule.tags
+
+
+def _valid_mean_reversion_context() -> dict[str, float | str | bool]:
+    return {
+        "symbol": "600001",
+        "trade_date": "2026-06-23",
+        "close": 9.0,
+        "high": 9.1,
+        "ma5": 9.2,
+        "ma10": 9.6,
+        "ma20": 10.0,
+        "atr_14": 0.2,
+        "support_level": 8.6,
+        "fundamental_verdict": "neutral",
+        "rsi_14": 30.0,
+        "distance_to_ma20": -0.10,
+        "return_5d": -0.08,
+        "return_20d": -0.12,
+        "ma20_slope_20d": -0.01,
+        "max_drawdown_20d": -0.18,
+        "close_position_in_range": 0.60,
+        "volume_trap_risk_score": 35.0,
+        "is_st": False,
+        "is_suspended": False,
+    }
+
+
+def test_mean_reversion_plan_uses_recovery_confirmation_and_mean_targets() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R008")
+
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=[rule],
+        feature_contexts=[_valid_mean_reversion_context()],
+    )
+
+    assert len(plans) == 1
+    plan = plans[0]
+    assert plan.rule_id == "R008"
+    assert plan.entry_trigger_price == 9.2
+    assert plan.max_gap_up_pct == 0.03
+    assert plan.take_profit_1 == 9.6
+    assert plan.take_profit_2 == 10.0
+    assert plan.position_size <= 0.08
+    assert plan.max_holding_days == 8
+    assert plan.entry_condition["trade_parameters"]["entry_reference_price"] == 9.2
+
+
+def test_mean_reversion_learning_keeps_strategy_risk_bounds_and_targets() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R008")
+    recommendation = ParameterRecommendation(
+        report_date=date(2026, 6, 23),
+        rule_id="R008",
+        scope_type="rule",
+        scope_value="R008",
+        target_type="risk_policy",
+        target_name="aggressive_mean_reversion",
+        action="increase_risk_and_holding_period",
+        priority="high",
+        rationale="regression fixture",
+        current_json={},
+        proposed_json={
+            "max_stop_loss_pct_multiplier": 1.5,
+            "position_size_pct_multiplier": 1.5,
+            "take_profit_1_r_multiplier": 1.5,
+            "take_profit_2_r_multiplier": 1.5,
+            "max_holding_days_multiplier": 1.5,
+        },
+        guardrails_json={"items": []},
+        source_report_type="paper_learning_review",
+        status="pending",
+    )
+
+    plans = generate_trade_plans(
+        plan_date="2026-06-23",
+        trade_date="2026-06-24",
+        rules=[rule],
+        feature_contexts=[_valid_mean_reversion_context()],
+        learning_adjustment_loader=lambda rule, context, tags: [recommendation],
+    )
+
+    plan = plans[0]
+    assert plan.initial_stop == 8.9
+    assert plan.entry_condition["trade_parameters"]["risk_per_share"] == 0.3
+    assert plan.position_size <= 0.08
+    assert plan.max_holding_days == 8
+    assert plan.take_profit_1 == 9.6
+    assert plan.take_profit_2 == 10.0
+    assert plan.entry_condition["learning_adjustments"]
 
 
 def _valid_long_term_context() -> dict[str, float | str | bool]:

@@ -66,6 +66,18 @@ export function styleLabelForValue(value: string | null | undefined) {
   return styleLabels[value] ?? "未分类";
 }
 
+export function candidateRuleName(tags: string[]) {
+  const tag = tags.find((item) => item.startsWith("rule_name:"));
+  return tag ? tag.slice("rule_name:".length) : null;
+}
+
+export function meanReversionLabel(
+  ruleId?: string | null,
+  ruleName?: string | null,
+) {
+  return ruleId === "R008" || ruleName?.startsWith("[均值回归]") ? "均值回归" : null;
+}
+
 function readableDateTime(value: string) {
   return value.replace("T", " ");
 }
@@ -168,6 +180,7 @@ export function manualTagTextForStock(value: string, stock: StockPoolLabelInput)
     return cleanDisplayText(value.slice("candidate_pool_reason:".length));
   }
   if (value.startsWith("rule:")) return `策略：${value.slice("rule:".length)}`;
+  if (value.startsWith("rule_name:")) return `策略：${value.slice("rule_name:".length)}`;
   if (value.startsWith("strategy:")) {
     const strategy = value.slice("strategy:".length);
     return `策略：${strategyLabels[strategy] ?? "观察"}`;

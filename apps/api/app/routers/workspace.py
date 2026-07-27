@@ -171,6 +171,8 @@ class IntradayCandidateResponse(BaseModel):
     selection_tier_label: str
     selection_reason: str
     summary: str
+    selected_rule_id: str | None = None
+    selected_rule_name: str | None = None
     theme_signal_label: str | None = None
     theme_signal_reason: str | None = None
     caution_reasons: list[str]

@@ -1,5 +1,5 @@
 // @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
-import { candidatePoolTextForStock, manualTagTextForStock } from "./stockLabels.ts";
+import { candidatePoolTextForStock, candidateRuleName, manualTagTextForStock, meanReversionLabel } from "./stockLabels.ts";
 
 function assertEqual(actual: unknown, expected: unknown, message: string) {
   if (actual !== expected) {
@@ -26,6 +26,32 @@ const startupPreheatCandidate = {
   symbol: "002558",
   manual_tags: ["after_close_candidate", "next_session", "candidate_pool:startup_preheat"],
 };
+
+const meanReversionCandidate = {
+  symbol: "600001",
+  manual_tags: ["rule:R008", "rule_name:[均值回归] 超跌修复"],
+};
+
+assertEqual(
+  candidateRuleName(meanReversionCandidate.manual_tags),
+  "[均值回归] 超跌修复",
+  "候选显示规则名",
+);
+assertEqual(
+  meanReversionLabel("R008", "[均值回归] 超跌修复"),
+  "均值回归",
+  "R008显示醒目标记",
+);
+assertEqual(
+  meanReversionLabel("R002", "强势板块缩量回踩"),
+  null,
+  "其他规则不显示均值回归",
+);
+assertEqual(
+  manualTagTextForStock("rule_name:[均值回归] 超跌修复", meanReversionCandidate),
+  "策略：[均值回归] 超跌修复",
+  "规则名标签需要显示为用户可读文本",
+);
 
 assertEqual(
   candidatePoolTextForStock(normalCandidateWithHistoricalStarTag),

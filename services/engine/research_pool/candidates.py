@@ -151,6 +151,7 @@ CANDIDATE_RULE_SCORE_BONUSES = {
     "R004": 7.0,
     "R002": 5.0,
     "R007": 4.0,
+    "R008": 3.0,
     "R005": 2.0,
     "R006": -1.0,
     "R001": -3.0,
@@ -234,6 +235,7 @@ CANDIDATE_TAG_PREFIXES = (
     "dropped:",
     "hold_until:",
     "rule:",
+    "rule_name:",
     "strategy:",
     "style:",
     "style_horizon:",
@@ -1923,6 +1925,34 @@ def _passes_candidate_filters(context: dict[str, Any], *, score_delta: float = 0
     return _candidate_score_with_delta(context, score_delta) >= CANDIDATE_FORMAL_SCORE_MIN
 
 
+def _is_mean_reversion_match(matches: list[CandidateStrategyMatch]) -> bool:
+    return bool(matches and matches[0].rule_id == "R008")
+
+
+def _passes_mean_reversion_candidate_filters(
+    context: dict[str, Any], *, regime: str
+) -> bool:
+    return regime in {"strong_trend", "rebound", "range"} and _passes_hard_safety_filters(
+        context
+    )
+
+
+def _passes_formal_candidate_selection(
+    context: dict[str, Any],
+    matches: list[CandidateStrategyMatch],
+    *,
+    regime: str,
+    score_delta: float,
+) -> bool:
+    if _is_mean_reversion_match(matches):
+        return _passes_mean_reversion_candidate_filters(context, regime=regime)
+    return _passes_market_regime_gate(
+        context,
+        regime=regime,
+        selection_mode="formal_strategy",
+    ) and _passes_candidate_filters(context, score_delta=score_delta)
+
+
 def _passes_pullback_candidate_filters(
     context: dict[str, Any], *, score_delta: float = 0.0
 ) -> bool:
@@ -3050,12 +3080,12 @@ def discover_next_session_candidates(
         if (
             matches
             and not formal_upgrade_blocked
-            and _passes_market_regime_gate(
+            and _passes_formal_candidate_selection(
                 context,
+                matches,
                 regime=market_regime.regime,
-                selection_mode="formal_strategy",
+                score_delta=score_delta,
             )
-            and _passes_candidate_filters(context, score_delta=score_delta)
         ):
             formal_candidates.append(
                 _build_candidate(
@@ -3074,6 +3104,7 @@ def discover_next_session_candidates(
         if (
             matches
             and not formal_upgrade_blocked
+            and not _is_mean_reversion_match(matches)
             and _passes_market_regime_gate(
                 context,
                 regime=market_regime.regime,
@@ -3352,6 +3383,8 @@ def discover_next_session_candidates(
         ]
         if item.selected_rule_id:
             tags.append(f"rule:{item.selected_rule_id}")
+        if item.selected_rule_name:
+            tags.append(f"rule_name:{item.selected_rule_name}")
         if item.selected_strategy_type:
             tags.append(f"strategy:{item.selected_strategy_type}")
         tags.append(f"style:{item.sector_style}")
