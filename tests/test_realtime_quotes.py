@@ -1,3 +1,4 @@
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from decimal import Decimal
@@ -111,7 +112,9 @@ def test_fetch_sina_realtime_quotes_parses_snapshot(monkeypatch) -> None:
     assert rows[0].source == "sina.hq"
 
 
-def test_fetch_realtime_quotes_falls_back_to_sina_full_market_source(monkeypatch) -> None:
+def test_fetch_realtime_quotes_falls_back_without_forwarding_progress_to_stderr(
+    monkeypatch, capsys
+) -> None:
     from services.collector import akshare_client
 
     class _Akshare:
@@ -119,6 +122,7 @@ def test_fetch_realtime_quotes_falls_back_to_sina_full_market_source(monkeypatch
             raise RuntimeError("eastmoney unavailable")
 
         def stock_zh_a_spot(self):
+            print("Please wait for a moment: 50%", file=sys.stderr)
             return pd.DataFrame(
                 [
                     {
@@ -143,6 +147,7 @@ def test_fetch_realtime_quotes_falls_back_to_sina_full_market_source(monkeypatch
     assert len(rows) == 1
     assert rows[0].symbol == "000001"
     assert rows[0].source == "akshare.stock_zh_a_spot"
+    assert "Please wait for a moment" not in capsys.readouterr().err
 
 
 def test_fetch_realtime_quotes_normalizes_exchange_prefixed_symbols(monkeypatch) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -97,6 +97,13 @@ _PROXY_ENV_KEYS = (
     "ALL_PROXY",
 )
 _REALTIME_FETCH_LOCK = Lock()
+
+
+def _fetch_sina_full_market_quotes(ak: Any) -> pd.DataFrame:
+    """Run AKShare's legacy full-market fallback without its tqdm stderr output."""
+    with _without_proxy_env(), open(os.devnull, "w", encoding="utf-8") as null_stderr:
+        with redirect_stderr(null_stderr):
+            return ak.stock_zh_a_spot()
 
 
 @contextmanager
@@ -273,8 +280,7 @@ def _fetch_realtime_quotes_unlocked(
             df = ak.stock_zh_a_spot_em()
     except Exception:
         try:
-            with _without_proxy_env():
-                df = ak.stock_zh_a_spot()
+            df = _fetch_sina_full_market_quotes(ak)
         except Exception:
             if symbols and len(symbols) <= 200:
                 return fetch_sina_realtime_quotes(symbols=symbols, quote_time=current_time)
@@ -314,8 +320,7 @@ def _fetch_realtime_quotes_unlocked(
     fallback_rows: list[RealtimeQuoteRow] = []
     if not used_legacy_source:
         try:
-            with _without_proxy_env():
-                fallback_df = ak.stock_zh_a_spot()
+            fallback_df = _fetch_sina_full_market_quotes(ak)
         except Exception:
             fallback_df = None
         if fallback_df is not None:
