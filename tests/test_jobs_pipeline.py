@@ -2813,6 +2813,21 @@ def test_discover_next_session_candidates_step_dispatches_screening_summary(monk
                 "summary": "候选偏少：3只，先解释原因再考虑调参。",
                 "reasons": ["市场状态把候选上限从15只收缩到3只。"],
             },
+            "selection_funnel": {
+                "universe": 100,
+                "hard_safety_rejected": 12,
+                "strategy_matched": 8,
+                "formal_qualified": 3,
+                "observation_qualified": 4,
+                "potential_qualified": 2,
+                "exploration_qualified": 5,
+                "unqualified": 74,
+                "formal_ranked_out": 0,
+                "observation_ranked_out": 1,
+                "potential_ranked_out": 0,
+                "exploration_ranked_out": 2,
+                "selected": 5,
+            },
             "sector_focus": [
                 {
                     "sector": "通信设备",
@@ -2874,6 +2889,7 @@ def test_discover_next_session_candidates_step_dispatches_screening_summary(monk
     assert captured["plan_args"]["symbols"] == ["603083"]
     assert result.details[0] == "钉钉提醒：dingtalk:ok"
     assert any("候选诊断：候选偏少" in item for item in result.details)
+    assert any("筛选漏斗：硬风控淘汰 12" in item for item in result.details)
     assert result.metrics == {
         "candidate_written": 2,
         "candidate_retired": 0,

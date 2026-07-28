@@ -163,6 +163,17 @@ def test_mean_reversion_candidate_can_join_formal_pool_in_range_market(monkeypat
     assert "rule_name:[均值回归] 超跌修复" in items[0]["tags"]
 
 
+def test_candidate_discovery_reports_selection_funnel(monkeypatch) -> None:
+    result, _items = _run_mean_reversion_discovery(monkeypatch, "range")
+
+    funnel = result["selection_funnel"]
+
+    assert funnel["universe"] == 1
+    assert funnel["strategy_matched"] == 1
+    assert funnel["formal_qualified"] == 1
+    assert funnel["formal_selected"] == 1
+
+
 def test_mean_reversion_candidate_cannot_bypass_rule_conditions(monkeypatch) -> None:
     result, _items = _run_mean_reversion_discovery(monkeypatch, "range", rsi_14=45)
 

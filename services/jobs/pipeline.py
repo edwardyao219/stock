@@ -83,6 +83,23 @@ def _candidate_diagnostic_detail(discovery: dict[str, Any]) -> str | None:
     return detail
 
 
+def _candidate_funnel_detail(discovery: dict[str, Any]) -> str | None:
+    funnel = discovery.get("selection_funnel")
+    if not isinstance(funnel, dict):
+        return None
+    return (
+        "筛选漏斗："
+        f"硬风控淘汰 {int(funnel.get('hard_safety_rejected') or 0)}，"
+        f"策略命中 {int(funnel.get('strategy_matched') or 0)}，"
+        f"正式/观察/潜伏/探索合格 "
+        f"{int(funnel.get('formal_qualified') or 0)}/"
+        f"{int(funnel.get('observation_qualified') or 0)}/"
+        f"{int(funnel.get('potential_qualified') or 0)}/"
+        f"{int(funnel.get('exploration_qualified') or 0)}，"
+        f"最终入池 {int(funnel.get('selected') or 0)}。"
+    )
+
+
 def _is_open_trade_date(db: Session, trade_date: str) -> bool:
     row = db.execute(
         select(TradingCalendar).where(TradingCalendar.trade_date == date.fromisoformat(trade_date))
@@ -1090,6 +1107,9 @@ def _discover_next_session_candidates_step(
     candidate_diagnostic_detail = _candidate_diagnostic_detail(discovery)
     if candidate_diagnostic_detail:
         details.insert(1, candidate_diagnostic_detail)
+    candidate_funnel_detail = _candidate_funnel_detail(discovery)
+    if candidate_funnel_detail:
+        details.insert(1, candidate_funnel_detail)
     tier_summary = (
         candidate_tiers.get("summary") if isinstance(candidate_tiers, dict) else {}
     ) or {}

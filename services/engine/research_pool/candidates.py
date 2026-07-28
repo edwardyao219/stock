@@ -3039,11 +3039,24 @@ def discover_next_session_candidates(
     learning_notes_by_symbol: dict[str, list[str]] = {}
     long_horizon_learning_notes_by_symbol: dict[str, list[str]] = {}
     style_gate_reasons_by_symbol: dict[str, str] = {}
+    selection_funnel = {
+        "universe": universe_size,
+        "hard_safety_rejected": 0,
+        "strategy_matched": 0,
+        "formal_qualified": 0,
+        "observation_qualified": 0,
+        "potential_qualified": 0,
+        "exploration_qualified": 0,
+        "unqualified": 0,
+    }
 
     for context in contexts:
         if not _passes_hard_safety_filters(context):
+            selection_funnel["hard_safety_rejected"] += 1
             continue
         matches = _matching_rules(context)
+        if matches:
+            selection_funnel["strategy_matched"] += 1
         score_delta = _regime_score_delta(
             context,
             market_regime.regime,
@@ -3087,6 +3100,7 @@ def discover_next_session_candidates(
                 score_delta=score_delta,
             )
         ):
+            selection_funnel["formal_qualified"] += 1
             formal_candidates.append(
                 _build_candidate(
                     context,
@@ -3102,6 +3116,7 @@ def discover_next_session_candidates(
             )
             continue
         if _is_mean_reversion_match(matches):
+            selection_funnel["observation_qualified"] += 1
             observation_candidates.append(
                 _build_candidate(
                     context,
@@ -3131,6 +3146,7 @@ def discover_next_session_candidates(
                 score_delta=score_delta,
             )
         ):
+            selection_funnel["formal_qualified"] += 1
             formal_candidates.append(
                 _build_candidate(
                     context,
@@ -3150,6 +3166,7 @@ def discover_next_session_candidates(
             regime=market_regime.regime,
             selection_mode="observation",
         ) and _passes_observation_filters(context, score_delta=score_delta):
+            selection_funnel["observation_qualified"] += 1
             observation_candidates.append(
                 _build_candidate(
                     context,
@@ -3170,6 +3187,7 @@ def discover_next_session_candidates(
             regime=market_regime.regime,
             selection_mode="potential_watch",
         ) and _passes_potential_watch_filters(context, score_delta=score_delta):
+            selection_funnel["potential_qualified"] += 1
             potential_score_delta = _potential_watch_score_delta(context, score_delta)
             potential_candidates.append(
                 _build_candidate(
@@ -3187,6 +3205,7 @@ def discover_next_session_candidates(
             )
             continue
         if _passes_exploration_filters(context, score_delta=score_delta):
+            selection_funnel["exploration_qualified"] += 1
             exploration_candidates.append(
                 _build_candidate(
                     context,
@@ -3201,6 +3220,8 @@ def discover_next_session_candidates(
                     market_participation_snapshot=participation_snapshot,
                 )
             )
+            continue
+        selection_funnel["unqualified"] += 1
 
     ranked_formal = sorted(
         formal_candidates,
@@ -3285,6 +3306,18 @@ def discover_next_session_candidates(
         limit=potential_watch_limit,
         score_fn=_potential_watch_rank_score,
     )
+    selection_funnel.update(
+        {
+            "formal_selected": len(selected_formal),
+            "observation_selected": len(selected_observation),
+            "potential_selected": len(selected_potential),
+            "exploration_selected": len(selected_exploration),
+            "formal_ranked_out": len(ranked_formal) - len(selected_formal),
+            "observation_ranked_out": len(ranked_observation) - len(selected_observation),
+            "potential_ranked_out": len(ranked_potential) - len(selected_potential),
+            "exploration_ranked_out": len(ranked_exploration) - len(selected_exploration),
+        }
+    )
     final_score_fn = rank_score_fn
     selected = sorted(
         selected_formal + selected_observation + selected_potential + selected_exploration,
@@ -3300,6 +3333,7 @@ def discover_next_session_candidates(
         reverse=True,
     )
     selected = _surface_fresh_potential_after_crowded_sector(selected)
+    selection_funnel["selected"] = len(selected)
     data_evidence_risk = _candidate_data_evidence_risk(db, effective_feature_date)
     selected = [
         replace(
@@ -3481,6 +3515,7 @@ def discover_next_session_candidates(
         "sector_focus": sector_focus,
         "external_challengers": external_challengers,
         "candidate_diagnostics": candidate_diagnostics,
+        "selection_funnel": selection_funnel,
         "written": written,
         "retired": retired,
     }
