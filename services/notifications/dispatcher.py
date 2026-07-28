@@ -283,6 +283,23 @@ def _append_candidate_diagnostics(lines: list[str], discovery: dict[str, Any]) -
     lines.append(line)
 
 
+def _append_candidate_selection_funnel(lines: list[str], discovery: dict[str, Any]) -> None:
+    funnel = discovery.get("selection_funnel")
+    if not isinstance(funnel, dict):
+        return
+    lines.append(
+        "筛选漏斗："
+        f"硬风控淘汰 {int(funnel.get('hard_safety_rejected') or 0)}，"
+        f"策略命中 {int(funnel.get('strategy_matched') or 0)}，"
+        f"正式/观察/潜伏/探索合格 "
+        f"{int(funnel.get('formal_qualified') or 0)}/"
+        f"{int(funnel.get('observation_qualified') or 0)}/"
+        f"{int(funnel.get('potential_qualified') or 0)}/"
+        f"{int(funnel.get('exploration_qualified') or 0)}，"
+        f"最终入池 {int(funnel.get('selected') or 0)}。"
+    )
+
+
 def _strategy_priority(strategy_type: Any) -> int:
     mapping = {
         "long_term": 3,
@@ -1618,6 +1635,7 @@ def format_candidate_screening_text(
             lines.append(turn_summary)
         _append_external_challengers(lines, discovery)
         _append_candidate_diagnostics(lines, discovery)
+        _append_candidate_selection_funnel(lines, discovery)
         lines.append(
             f"钉钉分层推送：核心行动 {len(core_candidates)} 只，"
             f"防守板块观察 {len(sector_watch_candidates)} 只，"
@@ -1708,6 +1726,7 @@ def format_candidate_screening_text(
         lines.append(turn_summary)
     _append_external_challengers(lines, discovery)
     _append_candidate_diagnostics(lines, discovery)
+    _append_candidate_selection_funnel(lines, discovery)
     if uses_core_action_candidates:
         tiers = candidate_tiers if isinstance(candidate_tiers, dict) else {}
         watch_count = len(tiers.get("watch_wait") or [])
