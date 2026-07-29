@@ -121,7 +121,7 @@ def _build_plan_from_context(
                 feature_date=_feature_date(context),
             )
         )
-        if rule.id == "R008":
+        if rule.id in {"R008", "R009"}:
             params = replace(
                 params,
                 initial_stop=base_params.initial_stop,

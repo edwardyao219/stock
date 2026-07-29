@@ -359,6 +359,10 @@ def compute_stock_daily_features(bars: list[BarInput]) -> list[StockFeatureRow]:
         low_20d = _rolling_low(lows, 20)
         high_60d = _rolling_high(highs, 60)
         low_60d = _rolling_low(lows, 60)
+        high_3d = _rolling_high(highs, 3)
+        low_3d = _rolling_low(lows, 3)
+        prior_high_3d = _rolling_high(highs[:-1], 3)
+        prior_low_3d = _rolling_low(lows[:-1], 3)
         swing_high_10d = _swing_high(highs, 10)
         swing_low_10d = _swing_low(lows, 10)
         atr_14 = _ma(true_ranges, 14)
@@ -409,11 +413,34 @@ def compute_stock_daily_features(bars: list[BarInput]) -> list[StockFeatureRow]:
         distance_to_20d_low = None
         if low_20d and low_20d != 0:
             distance_to_20d_low = bar.close / low_20d - 1
+        distance_to_60d_high = bar.close / high_60d - 1 if high_60d else None
+        consolidation_range_3d = high_3d / low_3d - 1 if high_3d and low_3d else None
+        prior_consolidation_range_3d = (
+            prior_high_3d / prior_low_3d - 1
+            if prior_high_3d and prior_low_3d
+            else None
+        )
+        breakout_from_prior_3d_high = (
+            bar.close / prior_high_3d - 1 if prior_high_3d else None
+        )
 
         amount_percentile_60d = _percentile_rank(amounts[-60:], estimated_amount)
         previous_amount_ma5 = _average(amounts[-6:-1])
         previous_amount_ma20 = _average(amounts[-21:-1])
         recent_amount_ma3 = _average(amounts[-3:])
+        previous_amount_before_3d_ma5 = _average(amounts[-8:-3])
+        prior_amount_ma3 = _average(amounts[-4:-1])
+        prior_amount_before_3d_ma5 = _average(amounts[-9:-4])
+        amount_contraction_3d_vs_5d = (
+            recent_amount_ma3 / previous_amount_before_3d_ma5
+            if recent_amount_ma3 is not None and previous_amount_before_3d_ma5
+            else None
+        )
+        prior_amount_contraction_3d_vs_5d = (
+            prior_amount_ma3 / prior_amount_before_3d_ma5
+            if prior_amount_ma3 is not None and prior_amount_before_3d_ma5
+            else None
+        )
         fallback_amount = _average(amounts[-20:])
         amount_ratio_5d = (
             estimated_amount / previous_amount_ma5
@@ -605,10 +632,18 @@ def compute_stock_daily_features(bars: list[BarInput]) -> list[StockFeatureRow]:
                     "distance_to_ma60": distance_to_ma60,
                     "distance_to_20d_high": distance_to_20d_high,
                     "distance_to_20d_low": distance_to_20d_low,
+                    "distance_to_60d_high": distance_to_60d_high,
+                    "consolidation_range_3d": consolidation_range_3d,
+                    "prior_consolidation_range_3d": prior_consolidation_range_3d,
+                    "breakout_from_prior_3d_high": breakout_from_prior_3d_high,
                     "amount_percentile_60d": amount_percentile_60d,
                     "amount_ratio_5d": amount_ratio_5d,
                     "amount_ratio_20d": amount_ratio_20d,
                     "recent_amount_ratio_20d": recent_amount_ratio_20d,
+                    "amount_contraction_3d_vs_5d": amount_contraction_3d_vs_5d,
+                    "prior_amount_contraction_3d_vs_5d": (
+                        prior_amount_contraction_3d_vs_5d
+                    ),
                     "pullback_to_ma20_pct": pullback_to_ma20_pct,
                     "pullback_volume_ratio": pullback_volume_ratio,
                     "turnover_percentile_60d": turnover_percentile_60d,

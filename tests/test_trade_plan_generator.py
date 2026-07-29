@@ -5,6 +5,7 @@ import pytest
 from services.engine.plans.evidence import build_trade_evidence
 from services.engine.plans.generator import generate_trade_plans
 from services.engine.risk.profiles import RiskProfile
+from services.engine.rules.models import Condition, ConditionGroup
 from services.engine.rules.seed_rules import MVP_RULES
 from services.shared.models import ParameterRecommendation
 
@@ -21,6 +22,36 @@ def test_mean_reversion_rule_has_conservative_oversold_bounds() -> None:
     assert ("distance_to_ma20", "<=", -0.04) in conditions
     assert rule.time_exit.max_holding_days == 8
     assert "mean-reversion" in rule.tags
+
+
+def _flatten_conditions(group: ConditionGroup) -> set[tuple[str | None, str, object]]:
+    conditions: set[tuple[str | None, str, object]] = set()
+    for item in [*group.all, *group.any]:
+        if isinstance(item, ConditionGroup):
+            conditions.update(_flatten_conditions(item))
+        elif isinstance(item, Condition):
+            conditions.add((item.feature, item.op, item.value))
+    return conditions
+
+
+def test_value_reversion_rule_combines_value_contraction_and_launch_bounds() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R009")
+    conditions = _flatten_conditions(rule.entry)
+
+    assert rule.name == "[均值回归] 价值蓄势"
+    assert rule.status.value == "testing"
+    assert ("pe_ttm", "<=", 25) in conditions
+    assert ("pb", "<=", 3) in conditions
+    assert ("distance_to_60d_high", ">=", -0.35) in conditions
+    assert ("distance_to_60d_high", "<=", -0.08) in conditions
+    assert ("consolidation_range_3d", "<=", 0.12) in conditions
+    assert ("amount_contraction_3d_vs_5d", "<=", 0.75) in conditions
+    assert ("prior_amount_contraction_3d_vs_5d", "<=", 0.75) in conditions
+    assert ("amount_ratio_5d", ">=", 1.15) in conditions
+    assert ("breakout_from_prior_3d_high", ">=", 0) in conditions
+    assert rule.position.max_position_pct == 0.08
+    assert rule.time_exit.max_holding_days == 8
+    assert {"mean-reversion", "value-reversion", "contraction"} <= set(rule.tags)
 
 
 def _valid_mean_reversion_context() -> dict[str, float | str | bool]:
@@ -46,6 +77,58 @@ def _valid_mean_reversion_context() -> dict[str, float | str | bool]:
         "is_st": False,
         "is_suspended": False,
     }
+
+
+def _valid_value_reversion_launch_context() -> dict[str, float | str | bool]:
+    return {
+        "symbol": "600415",
+        "trade_date": "2026-07-28",
+        "close": 11.83,
+        "high": 11.90,
+        "ma5": 11.41,
+        "ma10": 11.14,
+        "ma20": 10.68,
+        "atr_14": 0.45,
+        "support_level": 10.78,
+        "fundamental_verdict": "neutral",
+        "pe_ttm": 14.77,
+        "pb": 2.72,
+        "distance_to_60d_high": -0.176,
+        "return_20d": 0.164,
+        "distance_to_ma20": 0.108,
+        "prior_consolidation_range_3d": 0.092,
+        "prior_amount_contraction_3d_vs_5d": 0.667,
+        "amount_ratio_5d": 1.332,
+        "return_1d": 0.0658,
+        "close_position_in_range": 0.90,
+        "breakout_from_prior_3d_high": 0.0017,
+        "overheat_score": 55.0,
+        "volume_trap_risk_score": 33.0,
+        "is_st": False,
+        "is_suspended": False,
+    }
+
+
+def test_value_reversion_plan_uses_mean_confirmation_and_risk_bounds() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R009")
+
+    plans = generate_trade_plans(
+        plan_date="2026-07-28",
+        trade_date="2026-07-29",
+        rules=[rule],
+        feature_contexts=[_valid_value_reversion_launch_context()],
+    )
+
+    assert len(plans) == 1
+    plan = plans[0]
+    assert plan.rule_id == "R009"
+    assert plan.max_gap_up_pct == 0.03
+    assert plan.position_size <= 0.08
+    assert plan.max_holding_days == 8
+    assert (
+        plan.entry_condition["trade_parameters"]["evidence"]["entry_reason"]
+        == "mean_reversion_confirmation_reference"
+    )
 
 
 def test_mean_reversion_plan_uses_recovery_confirmation_and_mean_targets() -> None:

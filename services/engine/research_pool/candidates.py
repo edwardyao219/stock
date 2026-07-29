@@ -152,6 +152,7 @@ CANDIDATE_RULE_SCORE_BONUSES = {
     "R002": 5.0,
     "R007": 4.0,
     "R008": 3.0,
+    "R009": 3.5,
     "R005": 2.0,
     "R006": -1.0,
     "R001": -3.0,
@@ -1929,6 +1930,21 @@ def _is_mean_reversion_match(matches: list[CandidateStrategyMatch]) -> bool:
     return bool(matches and matches[0].rule_id == "R008")
 
 
+def _is_value_reversion_match(matches: list[CandidateStrategyMatch]) -> bool:
+    return bool(matches and matches[0].rule_id == "R009")
+
+
+def _is_value_reversion_launch(context: dict[str, Any]) -> bool:
+    return (
+        _float(context, "prior_consolidation_range_3d", 1.0) <= 0.12
+        and _float(context, "prior_amount_contraction_3d_vs_5d", 1.0) <= 0.75
+        and 1.15 <= _float(context, "amount_ratio_5d", 0.0) <= 2.2
+        and 0.015 <= _float(context, "return_1d", 0.0) <= 0.085
+        and _float(context, "close_position_in_range", 0.0) >= 0.65
+        and _float(context, "breakout_from_prior_3d_high", -1.0) >= 0.0
+    )
+
+
 def _passes_mean_reversion_candidate_filters(
     context: dict[str, Any], *, regime: str
 ) -> bool:
@@ -1946,6 +1962,12 @@ def _passes_formal_candidate_selection(
 ) -> bool:
     if _is_mean_reversion_match(matches):
         return _passes_mean_reversion_candidate_filters(context, regime=regime)
+    if _is_value_reversion_match(matches):
+        return (
+            regime in {"strong_trend", "rebound", "range"}
+            and _passes_hard_safety_filters(context)
+            and _is_value_reversion_launch(context)
+        )
     return _passes_market_regime_gate(
         context,
         regime=regime,
@@ -2744,6 +2766,15 @@ def _build_candidate(
         ),
         f"命中策略 {selected_match.rule_id} {selected_match.name}",
     ]
+    if selected_match.rule_id == "R009":
+        reasons.insert(
+            1,
+            (
+                "价值回归启动：低估值回调后缩量，今日温和放量突破平台"
+                if _is_value_reversion_launch(context)
+                else "价值回归蓄势：低估值回调后横盘缩量，等待放量确认"
+            ),
+        )
     if selection_mode == "observation" and _sector_watch_gap_confirmed(context):
         reasons.insert(1, "强板块趋势观察补位：板块偏强但行动确认不足，只观察不行动")
     if selection_mode == "exploration":
@@ -3115,7 +3146,7 @@ def discover_next_session_candidates(
                 )
             )
             continue
-        if _is_mean_reversion_match(matches):
+        if _is_mean_reversion_match(matches) or _is_value_reversion_match(matches):
             selection_funnel["observation_qualified"] += 1
             observation_candidates.append(
                 _build_candidate(

@@ -264,6 +264,111 @@ MVP_RULES: list[StrategyRule] = [
         tags=["mean-reversion", "oversold-repair", "swing"],
     ),
     StrategyRule(
+        id="R009",
+        name="[均值回归] 价值蓄势",
+        strategy_type=StrategyType.SWING,
+        status=RuleStatus.TESTING,
+        description="寻找估值合理、回调后缩量横盘的个股，温和放量突破平台后参与价值回归。",
+        entry=ConditionGroup(
+            all=[
+                Condition(feature="fundamental_verdict", op="!=", value="weak"),
+                Condition(feature="pe_ttm", op=">", value=0),
+                Condition(feature="pe_ttm", op="<=", value=35),
+                ConditionGroup(
+                    any=[
+                        Condition(feature="pe_ttm", op="<=", value=25),
+                        ConditionGroup(
+                            all=[
+                                Condition(feature="pb", op=">", value=0),
+                                Condition(feature="pb", op="<=", value=3),
+                            ]
+                        ),
+                    ]
+                ),
+                Condition(feature="distance_to_60d_high", op=">=", value=-0.35),
+                Condition(feature="distance_to_60d_high", op="<=", value=-0.08),
+                Condition(feature="return_20d", op=">=", value=-0.25),
+                Condition(feature="return_20d", op="<=", value=0.18),
+                Condition(feature="distance_to_ma20", op=">=", value=-0.15),
+                Condition(feature="distance_to_ma20", op="<=", value=0.12),
+                ConditionGroup(
+                    any=[
+                        ConditionGroup(
+                            all=[
+                                Condition(feature="return_3d", op=">=", value=-0.06),
+                                Condition(feature="return_3d", op="<=", value=0.06),
+                                Condition(
+                                    feature="consolidation_range_3d",
+                                    op="<=",
+                                    value=0.12,
+                                ),
+                                Condition(
+                                    feature="amount_contraction_3d_vs_5d",
+                                    op="<=",
+                                    value=0.75,
+                                ),
+                            ]
+                        ),
+                        ConditionGroup(
+                            all=[
+                                Condition(
+                                    feature="prior_consolidation_range_3d",
+                                    op="<=",
+                                    value=0.12,
+                                ),
+                                Condition(
+                                    feature="prior_amount_contraction_3d_vs_5d",
+                                    op="<=",
+                                    value=0.75,
+                                ),
+                                Condition(feature="amount_ratio_5d", op=">=", value=1.15),
+                                Condition(feature="amount_ratio_5d", op="<=", value=2.2),
+                                Condition(feature="return_1d", op=">=", value=0.015),
+                                Condition(feature="return_1d", op="<=", value=0.085),
+                                Condition(
+                                    feature="close_position_in_range",
+                                    op=">=",
+                                    value=0.65,
+                                ),
+                                Condition(
+                                    feature="breakout_from_prior_3d_high",
+                                    op=">=",
+                                    value=0,
+                                ),
+                            ]
+                        ),
+                    ]
+                ),
+                Condition(feature="overheat_score", op="<=", value=72),
+                Condition(feature="volume_trap_risk_score", op="<=", value=65),
+                Condition(feature="is_st", op="==", value=False),
+                Condition(feature="is_suspended", op="==", value=False),
+            ]
+        ),
+        trigger=ConditionGroup(
+            all=[Condition(field="price", op=">=", ref="entry_trigger_price")]
+        ),
+        stop=StopRule(
+            type="composite",
+            params={
+                "atr_multiple": 1.5,
+                "structure_ref": "support_level",
+                "mode": "tighter",
+            },
+        ),
+        take_profit=TakeProfitRule(
+            type="target_then_trailing",
+            params={
+                "first_target_ref": "ma10",
+                "second_target_ref": "ma20",
+                "drawdown_from_high_pct": 0.05,
+            },
+        ),
+        time_exit=TimeExitRule(max_holding_days=8, exit_if_no_new_high_days=4),
+        position=PositionRule(base_position_pct=0.04, max_position_pct=0.08),
+        tags=["mean-reversion", "value-reversion", "contraction", "swing"],
+    ),
+    StrategyRule(
         id="R003",
         name="弱势市场防守过滤",
         strategy_type=StrategyType.FILTER,

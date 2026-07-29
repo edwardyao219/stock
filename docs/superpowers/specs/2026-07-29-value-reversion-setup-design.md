@@ -9,8 +9,9 @@ controlled volume. Keep `R008` unchanged as the deeper oversold-repair route.
 ## Signal Model
 
 `R009 [均值回归] 价值蓄势` uses the existing current valuation context. A stock
-is value-eligible when fundamentals are not weak and either `0 < PE <= 25` or
-`0 < PB <= 3`.
+is value-eligible when fundamentals are not weak, `0 < PE <= 35`, and either
+`PE <= 25` or `0 < PB <= 3`. Positive PE is mandatory so low PB alone cannot
+turn a loss-making stock into a value-reversion candidate.
 
 The shared price boundary requires an 8%-35% drawdown from the rolling 60-day
 high, a 20-day return between -25% and 18%, and a price no more than 15% below

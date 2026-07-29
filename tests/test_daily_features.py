@@ -45,6 +45,40 @@ def test_compute_stock_daily_features_basic_values() -> None:
     assert latest["volume_trap_risk_score"] is not None
 
 
+def test_compute_stock_daily_features_adds_value_reversion_setup_metrics() -> None:
+    bars = [
+        BarInput(
+            symbol="600415",
+            trade_date=f"2026-01-{day:02d}",
+            open=14.0,
+            high=15.0,
+            low=13.0,
+            close=14.0,
+            pre_close=14.0,
+            amount=1000.0,
+        )
+        for day in range(1, 65)
+    ]
+    bars[-4:] = [
+        BarInput("600415", "2026-01-61", 10.0, 10.4, 9.8, 10.1, 14.0, amount=500.0),
+        BarInput("600415", "2026-01-62", 10.1, 10.3, 9.9, 10.0, 10.1, amount=450.0),
+        BarInput("600415", "2026-01-63", 10.0, 10.35, 9.95, 10.1, 10.0, amount=400.0),
+        BarInput("600415", "2026-01-64", 10.2, 10.9, 10.0, 10.8, 10.1, amount=1500.0),
+    ]
+
+    latest = compute_stock_daily_features(bars)[-1].features
+
+    assert round(latest["consolidation_range_3d"], 6) == round(10.9 / 9.9 - 1, 6)
+    assert round(latest["prior_consolidation_range_3d"], 6) == round(10.4 / 9.8 - 1, 6)
+    assert round(latest["amount_contraction_3d_vs_5d"], 6) == round(
+        ((450 + 400 + 1500) / 3) / ((1000 * 4 + 500) / 5),
+        6,
+    )
+    assert latest["prior_amount_contraction_3d_vs_5d"] == 0.45
+    assert round(latest["distance_to_60d_high"], 6) == -0.28
+    assert round(latest["breakout_from_prior_3d_high"], 6) == round(10.8 / 10.4 - 1, 6)
+
+
 def test_compute_stock_daily_features_scores_trend_volume_quality() -> None:
     bars = [
         BarInput(

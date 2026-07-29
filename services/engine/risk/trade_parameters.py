@@ -89,7 +89,7 @@ def build_trade_parameters(
         signal_high = _float(context, "high", close) or close
         entry_reference_price = min(max(close, ma10), signal_high)
         entry_reason = "trend_volume_confirmation_reference"
-    elif rule.id == "R008":
+    elif rule.id in {"R008", "R009"}:
         ma5 = _float(context, "ma5", close) or close
         entry_reference_price = max(close, ma5)
         entry_reason = "mean_reversion_confirmation_reference"
@@ -119,7 +119,7 @@ def build_trade_parameters(
     take_profit_2 = entry_trigger_price + risk_per_share * profile.take_profit_2_r
     position_size_pct = _position_size_pct(entry_trigger_price, initial_stop, profile)
     max_gap_up_pct = profile.max_gap_up_pct
-    if rule.id == "R008":
+    if rule.id in {"R008", "R009"}:
         ma10 = _float(context, "ma10")
         ma20 = _float(context, "ma20")
         take_profit_1 = (

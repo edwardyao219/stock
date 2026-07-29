@@ -22,6 +22,7 @@ from services.shared.models import (
     ResearchPoolItem,
     Security,
     StockFeatureDaily,
+    TushareDailyBasic,
 )
 
 
@@ -197,6 +198,152 @@ def test_mean_reversion_candidate_remains_observable_in_unsafe_regimes(
     assert candidate["plan_availability"]["status"] == "watch_only"
     assert "rule:R008" in items[0]["tags"]
     assert "rule_name:[均值回归] 超跌修复" in items[0]["tags"]
+
+
+def _run_value_reversion_discovery(
+    monkeypatch,
+    regime: str,
+    *,
+    launch: bool,
+    pe_ttm: float | None = 14.77,
+    pb: float | None = 2.72,
+):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(
+        candidate_module,
+        "_candidate_data_evidence_risk",
+        lambda db, feature_date: {"status": "ok", "reasons": []},
+    )
+    monkeypatch.setattr(
+        candidate_module,
+        "_market_regime_snapshot",
+        lambda contexts, feature_date: MarketRegimeSnapshot(
+            trade_date=feature_date.isoformat(),
+            regime=regime,
+            trend_score=50.0,
+            breadth_score=50.0,
+            emotion_score=50.0,
+            volatility_score=50.0,
+            risk_level="medium",
+        ),
+    )
+    setup = {
+        "trend_score": 0,
+        "relative_strength_score": 18,
+        "sector_strength_score": 75,
+        "volume_confirmation_score": 0,
+        "risk_score": 100,
+        "overheat_score": 20,
+        "volume_trap_risk_score": 40,
+        "return_1d": -0.0077,
+        "return_3d": 0.014,
+        "return_20d": -0.11,
+        "distance_to_ma20": -0.118,
+        "distance_to_60d_high": -0.285,
+        "consolidation_range_3d": 0.072,
+        "amount_contraction_3d_vs_5d": 0.475,
+        "amount_ratio_5d": 0.431,
+        "close_position_in_range": 0.21,
+        "breakout_from_prior_3d_high": -0.115,
+    }
+    confirmed_launch = {
+        "trend_score": 100,
+        "relative_strength_score": 73,
+        "sector_strength_score": 75,
+        "volume_confirmation_score": 85,
+        "risk_score": 0,
+        "overheat_score": 55,
+        "volume_trap_risk_score": 33,
+        "return_1d": 0.0658,
+        "return_3d": 0.08,
+        "return_20d": 0.164,
+        "distance_to_ma20": 0.108,
+        "distance_to_60d_high": -0.176,
+        "prior_consolidation_range_3d": 0.092,
+        "prior_amount_contraction_3d_vs_5d": 0.667,
+        "amount_ratio_5d": 1.332,
+        "close_position_in_range": 0.90,
+        "breakout_from_prior_3d_high": 0.0017,
+    }
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="600415",
+                    name="小商品城" if launch else "巨人网络式样本",
+                    exchange="SH",
+                    industry="商业零售",
+                    is_active=True,
+                    is_st=False,
+                ),
+                _bar("600415"),
+                _feature("600415", **(confirmed_launch if launch else setup)),
+                TushareDailyBasic(
+                    ts_code="600415.SH",
+                    trade_date=date(2026, 6, 24),
+                    pe_ttm=Decimal(str(pe_ttm)) if pe_ttm is not None else None,
+                    pb=Decimal(str(pb)) if pb is not None else None,
+                ),
+            ]
+        )
+        db.commit()
+
+        result = discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            limit=10,
+        )
+        db.commit()
+        items = list_pool_items(db, pool_name="experiment")
+    return result, items
+
+
+def test_value_reversion_contracted_setup_enters_observation(monkeypatch) -> None:
+    result, items = _run_value_reversion_discovery(monkeypatch, "range", launch=False)
+
+    candidate = next(item for item in result["candidates"] if item["symbol"] == "600415")
+    assert candidate["selected_rule_id"] == "R009"
+    assert candidate["selection_mode"] == "observation"
+    assert any("价值回归蓄势" in reason for reason in candidate["reasons"])
+    assert "rule:R009" in items[0]["tags"]
+
+
+def test_value_reversion_volume_launch_enters_formal_pool(monkeypatch) -> None:
+    result, _items = _run_value_reversion_discovery(monkeypatch, "range", launch=True)
+
+    candidate = next(item for item in result["candidates"] if item["symbol"] == "600415")
+    assert candidate["selected_rule_id"] == "R009"
+    assert candidate["selection_mode"] == "formal_strategy"
+    assert any("价值回归启动" in reason for reason in candidate["reasons"])
+
+
+@pytest.mark.parametrize("regime", ["panic", "weak_trend", "rebound_unconfirmed", "unknown"])
+def test_value_reversion_launch_remains_observable_in_unsafe_regimes(
+    monkeypatch, regime
+) -> None:
+    result, _items = _run_value_reversion_discovery(monkeypatch, regime, launch=True)
+
+    candidate = next(item for item in result["candidates"] if item["symbol"] == "600415")
+    assert candidate["selected_rule_id"] == "R009"
+    assert candidate["selection_mode"] == "observation"
+    assert candidate["plan_availability"]["status"] == "watch_only"
+
+
+@pytest.mark.parametrize("pb", [2.72, 5.82])
+def test_value_reversion_rejects_context_without_positive_pe(monkeypatch, pb) -> None:
+    result, _items = _run_value_reversion_discovery(
+        monkeypatch,
+        "range",
+        launch=True,
+        pe_ttm=None,
+        pb=pb,
+    )
+
+    assert not any(item["selected_rule_id"] == "R009" for item in result["candidates"])
 
 
 def test_discover_next_session_candidates_writes_strong_candidates_to_pool(monkeypatch) -> None:
