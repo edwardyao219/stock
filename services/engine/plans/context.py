@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from services.engine.fundamental.repository import load_fundamental_context
 from services.engine.fundamental.scoring import assess_fundamentals
+from services.engine.fundamental.sustainability import assess_earnings_sustainability
 from services.engine.sector.repository import load_sector_profile
 from services.engine.signals.route import build_signal_route
 from services.shared.models import (
@@ -547,6 +548,23 @@ def build_strategy_context(
             "fundamental_reasons": assessment.reasons,
         }
     )
+    try:
+        sustainability = assess_earnings_sustainability(
+            context.get("fundamental_history") or [],
+            analysis_framework=context.get("analysis_framework"),
+        )
+        context.update(sustainability.to_context())
+    except (TypeError, ValueError, ArithmeticError) as exc:
+        context.update(
+            {
+                "earnings_sustainability_score": 50.0,
+                "earnings_sustainability_grade": "pending",
+                "earnings_sustainability_reasons": [
+                    f"pending_earnings_assessment: {type(exc).__name__}: {exc}"
+                ],
+                "earnings_quality_ratio": None,
+            }
+        )
     route = build_signal_route(context)
     context.update(
         {

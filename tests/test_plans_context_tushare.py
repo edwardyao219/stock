@@ -1,10 +1,12 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
 from services.engine.backtest import repository as backtest_repository
+from services.engine.plans import context as plans_context
 from services.engine.plans import watchlist
 from services.engine.plans.context import (
     _moneyflow_context,
@@ -617,6 +619,87 @@ def test_build_strategy_context_includes_tushare_market_fields() -> None:
     assert context["sector_fund_flow_rate"] == 3.5
     assert context["sector_fund_flow_score"] > 50
     assert context["moneyflow_support_score"] > 40
+
+
+def test_build_strategy_context_adds_earnings_sustainability() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 6, 30)
+    history = []
+    for report_date in (
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2024-12-31",
+    ):
+        history.append(
+            {
+                "report_date": report_date,
+                "revenue_growth": 0.2,
+                "profit_growth": 0.25,
+                "roe": 0.16,
+                "gross_margin": 0.7,
+                "parent_net_profit": 100,
+                "deducted_parent_net_profit": 90,
+                "operating_cash_flow": 100,
+            }
+        )
+
+    with Session(engine) as db:
+        security = _security("002558", exchange="SZ", industry="互联网")
+        security.analysis_framework = "tech_growth_cycle"
+        context = build_strategy_context(
+            db,
+            _feature("002558", signal_date),
+            security,
+            _bar("002558", signal_date),
+            sector_feature_map={},
+            tushare_daily_basic_map={},
+            tushare_moneyflow_map={},
+            tushare_moneyflow_dc_map={},
+            tushare_limit_list_map={},
+            tushare_cyq_perf_map={},
+            industry_moneyflow_map={},
+            fundamental_context_map={"002558": {"fundamental_history": history}},
+            sector_profile_map={},
+        )
+
+    assert context["earnings_sustainability_grade"] == "sustainable"
+    assert context["earnings_sustainability_score"] >= 70
+    assert context["earnings_quality_ratio"] == pytest.approx(0.9)
+
+
+def test_build_strategy_context_isolates_earnings_assessment_errors(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 6, 30)
+    monkeypatch.setattr(
+        plans_context,
+        "assess_earnings_sustainability",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad history")),
+        raising=False,
+    )
+
+    with Session(engine) as db:
+        context = build_strategy_context(
+            db,
+            _feature("002558", signal_date),
+            _security("002558", exchange="SZ"),
+            _bar("002558", signal_date),
+            sector_feature_map={},
+            tushare_daily_basic_map={},
+            tushare_moneyflow_map={},
+            tushare_moneyflow_dc_map={},
+            tushare_limit_list_map={},
+            tushare_cyq_perf_map={},
+            industry_moneyflow_map={},
+            fundamental_context_map={"002558": {"fundamental_history": []}},
+            sector_profile_map={},
+        )
+
+    assert context["earnings_sustainability_grade"] == "pending"
+    assert "bad history" in context["earnings_sustainability_reasons"][0]
 
 
 def test_build_strategy_context_deduplicates_industry_moneyflow_by_name() -> None:
