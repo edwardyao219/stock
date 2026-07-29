@@ -837,6 +837,7 @@ def _apply_candidate_tier_tags(
 ) -> None:
     tier_by_symbol: dict[str, tuple[str, str]] = {}
     tier_item_by_symbol: dict[str, dict[str, Any]] = {}
+    rank_by_symbol: dict[str, int] = {}
     tier_summary = (
         candidate_tiers.get("summary") if isinstance(candidate_tiers, dict) else {}
     ) or {}
@@ -849,6 +850,7 @@ def _apply_candidate_tier_tags(
             reason = str(item.get("tier_reason") or "").replace("\n", " ").strip()
             tier_by_symbol[symbol] = (tier, reason)
             tier_item_by_symbol[symbol] = item
+            rank_by_symbol[symbol] = len(rank_by_symbol) + 1
     if not tier_by_symbol:
         return
     if not hasattr(db, "execute"):
@@ -870,6 +872,7 @@ def _apply_candidate_tier_tags(
             for tag in current_tags
             if not (
                 tag.startswith("tier:")
+                or tag.startswith("rank:")
                 or tag.startswith("tier_reason:")
                 or tag.startswith("candidate_summary:")
                 or tag.startswith("candidate_pool:")
@@ -882,6 +885,7 @@ def _apply_candidate_tier_tags(
                 or tag.startswith("plan_gap:")
             )
         ]
+        cleaned_tags.append(f"rank:{rank_by_symbol[row.symbol]}")
         cleaned_tags.append(f"tier:{tier}")
         if reason:
             cleaned_tags.append(f"tier_reason:{reason}")

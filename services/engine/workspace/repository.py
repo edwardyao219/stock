@@ -660,6 +660,22 @@ def _candidate_tier_reason(tags: list[str], tier: str | None) -> str | None:
     return None
 
 
+def _current_candidate_plans(
+    plans: list[TradePlan],
+    manual_tags: list[str],
+) -> list[TradePlan]:
+    if not candidate_tags(manual_tags):
+        return plans
+    for tag in manual_tags:
+        try:
+            candidate_date = date.fromisoformat(tag)
+        except ValueError:
+            continue
+        if candidate_date.isoformat() == tag:
+            return [plan for plan in plans if plan.plan_date == candidate_date]
+    return plans
+
+
 def _plan_availability(
     *,
     plans: list[TradePlan],
@@ -973,12 +989,13 @@ def _build_workspace_item(
     route_reason = feature_snapshot.get("route_reason")
     paper_positions = _load_recent_paper_positions(db, symbol)
     quote_change_pct = _quote_change_pct(latest_quote)
+    manual_tags = (manual.tags_json or {}).get("tags", []) if manual else []
+    plans = _current_candidate_plans(plans, manual_tags)
     source_parts = []
     if plans:
         source_parts.append("auto")
     if manual:
         source_parts.append("manual")
-    manual_tags = (manual.tags_json or {}).get("tags", []) if manual else []
     candidate_tier = _tag_text(manual_tags, "tier:")
     candidate_tier_reason = _candidate_tier_reason(manual_tags, candidate_tier)
 

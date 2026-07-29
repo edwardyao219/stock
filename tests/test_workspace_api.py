@@ -2171,3 +2171,53 @@ def test_list_workspace_stocks_hides_auto_only_plans_when_candidate_batch_exists
 
     assert [item.symbol for item in payload] == ["603005"]
     assert payload[0].source == "manual"
+
+
+def test_list_workspace_stocks_does_not_attach_stale_plan_to_current_candidate() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with session() as db:
+        db.add_all(
+            [
+                Security(symbol="600257", name="大湖股份", exchange="SH", industry="渔业"),
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="600257",
+                    tags_json={
+                        "tags": [
+                            "after_close_candidate",
+                            "next_session",
+                            "2026-07-28",
+                            "rank:1",
+                            "tier:risk_reject",
+                            "tier_reason:风险信号偏重，暂不纳入行动池。",
+                            "plan_status:risk_reject",
+                            "plan_label:风险暂缓",
+                            "plan_reason:风险信号偏重，暂不生成交易计划。",
+                        ]
+                    },
+                    status="active",
+                ),
+                TradePlan(
+                    plan_date=date(2026, 7, 27),
+                    trade_date=date(2026, 7, 28),
+                    symbol="600257",
+                    rule_id="R002",
+                    strategy_type="swing",
+                    sector_code="渔业",
+                    entry_condition_json={"snapshot": {"industry": "渔业"}},
+                    position_size=Decimal("0.10"),
+                    confidence_score=Decimal("75"),
+                    status="planned",
+                ),
+            ]
+        )
+        db.commit()
+
+        payload = list_workspace_stocks(db=db, pool_name="experiment")
+
+    assert len(payload) == 1
+    assert payload[0].plans == []
+    assert payload[0].plan_availability.status == "risk_reject"

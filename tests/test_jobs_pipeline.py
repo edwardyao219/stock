@@ -3749,6 +3749,12 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
                     tags_json={"tags": ["after_close_candidate", "rank:4"]},
                     status="active",
                 ),
+                ResearchPoolItem(
+                    pool_name="experiment",
+                    symbol="600257",
+                    tags_json={"tags": ["after_close_candidate", "rank:2"]},
+                    status="active",
+                ),
             ]
         )
         db.commit()
@@ -3807,7 +3813,12 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
                         "risk_flags": [],
                     }
                 ],
-                "risk_reject": [],
+                "risk_reject": [
+                    {
+                        "symbol": "600257",
+                        "tier_reason": "风险信号偏重，暂不纳入行动池。",
+                    }
+                ],
                 "summary": {
                     "core_block_reason": "没有核心行动：当前候选都是潜力观察，板块或买点还没确认。"
                 },
@@ -3820,6 +3831,11 @@ def test_apply_candidate_tier_tags_updates_research_pool_items() -> None:
 
     assert "tier:core_action" in rows["603005"].tags_json["tags"]
     assert "tier:watch_wait" in rows["688003"].tags_json["tags"]
+    assert "rank:1" in rows["603005"].tags_json["tags"]
+    assert "rank:2" in rows["600111"].tags_json["tags"]
+    assert "rank:3" in rows["688003"].tags_json["tags"]
+    assert "rank:4" in rows["002558"].tags_json["tags"]
+    assert "rank:5" in rows["600257"].tags_json["tags"]
     assert any(
         tag.startswith("tier_reason:板块和个股趋势同时在线")
         for tag in rows["603005"].tags_json["tags"]
