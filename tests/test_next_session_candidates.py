@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -289,6 +289,7 @@ def _run_value_reversion_discovery(
     launch: bool,
     pe_ttm: float | None = 14.77,
     pb: float | None = 2.72,
+    with_value_evidence: bool = False,
 ):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -370,6 +371,38 @@ def _run_value_reversion_discovery(
                 ),
             ]
         )
+        if with_value_evidence:
+            for report_date, available_date in (
+                (date(2026, 3, 31), date(2026, 4, 30)),
+                (date(2025, 12, 31), date(2026, 4, 1)),
+                (date(2025, 9, 30), date(2025, 10, 31)),
+                (date(2025, 6, 30), date(2025, 8, 31)),
+                (date(2024, 12, 31), date(2025, 4, 30)),
+            ):
+                db.add(
+                    FundamentalSnapshot(
+                        symbol="600415",
+                        report_date=report_date,
+                        available_date=available_date,
+                        revenue_growth=Decimal("0.20"),
+                        profit_growth=Decimal("0.25"),
+                        roe=Decimal("0.16"),
+                        gross_margin=Decimal("0.70"),
+                        parent_net_profit=Decimal("100"),
+                        deducted_parent_net_profit=Decimal("90"),
+                        operating_cash_flow=Decimal("100"),
+                        extra_json={"source": "tushare_proxy"},
+                    )
+                )
+            for offset in range(1, 60):
+                db.add(
+                    TushareDailyBasic(
+                        ts_code="600415.SH",
+                        trade_date=date(2026, 6, 24) - timedelta(days=offset),
+                        pe_ttm=Decimal("25"),
+                        pb=Decimal("2"),
+                    )
+                )
         db.commit()
 
         result = discover_next_session_candidates(
@@ -580,6 +613,39 @@ def test_value_reversion_quota_ranks_launch_before_higher_generic_setup() -> Non
     assert selected_r009[0].symbol == launch.symbol
 
 
+def test_value_reversion_quota_ranks_earnings_grade_at_same_technical_stage() -> None:
+    candidates = [
+        _quota_candidate("V_PENDING", rule_id="R009"),
+        _quota_candidate("V_GENERAL", rule_id="R009"),
+        _quota_candidate("V_SUSTAINABLE", rule_id="R009"),
+    ]
+    contexts = {}
+    for candidate, grade, score in zip(
+        candidates,
+        ("pending", "general", "sustainable"),
+        (80.0, 60.0, 75.0),
+        strict=True,
+    ):
+        contexts[candidate.symbol] = {
+            **_value_reversion_setup_context(),
+            "earnings_sustainability_grade": grade,
+            "earnings_sustainability_score": score,
+        }
+
+    _, selected_r009 = candidate_module._apply_value_reversion_quota(
+        general_candidates=[],
+        value_reversion_candidates=candidates,
+        context_by_symbol=contexts,
+        limit=15,
+    )
+
+    assert [item.symbol for item in selected_r009] == [
+        "V_SUSTAINABLE",
+        "V_GENERAL",
+        "V_PENDING",
+    ]
+
+
 def test_value_reversion_contracted_setup_enters_observation(monkeypatch) -> None:
     result, items = _run_value_reversion_discovery(monkeypatch, "range", launch=False)
 
@@ -589,6 +655,8 @@ def test_value_reversion_contracted_setup_enters_observation(monkeypatch) -> Non
     assert any("价值回归蓄势" in reason for reason in candidate["reasons"])
     assert "rule:R009" in items[0]["tags"]
     assert "candidate_pool:value_reversion_setup" in items[0]["tags"]
+    assert candidate["earnings_sustainability_grade"] == "pending"
+    assert "earnings_grade:pending" in items[0]["tags"]
 
 
 def test_value_reversion_volume_launch_enters_formal_pool(monkeypatch) -> None:
@@ -599,6 +667,27 @@ def test_value_reversion_volume_launch_enters_formal_pool(monkeypatch) -> None:
     assert candidate["selection_mode"] == "formal_strategy"
     assert any("价值回归启动" in reason for reason in candidate["reasons"])
     assert "candidate_pool:value_reversion_setup" not in items[0]["tags"]
+
+
+def test_value_reversion_calculates_and_persists_conservative_value_space(
+    monkeypatch,
+) -> None:
+    result, items = _run_value_reversion_discovery(
+        monkeypatch,
+        "range",
+        launch=True,
+        pe_ttm=10.0,
+        pb=2.0,
+        with_value_evidence=True,
+    )
+
+    candidate = next(item for item in result["candidates"] if item["symbol"] == "600415")
+    assert candidate["earnings_sustainability_grade"] == "sustainable"
+    assert candidate["valuation_space_label"] == "near_double_valuation_space"
+    assert candidate["fair_value_low"] == pytest.approx(24.3)
+    assert candidate["valuation_upside_low"] == pytest.approx(1.25)
+    assert "valuation_space:near_double_valuation_space" in items[0]["tags"]
+    assert any(tag.startswith("fair_value_low:") for tag in items[0]["tags"])
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,8 @@ from services.engine.features.late_market_turn_health import (
 from services.engine.features.market_regime import MarketRegimeSnapshot, classify_market_regime
 from services.engine.features.market_regime_repository import store_market_regime_daily
 from services.engine.features.market_turn import classify_verified_market_turn_state
+from services.engine.fundamental.repository import load_valuation_pe_history_map
+from services.engine.fundamental.sustainability import estimate_value_reversion_range
 from services.engine.intraday.startup_state import STARTUP_LABELS
 from services.engine.news.external_mapping import (
     build_external_challengers,
@@ -159,6 +161,12 @@ CANDIDATE_RULE_SCORE_BONUSES = {
 }
 CANDIDATE_DEFAULT_LIMIT = 15
 VALUE_REVERSION_RESERVED_LIMIT = 5
+EARNINGS_GRADE_RANK = {
+    "unsustainable": 0,
+    "pending": 1,
+    "general": 2,
+    "sustainable": 3,
+}
 FEATURE_DATE_MIN_COVERAGE_RATIO = 0.80
 FEATURE_DATE_COUNTS_CACHE_KEY = "research_pool_feature_date_counts"
 CANDIDATE_SECTOR_SOFT_PENALTIES = (0.0, 2.4, 5.8, 9.5, 13.0)
@@ -257,6 +265,14 @@ CANDIDATE_TAG_PREFIXES = (
     "plan_label:",
     "plan_reason:",
     "plan_gap:",
+    "earnings_grade:",
+    "earnings_score:",
+    "earnings_reason:",
+    "fair_value_low:",
+    "fair_value_high:",
+    "valuation_upside_low:",
+    "valuation_upside_high:",
+    "valuation_space:",
 )
 WATCH_KEEP_RETIRE_AFTER = 2
 LONG_HORIZON_WATCH_KEEP_RETIRE_AFTER = 5
@@ -313,6 +329,14 @@ class NextSessionCandidate:
     startup_signal_state: str | None = None
     moneyflow_support_score: float | None = None
     sector_fund_flow_score: float | None = None
+    earnings_sustainability_score: float | None = None
+    earnings_sustainability_grade: str | None = None
+    earnings_sustainability_reasons: list[str] = field(default_factory=list)
+    fair_value_low: float | None = None
+    fair_value_high: float | None = None
+    valuation_upside_low: float | None = None
+    valuation_upside_high: float | None = None
+    valuation_space_label: str | None = None
     plan_availability: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -2350,6 +2374,25 @@ def _rank_value_reversion_candidates(
                 _is_value_reversion_launch(
                     context_by_symbol[remaining[index].symbol]
                 ),
+                EARNINGS_GRADE_RANK.get(
+                    str(
+                        context_by_symbol[remaining[index].symbol].get(
+                            "earnings_sustainability_grade"
+                        )
+                        or "pending"
+                    ),
+                    1,
+                ),
+                _float(
+                    context_by_symbol[remaining[index].symbol],
+                    "earnings_sustainability_score",
+                    0.0,
+                ),
+                _float(
+                    context_by_symbol[remaining[index].symbol],
+                    "valuation_upside_low",
+                    -1.0,
+                ),
                 _value_reversion_setup_quality(
                     context_by_symbol[remaining[index].symbol],
                     launch=_is_value_reversion_launch(
@@ -2713,6 +2756,33 @@ def _build_candidate(
         f"命中策略 {selected_match.rule_id} {selected_match.name}",
     ]
     if selected_match.rule_id == "R009":
+        grade = str(context.get("earnings_sustainability_grade") or "pending")
+        grade_label = {
+            "sustainable": "盈利可持续",
+            "general": "盈利持续性一般",
+            "pending": "财报持续性待确认",
+        }.get(grade, "财报持续性待确认")
+        grade_score = _optional_float(context, "earnings_sustainability_score")
+        reasons.insert(
+            1,
+            f"财报：{grade_label}"
+            + (f" / 评分 {grade_score:.1f}" if grade_score is not None else ""),
+        )
+        for earnings_reason in reversed(
+            list(context.get("earnings_sustainability_reasons") or [])[:3]
+        ):
+            reasons.insert(2, f"盈利依据：{earnings_reason}")
+        valuation_label = str(context.get("valuation_space_label") or "pending")
+        reasons.insert(
+            2,
+            (
+                "估值：接近翻倍估值空间"
+                if valuation_label == "near_double_valuation_space"
+                else "估值空间待确认"
+                if valuation_label == "pending"
+                else "估值：存在回归空间"
+            ),
+        )
         reasons.insert(
             1,
             (
@@ -2773,6 +2843,22 @@ def _build_candidate(
         startup_signal_state=startup_signal["state"],
         moneyflow_support_score=_optional_float(context, "moneyflow_support_score"),
         sector_fund_flow_score=_optional_float(context, "sector_fund_flow_score"),
+        earnings_sustainability_score=_optional_float(
+            context, "earnings_sustainability_score"
+        ),
+        earnings_sustainability_grade=str(
+            context.get("earnings_sustainability_grade") or "pending"
+        ),
+        earnings_sustainability_reasons=list(
+            context.get("earnings_sustainability_reasons") or []
+        ),
+        fair_value_low=_optional_float(context, "fair_value_low"),
+        fair_value_high=_optional_float(context, "fair_value_high"),
+        valuation_upside_low=_optional_float(context, "valuation_upside_low"),
+        valuation_upside_high=_optional_float(context, "valuation_upside_high"),
+        valuation_space_label=str(context.get("valuation_space_label") or "pending")
+        if selected_match.rule_id == "R009"
+        else None,
     )
 
 
@@ -2847,7 +2933,10 @@ def _candidate_plan_availability(
             "exploration": "强板块探索候选，买点尚未确认。",
         }.get(candidate.selection_mode, "候选仍在观察，暂不生成交易计划。")
         return {"status": "watch_only", "label": label, "reason": reason, "gaps": []}
-    if market_regime in {"panic", "weak_trend", "rebound_unconfirmed"} or emotion_gate.get("state") == "risk_off":
+    if (
+        market_regime in {"panic", "weak_trend", "rebound_unconfirmed"}
+        or emotion_gate.get("state") == "risk_off"
+    ):
         return {
             "status": "market_guard",
             "label": "市场风控观察",
@@ -3004,6 +3093,35 @@ def discover_next_session_candidates(
     effective_limit = requested_limit
     universe_size = len(contexts)
     context_by_symbol = {str(context["symbol"]): context for context in contexts}
+    matches_by_symbol = {
+        str(context["symbol"]): _matching_rules(context) for context in contexts
+    }
+    value_reversion_symbols = [
+        symbol
+        for symbol, matches in matches_by_symbol.items()
+        if _is_value_reversion_match(matches)
+    ]
+    valuation_history = (
+        load_valuation_pe_history_map(
+            db,
+            value_reversion_symbols,
+            effective_feature_date,
+        )
+        if value_reversion_symbols
+        else {}
+    )
+    for symbol in value_reversion_symbols:
+        context = context_by_symbol[symbol]
+        value_range = estimate_value_reversion_range(
+            current_close=context.get("close"),
+            current_pe=context.get("pe_ttm"),
+            earnings_quality_ratio=context.get("earnings_quality_ratio"),
+            historical_pe=valuation_history.get(symbol, []),
+        )
+        if value_range is None:
+            context["valuation_space_label"] = "pending"
+        else:
+            context.update(value_range.to_context())
     formal_candidates: list[NextSessionCandidate] = []
     observation_candidates: list[NextSessionCandidate] = []
     potential_candidates: list[NextSessionCandidate] = []
@@ -3026,7 +3144,7 @@ def discover_next_session_candidates(
         if not _passes_hard_safety_filters(context):
             selection_funnel["hard_safety_rejected"] += 1
             continue
-        matches = _matching_rules(context)
+        matches = matches_by_symbol[str(context["symbol"])]
         if matches:
             selection_funnel["strategy_matched"] += 1
         regime_score_delta = _regime_score_delta(
@@ -3481,6 +3599,22 @@ def discover_next_session_candidates(
                 "candidate_pool_reason:启动前夜：T-1量价修复但还没确认，"
                 "先盯次日承接，不代表买点。"
             )
+        if item.earnings_sustainability_grade:
+            tags.append(f"earnings_grade:{item.earnings_sustainability_grade}")
+        if item.earnings_sustainability_score is not None:
+            tags.append(f"earnings_score:{item.earnings_sustainability_score:.1f}")
+        for reason in item.earnings_sustainability_reasons[:3]:
+            tags.append(f"earnings_reason:{reason}")
+        if item.fair_value_low is not None:
+            tags.append(f"fair_value_low:{item.fair_value_low:.4f}")
+        if item.fair_value_high is not None:
+            tags.append(f"fair_value_high:{item.fair_value_high:.4f}")
+        if item.valuation_upside_low is not None:
+            tags.append(f"valuation_upside_low:{item.valuation_upside_low:.6f}")
+        if item.valuation_upside_high is not None:
+            tags.append(f"valuation_upside_high:{item.valuation_upside_high:.6f}")
+        if item.valuation_space_label:
+            tags.append(f"valuation_space:{item.valuation_space_label}")
         written += add_symbols_to_pool(
             db,
             [item.symbol],

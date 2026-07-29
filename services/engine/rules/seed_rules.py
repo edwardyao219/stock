@@ -272,6 +272,11 @@ MVP_RULES: list[StrategyRule] = [
         entry=ConditionGroup(
             all=[
                 Condition(feature="fundamental_verdict", op="!=", value="weak"),
+                Condition(
+                    feature="earnings_sustainability_grade",
+                    op="!=",
+                    value="unsustainable",
+                ),
                 Condition(feature="pe_ttm", op=">", value=0),
                 Condition(feature="pe_ttm", op="<=", value=35),
                 ConditionGroup(

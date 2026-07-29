@@ -49,6 +49,7 @@ def test_value_reversion_rule_combines_value_contraction_and_launch_bounds() -> 
     assert ("prior_amount_contraction_3d_vs_5d", "<=", 0.75) in conditions
     assert ("amount_ratio_5d", ">=", 1.15) in conditions
     assert ("breakout_from_prior_3d_high", ">=", 0) in conditions
+    assert ("earnings_sustainability_grade", "!=", "unsustainable") in conditions
     assert rule.position.max_position_pct == 0.08
     assert rule.time_exit.max_holding_days == 8
     assert {"mean-reversion", "value-reversion", "contraction"} <= set(rule.tags)
@@ -91,6 +92,7 @@ def _valid_value_reversion_launch_context() -> dict[str, float | str | bool]:
         "atr_14": 0.45,
         "support_level": 10.78,
         "fundamental_verdict": "neutral",
+        "earnings_sustainability_grade": "pending",
         "pe_ttm": 14.77,
         "pb": 2.72,
         "distance_to_60d_high": -0.176,
@@ -129,6 +131,33 @@ def test_value_reversion_plan_uses_mean_confirmation_and_risk_bounds() -> None:
         plan.entry_condition["trade_parameters"]["evidence"]["entry_reason"]
         == "mean_reversion_confirmation_reference"
     )
+
+
+def test_value_reversion_rejects_unsustainable_but_keeps_pending_earnings() -> None:
+    rule = next(item for item in MVP_RULES if item.id == "R009")
+    unsustainable = {
+        **_valid_value_reversion_launch_context(),
+        "earnings_sustainability_grade": "unsustainable",
+    }
+    pending = {
+        **_valid_value_reversion_launch_context(),
+        "earnings_sustainability_grade": "pending",
+    }
+
+    assert not generate_trade_plans(
+        plan_date="2026-07-28",
+        trade_date="2026-07-29",
+        rules=[rule],
+        feature_contexts=[unsustainable],
+    )
+    assert len(
+        generate_trade_plans(
+            plan_date="2026-07-28",
+            trade_date="2026-07-29",
+            rules=[rule],
+            feature_contexts=[pending],
+        )
+    ) == 1
 
 
 def test_mean_reversion_plan_uses_recovery_confirmation_and_mean_targets() -> None:
