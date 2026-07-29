@@ -427,6 +427,7 @@ def compute_stock_daily_features(bars: list[BarInput]) -> list[StockFeatureRow]:
         amount_percentile_60d = _percentile_rank(amounts[-60:], estimated_amount)
         previous_amount_ma5 = _average(amounts[-6:-1])
         previous_amount_ma20 = _average(amounts[-21:-1])
+        recent_amount_ma5 = _average(amounts[-5:])
         recent_amount_ma3 = _average(amounts[-3:])
         previous_amount_before_3d_ma5 = _average(amounts[-8:-3])
         prior_amount_ma3 = _average(amounts[-4:-1])
@@ -633,10 +634,13 @@ def compute_stock_daily_features(bars: list[BarInput]) -> list[StockFeatureRow]:
                     "distance_to_20d_high": distance_to_20d_high,
                     "distance_to_20d_low": distance_to_20d_low,
                     "distance_to_60d_high": distance_to_60d_high,
+                    "recent_high_3d": high_3d,
+                    "recent_low_3d": low_3d,
                     "consolidation_range_3d": consolidation_range_3d,
                     "prior_consolidation_range_3d": prior_consolidation_range_3d,
                     "breakout_from_prior_3d_high": breakout_from_prior_3d_high,
                     "amount_percentile_60d": amount_percentile_60d,
+                    "recent_amount_ma5": recent_amount_ma5,
                     "amount_ratio_5d": amount_ratio_5d,
                     "amount_ratio_20d": amount_ratio_20d,
                     "recent_amount_ratio_20d": recent_amount_ratio_20d,

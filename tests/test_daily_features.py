@@ -77,6 +77,9 @@ def test_compute_stock_daily_features_adds_value_reversion_setup_metrics() -> No
     assert latest["prior_amount_contraction_3d_vs_5d"] == 0.45
     assert round(latest["distance_to_60d_high"], 6) == -0.28
     assert round(latest["breakout_from_prior_3d_high"], 6) == round(10.8 / 10.4 - 1, 6)
+    assert latest["recent_high_3d"] == 10.9
+    assert latest["recent_low_3d"] == 9.9
+    assert latest["recent_amount_ma5"] == 770.0
 
 
 def test_compute_stock_daily_features_scores_trend_volume_quality() -> None:

@@ -32,8 +32,9 @@ Daily feature computation adds three values to `StockFeatureDaily.features`:
 
 - `recent_high_3d`: highest price of the latest three completed sessions.
 - `recent_low_3d`: lowest price of the latest three completed sessions.
-- `previous_amount_ma5`: average amount of the five sessions preceding the
-  current feature row.
+- `recent_amount_ma5`: average amount of the latest five completed sessions,
+  including the current feature row. On the next trading day this is the exact
+  preceding-five-session baseline.
 
 Candidate persistence adds the semantic tag
 `candidate_pool:value_reversion_setup` only when R009 matched as a contracted
@@ -56,7 +57,7 @@ future data.
 Use A-share elapsed trading minutes across `09:30-11:30` and `13:00-15:00`.
 Lunch contributes no elapsed minutes. The projected full-day amount ratio is:
 
-`quote.amount / elapsed_session_fraction / previous_amount_ma5`
+`quote.amount / elapsed_session_fraction / recent_amount_ma5`
 
 Confirmation is not allowed before 10:30, so the earliest evaluated fraction
 is at least 25% of the trading session. The initial controlled-volume boundary

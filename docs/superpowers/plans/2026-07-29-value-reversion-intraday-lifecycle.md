@@ -1,6 +1,6 @@
 # Value Reversion Intraday Lifecycle Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Track an after-close R009 setup intraday and upgrade a controlled platform breakout to a visible confirmation without letting market regime suppress discovery.
 
@@ -16,36 +16,37 @@
 - Modify: `services/engine/features/daily.py`
 - Test: `tests/test_daily_features.py`
 
-- [ ] **Step 1: Extend the value-reversion feature test**
+- [x] **Step 1: Extend the value-reversion feature test**
 
 Add these assertions to `test_compute_stock_daily_features_adds_value_reversion_setup_metrics`:
 
 ```python
 assert latest["recent_high_3d"] == 10.9
 assert latest["recent_low_3d"] == 9.9
-assert latest["previous_amount_ma5"] == 670.0
+assert latest["recent_amount_ma5"] == 770.0
 ```
 
-- [ ] **Step 2: Verify the test fails for missing keys**
+- [x] **Step 2: Verify the test fails for missing keys**
 
-Run: `pytest tests/test_daily_features.py -k value_reversion_setup_metrics -q`
+Run: `.venv/bin/pytest tests/test_daily_features.py -k value_reversion_setup_metrics -q`
 
 Expected: FAIL with `KeyError: 'recent_high_3d'`.
 
-- [ ] **Step 3: Add the three values to the feature JSON**
+- [x] **Step 3: Add the three values to the feature JSON**
 
-Reuse the existing `high_3d`, `low_3d`, and `previous_amount_ma5` locals in
-`compute_stock_daily_features`:
+Reuse `high_3d` and `low_3d`, and calculate the exact next-day amount baseline
+in `compute_stock_daily_features`:
 
 ```python
+recent_amount_ma5 = _average(amounts[-5:])
 "recent_high_3d": high_3d,
 "recent_low_3d": low_3d,
-"previous_amount_ma5": previous_amount_ma5,
+"recent_amount_ma5": recent_amount_ma5,
 ```
 
-- [ ] **Step 4: Verify the focused feature tests pass**
+- [x] **Step 4: Verify the focused feature tests pass**
 
-Run: `pytest tests/test_daily_features.py -k 'value_reversion or basic_values' -q`
+Run: `.venv/bin/pytest tests/test_daily_features.py -k 'value_reversion or basic_values' -q`
 
 Expected: PASS.
 
@@ -55,7 +56,7 @@ Expected: PASS.
 - Modify: `services/engine/research_pool/candidates.py`
 - Test: `tests/test_next_session_candidates.py`
 
-- [ ] **Step 1: Add setup and launch tag assertions**
+- [x] **Step 1: Add setup and launch tag assertions**
 
 In the existing R009 setup test assert:
 
@@ -69,13 +70,13 @@ In the launch test retain the returned pool items and assert:
 assert "candidate_pool:value_reversion_setup" not in items[0]["tags"]
 ```
 
-- [ ] **Step 2: Verify the setup assertion fails**
+- [x] **Step 2: Verify the setup assertion fails**
 
-Run: `pytest tests/test_next_session_candidates.py -k 'value_reversion_contracted_setup or value_reversion_volume_launch' -q`
+Run: `.venv/bin/pytest tests/test_next_session_candidates.py -k 'value_reversion_contracted_setup or value_reversion_volume_launch' -q`
 
 Expected: the setup test fails because the semantic tag is absent.
 
-- [ ] **Step 3: Persist the semantic setup tag**
+- [x] **Step 3: Persist the semantic setup tag**
 
 While building candidate tags, reuse `_is_value_reversion_launch` and the
 existing `context_by_symbol` entry:
@@ -90,9 +91,9 @@ if (
 
 No numeric baseline is written into tags.
 
-- [ ] **Step 4: Verify focused candidate persistence tests pass**
+- [x] **Step 4: Verify focused candidate persistence tests pass**
 
-Run: `pytest tests/test_next_session_candidates.py -k value_reversion -q`
+Run: `.venv/bin/pytest tests/test_next_session_candidates.py -k value_reversion -q`
 
 Expected: PASS.
 
@@ -102,7 +103,7 @@ Expected: PASS.
 - Modify: `services/engine/intraday/startup_state.py`
 - Test: `tests/test_startup_state.py`
 
-- [ ] **Step 1: Add failing resolver tests**
+- [x] **Step 1: Add failing resolver tests**
 
 Add tests proving that the new path confirms without sector expansion, ignores
 market risk-off as a technical invalidation, retains hard-risk invalidation,
@@ -142,14 +143,14 @@ def test_value_reversion_hard_risk_still_invalidates() -> None:
     assert result.state == "invalidated"
 ```
 
-- [ ] **Step 2: Verify the tests fail on the new evidence fields**
+- [x] **Step 2: Verify the tests fail on the new evidence fields**
 
-Run: `pytest tests/test_startup_state.py -q`
+Run: `.venv/bin/pytest tests/test_startup_state.py -q`
 
 Expected: FAIL because `StartupEvidence` does not accept
 `confirmation_path` or `confirmation_ready`.
 
-- [ ] **Step 3: Extend the resolver without changing its default path**
+- [x] **Step 3: Extend the resolver without changing its default path**
 
 Add defaulted fields:
 
@@ -164,9 +165,9 @@ For `value_reversion`, only hard risks invalidate; confirmation requires
 above and return `pending_conditions` while preheat or probing. Keep every
 existing `sector_startup` condition and message unchanged.
 
-- [ ] **Step 4: Verify resolver regressions pass**
+- [x] **Step 4: Verify resolver regressions pass**
 
-Run: `pytest tests/test_startup_state.py -q`
+Run: `.venv/bin/pytest tests/test_startup_state.py -q`
 
 Expected: PASS.
 
@@ -176,7 +177,7 @@ Expected: PASS.
 - Modify: `services/engine/intraday/candidates.py`
 - Test: `tests/test_intraday_candidates.py`
 
-- [ ] **Step 1: Add an R009 candidate fixture with structured baselines**
+- [x] **Step 1: Add an R009 candidate fixture with structured baselines**
 
 Create a local helper in `tests/test_intraday_candidates.py` that persists:
 
@@ -197,14 +198,14 @@ Append `candidate_pool:value_reversion_setup` to its tags and add a
 features={
     "recent_high_3d": 10.40,
     "recent_low_3d": 9.80,
-    "previous_amount_ma5": 1_000_000.0,
+    "recent_amount_ma5": 1_000_000.0,
 }
 ```
 
 Extend the existing `_quote` test helper with an `amount` keyword and pass it
 through to `RealtimeQuote.amount`; keep its current default unchanged.
 
-- [ ] **Step 2: Add failing lifecycle tests**
+- [x] **Step 2: Add failing lifecycle tests**
 
 Cover these quotes and expected states:
 
@@ -239,25 +240,25 @@ assert candidate["startup_confirmation_evidence"] == [
 Also pass a market risk-off payload and assert the technical state remains
 `confirmed` while `selection_tier != "formal"`.
 
-- [ ] **Step 3: Verify the new intraday tests fail**
+- [x] **Step 3: Verify the new intraday tests fail**
 
-Run: `pytest tests/test_intraday_candidates.py -k value_reversion -q`
+Run: `.venv/bin/pytest tests/test_intraday_candidates.py -k value_reversion -q`
 
 Expected: FAIL because R009 setup tracking and baseline evaluation are absent.
 
-- [ ] **Step 4: Bulk-load candidate baselines**
+- [x] **Step 4: Bulk-load candidate baselines**
 
 Import `StockFeatureDaily` and add `_latest_stock_feature_map`, following the
 existing sector-feature latest-date query pattern. It must return only rows
 with `trade_date < current trade_date` for requested symbols.
 
-- [ ] **Step 5: Add minimal amount-pace and signal helpers**
+- [x] **Step 5: Add minimal amount-pace and signal helpers**
 
 Add `_session_elapsed_fraction(as_of)` for the two A-share sessions and a
 small immutable result for `_value_reversion_signal`. The signal must:
 
 ```python
-projected_amount_ratio = quote.amount / elapsed_fraction / previous_amount_ma5
+projected_amount_ratio = quote.amount / elapsed_fraction / recent_amount_ma5
 platform_approached = quote.price >= recent_high_3d * Decimal("0.98")
 platform_broken = quote.price >= recent_high_3d
 range_strong = _range_position(quote.price, quote.high, quote.low) >= 0.65
@@ -268,7 +269,7 @@ confirmation_ready = platform_broken and range_strong and controlled_amount and 
 Missing baselines return preheat evidence with `等待日线平台与成交额基准`.
 Price below `recent_low_3d` returns hard risk `跌破近3日平台低点`.
 
-- [ ] **Step 6: Integrate only tagged R009 setup candidates**
+- [x] **Step 6: Integrate only tagged R009 setup candidates**
 
 Set `startup_tracked` when either the existing startup-preheat tag or the new
 R009 setup tag is present. For R009 setups, pass `confirmation_path`,
@@ -279,9 +280,9 @@ After resolution, a confirmed R009 signal may be formal only when no
 `market_risk_off` or hard-risk flag exists. Do not let missing sector expansion
 downgrade its technical state.
 
-- [ ] **Step 7: Verify intraday and notification-adjacent tests pass**
+- [x] **Step 7: Verify intraday and notification-adjacent tests pass**
 
-Run: `pytest tests/test_intraday_candidates.py tests/test_startup_state.py tests/test_notifications.py tests/test_research_signal_ledger.py -q`
+Run: `.venv/bin/pytest tests/test_intraday_candidates.py tests/test_startup_state.py tests/test_notifications.py tests/test_research_signal_ledger.py -q`
 
 Expected: PASS.
 
@@ -290,25 +291,25 @@ Expected: PASS.
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-29-value-reversion-intraday-lifecycle.md`
 
-- [ ] **Step 1: Run focused R009 regressions**
+- [x] **Step 1: Run focused R009 regressions**
 
-Run: `pytest tests/test_daily_features.py tests/test_next_session_candidates.py tests/test_intraday_candidates.py tests/test_startup_state.py -q`
+Run: `.venv/bin/pytest tests/test_daily_features.py tests/test_next_session_candidates.py tests/test_intraday_candidates.py tests/test_startup_state.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 2: Run the complete suite**
+- [x] **Step 2: Run the complete suite**
 
-Run: `pytest -q`
+Run: `.venv/bin/pytest -q`
 
 Expected: all tests pass; the known SQLAlchemy warning may remain.
 
-- [ ] **Step 3: Check and review the diff**
+- [x] **Step 3: Check and review the diff**
 
 Run: `git diff --check && git status --short`
 
 Expected: no whitespace errors and only the planned files are modified.
 
-- [ ] **Step 4: Mark this plan complete and commit**
+- [x] **Step 4: Mark this plan complete and commit**
 
 Change completed checkboxes to `[x]`, then run:
 

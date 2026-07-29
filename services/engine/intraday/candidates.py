@@ -14,11 +14,11 @@ from services.engine.intraday.startup_state import (
     StartupEvidence,
     resolve_startup_state,
 )
-from services.engine.research_signal_ledger import latest_startup_states
 from services.engine.research_pool.repository import (
     candidate_batch_summary,
     filter_latest_candidate_batch_items,
 )
+from services.engine.research_signal_ledger import latest_startup_states
 from services.engine.theme.attribution import (
     build_theme_moneyflow_signal,
     load_latest_theme_moneyflow_rows,
@@ -29,6 +29,7 @@ from services.shared.models import (
     ResearchPoolItem,
     SectorFeatureDaily,
     Security,
+    StockFeatureDaily,
 )
 from services.shared.symbols import is_growth_board_symbol
 
@@ -79,6 +80,18 @@ class IntradayCandidate:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class ValueReversionSignal:
+    approached: bool
+    confirmation_ready: bool
+    score: float
+    reason: str
+    support_flags: tuple[str, ...] = ()
+    risk_flags: tuple[str, ...] = ()
+    hard_risk_reasons: tuple[str, ...] = ()
+    pending_conditions: tuple[str, ...] = ()
 
 
 INTRADAY_LABELS = {
@@ -272,6 +285,32 @@ def _sector_feature_map(
         & (SectorFeatureDaily.trade_date == latest_dates.c.trade_date),
     )
     return {row.sector_code: row.features for row in db.execute(stmt).scalars()}
+
+
+def _latest_stock_feature_map(
+    db: Session,
+    symbols: list[str],
+    *,
+    before: date,
+) -> dict[str, dict[str, Any]]:
+    if not symbols:
+        return {}
+    latest_dates = (
+        select(
+            StockFeatureDaily.symbol.label("symbol"),
+            func.max(StockFeatureDaily.trade_date).label("trade_date"),
+        )
+        .where(StockFeatureDaily.symbol.in_(symbols))
+        .where(StockFeatureDaily.trade_date < before)
+        .group_by(StockFeatureDaily.symbol)
+        .subquery()
+    )
+    stmt = select(StockFeatureDaily).join(
+        latest_dates,
+        (StockFeatureDaily.symbol == latest_dates.c.symbol)
+        & (StockFeatureDaily.trade_date == latest_dates.c.trade_date),
+    )
+    return {row.symbol: row.features for row in db.execute(stmt).scalars()}
 
 
 def _feature_float(features: dict[str, Any] | None, key: str, default: float = 0.0) -> float:
@@ -519,6 +558,132 @@ def _sector_quality(features: dict[str, Any] | None, signal: str) -> tuple[float
     else:
         label_key = "neutral"
     return score, SECTOR_QUALITY_LABELS[label_key]
+
+
+def _session_elapsed_fraction(as_of: datetime) -> Decimal:
+    minute = as_of.hour * 60 + as_of.minute
+    if minute <= 9 * 60 + 30:
+        elapsed = 0
+    elif minute <= 11 * 60 + 30:
+        elapsed = minute - (9 * 60 + 30)
+    elif minute < 13 * 60:
+        elapsed = 120
+    elif minute <= 15 * 60:
+        elapsed = 120 + minute - 13 * 60
+    else:
+        elapsed = 240
+    return Decimal(elapsed) / Decimal("240")
+
+
+def _value_reversion_signal(
+    quote: RealtimeQuote,
+    features: dict[str, Any] | None,
+    *,
+    as_of: datetime,
+) -> ValueReversionSignal:
+    platform_high = Decimal(str(_feature_float(features, "recent_high_3d")))
+    platform_low = Decimal(str(_feature_float(features, "recent_low_3d")))
+    amount_ma5 = Decimal(str(_feature_float(features, "recent_amount_ma5")))
+    if platform_high <= 0 or platform_low <= 0 or amount_ma5 <= 0:
+        return ValueReversionSignal(
+            approached=False,
+            confirmation_ready=False,
+            score=45.0,
+            reason="等待日线平台与成交额基准",
+            pending_conditions=("等待日线平台与成交额基准",),
+        )
+
+    if quote.price is not None and quote.price < platform_low:
+        reason = "跌破近3日平台低点"
+        return ValueReversionSignal(
+            approached=False,
+            confirmation_ready=False,
+            score=20.0,
+            reason=reason,
+            risk_flags=("value_reversion_platform_breakdown",),
+            hard_risk_reasons=(reason,),
+        )
+
+    approached = bool(
+        quote.price is not None and quote.price >= platform_high * Decimal("0.98")
+    )
+    platform_broken = bool(quote.price is not None and quote.price >= platform_high)
+    range_position = _range_position(quote.price, quote.high, quote.low)
+    range_strong = range_position is not None and range_position >= 0.65
+    day_change = _pct(quote.price, quote.pre_close)
+    day_change_ready = day_change is not None and 0.015 <= day_change <= 0.085
+    elapsed_fraction = _session_elapsed_fraction(as_of)
+    projected_amount_ratio = (
+        quote.amount / elapsed_fraction / amount_ma5
+        if quote.amount is not None and quote.amount > 0 and elapsed_fraction > 0
+        else None
+    )
+    controlled_amount = bool(
+        projected_amount_ratio is not None
+        and Decimal("1.15") <= projected_amount_ratio <= Decimal("2.20")
+    )
+
+    support_flags: list[str] = []
+    if approached:
+        support_flags.append("value_reversion_platform_approach")
+    if platform_broken:
+        support_flags.append("value_reversion_platform_breakout")
+    if controlled_amount:
+        support_flags.append("value_reversion_controlled_amount")
+    if range_strong:
+        support_flags.append("value_reversion_strong_range_position")
+
+    if (
+        projected_amount_ratio is not None
+        and projected_amount_ratio > Decimal("2.20")
+        and not range_strong
+    ):
+        reason = "成交额过快放大且价格承接偏弱"
+        return ValueReversionSignal(
+            approached=approached,
+            confirmation_ready=False,
+            score=25.0,
+            reason=reason,
+            support_flags=tuple(support_flags),
+            risk_flags=("volume_expansion_on_weakness",),
+            hard_risk_reasons=(reason,),
+        )
+
+    pending_conditions: list[str] = []
+    if as_of.hour * 60 + as_of.minute < 10 * 60 + 30:
+        pending_conditions.append("等待10:30后确认")
+    if not approached:
+        pending_conditions.append("等待接近近3日平台高点")
+    elif not platform_broken:
+        pending_conditions.append("等待突破近3日平台")
+    if not day_change_ready:
+        pending_conditions.append("等待日涨幅进入1.5%-8.5%确认区间")
+    if not range_strong:
+        pending_conditions.append("等待价格回到日内高位")
+    if projected_amount_ratio is None:
+        pending_conditions.append("等待盘中成交额数据")
+    elif projected_amount_ratio < Decimal("1.15"):
+        pending_conditions.append("等待成交额温和放大")
+    elif projected_amount_ratio > Decimal("2.20"):
+        pending_conditions.append("等待成交额回到可控范围")
+
+    confirmation_ready = (
+        platform_broken and day_change_ready and range_strong and controlled_amount
+    )
+    return ValueReversionSignal(
+        approached=approached,
+        confirmation_ready=confirmation_ready,
+        score=92.0 if confirmation_ready else 70.0 if approached else 50.0,
+        reason=(
+            "价值回归盘中突破平台，成交额温和放大且价格承接较强"
+            if confirmation_ready
+            else "价值回归接近平台，等待价格与成交额确认"
+            if approached
+            else "价值回归仍在平台内蓄势"
+        ),
+        support_flags=tuple(support_flags),
+        pending_conditions=tuple(pending_conditions),
+    )
 
 
 def _volume_signal(
@@ -1294,6 +1459,12 @@ def discover_intraday_candidates(
         ),
     ]
     symbols = [item.symbol for item in pool_items]
+    value_reversion_symbols = [
+        item.symbol
+        for item in pool_items
+        if "candidate_pool:value_reversion_setup"
+        in [str(tag) for tag in (item.tags_json or {}).get("tags", [])]
+    ]
     persisted_startup_states = latest_startup_states(
         db,
         signal_date=trade_date,
@@ -1309,6 +1480,11 @@ def discover_intraday_candidates(
         db,
         sorted({security.industry for security in securities.values() if security.industry}),
         trade_date=daily_feature_date,
+    )
+    stock_features = _latest_stock_feature_map(
+        db,
+        value_reversion_symbols,
+        before=trade_date,
     )
     theme_moneyflow_rows = load_latest_theme_moneyflow_rows(
         db,
@@ -1337,6 +1513,10 @@ def discover_intraday_candidates(
         ):
             continue
         tags = [str(tag) for tag in (item.tags_json or {}).get("tags", [])]
+        is_value_reversion_setup = (
+            "candidate_pool:value_reversion_setup" in tags
+            and _tag_text(tags, "rule:") == "R009"
+        )
         rank = _tag_number(tags, "rank:", int)
         candidate_score = _tag_number(tags, "score:", float)
         previous = _previous_quote(db, quote)
@@ -1386,6 +1566,25 @@ def discover_intraday_candidates(
             state=state,
             volume_confirmed="intraday_volume_confirmed" in volume_support,
         )
+        value_reversion_signal = (
+            _value_reversion_signal(
+                quote,
+                stock_features.get(item.symbol),
+                as_of=as_of or quote.quote_time,
+            )
+            if is_value_reversion_setup
+            else None
+        )
+        if value_reversion_signal is not None:
+            startup_stage = "probing" if value_reversion_signal.approached else "preheat"
+            startup_label = STARTUP_LABELS[startup_stage]
+            startup_score = value_reversion_signal.score
+            startup_reason = value_reversion_signal.reason
+            startup_support = [
+                *startup_support,
+                *value_reversion_signal.support_flags,
+            ]
+            startup_risks = [*startup_risks, *value_reversion_signal.risk_flags]
         feedback_delta, feedback_support, feedback_risks, feedback_cautions = (
             _sector_feedback_signal(
                 security.industry if security else None,
@@ -1457,7 +1656,9 @@ def discover_intraday_candidates(
                 selection_tier = "watch"
                 selection_tier_label = SELECTION_TIER_LABELS["watch"]
                 selection_reason = "板块未形成连续扩散，个股即使走强也只做观察确认"
-        startup_tracked = "candidate_pool:startup_preheat" in tags
+        startup_tracked = (
+            "candidate_pool:startup_preheat" in tags or is_value_reversion_setup
+        )
         prior_startup_state = (
             persisted_startup_states.get(item.symbol)
             or _tag_text(tags, "startup_state:")
@@ -1471,12 +1672,28 @@ def discover_intraday_candidates(
             "sector_feedback_intraday_weakened",
             "intraday_overextended",
         }.intersection(risk_flags)
+        if is_value_reversion_setup:
+            hard_startup_risks.discard("sector_feedback_intraday_weakened")
+        hard_risk_reasons = (
+            value_reversion_signal.hard_risk_reasons
+            if value_reversion_signal is not None
+            and value_reversion_signal.hard_risk_reasons
+            else (
+                tuple(caution_reasons[:1] or sorted(hard_startup_risks))
+                if hard_startup_risks
+                else ()
+            )
+        )
         decision = resolve_startup_state(
             prior_startup_state,
             StartupEvidence(
                 trade_date=trade_date,
                 as_of=as_of or quote.quote_time,
-                individual_supportive=startup_stage == "probing",
+                individual_supportive=(
+                    value_reversion_signal.approached
+                    if value_reversion_signal is not None
+                    else startup_stage == "probing"
+                ),
                 volume_confirmed="intraday_volume_confirmed" in support_flags,
                 sector_sustained=(
                     sustained_startup_sectors is not None
@@ -1485,9 +1702,18 @@ def discover_intraday_candidates(
                 sector_strength_holding="sector_feedback_strength_holding" in support_flags,
                 formal_eligible=selection_tier == "formal",
                 market_risk_off="market_risk_off" in risk_flags,
-                hard_risk_reasons=(
-                    tuple(caution_reasons[:1] or sorted(hard_startup_risks))
-                    if hard_startup_risks
+                hard_risk_reasons=hard_risk_reasons,
+                confirmation_path=(
+                    "value_reversion" if is_value_reversion_setup else "sector_startup"
+                ),
+                confirmation_ready=(
+                    value_reversion_signal.confirmation_ready
+                    if value_reversion_signal is not None
+                    else False
+                ),
+                pending_conditions=(
+                    value_reversion_signal.pending_conditions
+                    if value_reversion_signal is not None
                     else ()
                 ),
             ),
@@ -1498,6 +1724,15 @@ def discover_intraday_candidates(
             startup_reason = "；".join(decision.invalidation_reasons)
         elif decision.confirmation_evidence:
             startup_reason = "；".join(decision.confirmation_evidence)
+        if is_value_reversion_setup and startup_stage == "confirmed":
+            if "market_risk_off" in risk_flags:
+                selection_tier = "watch"
+                selection_tier_label = SELECTION_TIER_LABELS["watch"]
+                selection_reason = "价值回归启动已确认，但市场风险较高，只做观察确认"
+            else:
+                selection_tier = "formal"
+                selection_tier_label = SELECTION_TIER_LABELS["formal"]
+                selection_reason = "价值回归盘中突破平台且成交额温和放大"
         if startup_tracked and startup_stage == "invalidated":
             selection_tier = "defer"
             selection_tier_label = SELECTION_TIER_LABELS["defer"]

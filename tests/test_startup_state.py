@@ -76,3 +76,51 @@ def test_confirmed_state_does_not_fall_back_without_invalidation() -> None:
 
     assert result.state == "confirmed"
     assert result.transitioned is False
+
+
+def test_value_reversion_confirmation_does_not_require_sector_or_market_gate() -> None:
+    result = resolve_startup_state(
+        "probing",
+        _evidence(
+            confirmation_path="value_reversion",
+            confirmation_ready=True,
+            sector_sustained=False,
+            formal_eligible=False,
+            market_risk_off=True,
+        ),
+    )
+
+    assert result.state == "confirmed"
+    assert result.confirmation_evidence == (
+        "突破近3日平台",
+        "成交额温和放大",
+        "日内价格位置偏强",
+    )
+
+
+def test_value_reversion_hard_risk_still_invalidates() -> None:
+    result = resolve_startup_state(
+        "confirmed",
+        _evidence(
+            confirmation_path="value_reversion",
+            confirmation_ready=True,
+            hard_risk_reasons=("跌破近3日平台低点",),
+        ),
+    )
+
+    assert result.state == "invalidated"
+    assert result.invalidation_reasons == ("跌破近3日平台低点",)
+
+
+def test_value_reversion_not_ready_cannot_fall_back_to_sector_confirmation() -> None:
+    result = resolve_startup_state(
+        "probing",
+        _evidence(
+            confirmation_path="value_reversion",
+            confirmation_ready=False,
+            pending_conditions=("等待成交额温和放大",),
+        ),
+    )
+
+    assert result.state == "probing"
+    assert result.next_conditions == ("等待成交额温和放大",)

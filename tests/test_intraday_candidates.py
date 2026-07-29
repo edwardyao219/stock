@@ -15,6 +15,7 @@ from services.shared.models import (
     ResearchPoolItem,
     SectorFeatureDaily,
     Security,
+    StockFeatureDaily,
     TushareMoneyflowIndDc,
 )
 
@@ -40,6 +41,7 @@ def _quote(
     low: str = "9.8",
     pre_close: str = "10",
     volume: str = "1000000",
+    amount: str = "1000000",
 ) -> RealtimeQuote:
     return RealtimeQuote(
         symbol=symbol,
@@ -52,7 +54,7 @@ def _quote(
         pre_close=Decimal(pre_close),
         pct_change=None,
         volume=Decimal(volume),
-        amount=Decimal("1000000"),
+        amount=Decimal(amount),
         turnover_rate=Decimal("1.2"),
     )
 
@@ -81,6 +83,73 @@ def _candidate(
         tags_json={"tags": tags},
         status="active",
     )
+
+
+def _value_reversion_candidate(symbol: str = "600415") -> ResearchPoolItem:
+    item = _candidate(
+        symbol,
+        rank=5,
+        score=66,
+        rule_id="R009",
+        rule_name="[均值回归] 价值蓄势",
+    )
+    item.tags_json["tags"].append("candidate_pool:value_reversion_setup")
+    return item
+
+
+def _value_reversion_feature(symbol: str = "600415") -> StockFeatureDaily:
+    return StockFeatureDaily(
+        symbol=symbol,
+        trade_date=date(2026, 6, 29),
+        features={
+            "recent_high_3d": 10.40,
+            "recent_low_3d": 9.80,
+            "recent_amount_ma5": 1_000_000.0,
+        },
+    )
+
+
+def _run_value_reversion_intraday(
+    *,
+    quote_time: datetime,
+    price: str,
+    high: str,
+    low: str,
+    amount: str,
+    include_feature: bool = True,
+    market_stress: dict | None = None,
+) -> dict:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        rows = [
+            _security("600415", "小商品城", industry="商业零售"),
+            _value_reversion_candidate(),
+            _quote(
+                "600415",
+                quote_time,
+                price=price,
+                high=high,
+                low=low,
+                amount=amount,
+            ),
+        ]
+        if include_feature:
+            rows.append(_value_reversion_feature())
+        db.add_all(rows)
+        db.commit()
+
+        result = discover_intraday_candidates(
+            db,
+            trade_date=quote_time.date(),
+            pool_name="experiment",
+            limit=10,
+            as_of=quote_time,
+            market_stress=market_stress,
+        )
+
+    return result["candidates"][0]
 
 
 def _sector_features(
@@ -210,6 +279,106 @@ def test_discover_intraday_candidates_carries_candidate_rule_identity() -> None:
     item = result["candidates"][0]
     assert item["selected_rule_id"] == "R008"
     assert item["selected_rule_name"] == "[均值回归] 超跌修复"
+
+
+def test_value_reversion_setup_is_probing_near_platform_before_1030() -> None:
+    candidate = _run_value_reversion_intraday(
+        quote_time=datetime(2026, 6, 30, 9, 55),
+        price="10.30",
+        high="10.35",
+        low="10.00",
+        amount="250000",
+    )
+
+    assert candidate["startup_tracked"] is True
+    assert candidate["startup_stage"] == "probing"
+    assert "等待10:30后确认" in candidate["startup_next_conditions"]
+
+
+def test_value_reversion_controlled_breakout_confirms_intraday() -> None:
+    candidate = _run_value_reversion_intraday(
+        quote_time=datetime(2026, 6, 30, 10, 30),
+        price="10.55",
+        high="10.60",
+        low="10.00",
+        amount="350000",
+    )
+
+    assert candidate["startup_tracked"] is True
+    assert candidate["startup_stage"] == "confirmed"
+    assert candidate["selected_rule_id"] == "R009"
+    assert candidate["selection_tier"] == "formal"
+    assert "value_reversion_platform_breakout" in candidate["support_flags"]
+    assert "value_reversion_controlled_amount" in candidate["support_flags"]
+    assert candidate["startup_confirmation_evidence"] == [
+        "突破近3日平台",
+        "成交额温和放大",
+        "日内价格位置偏强",
+    ]
+
+
+def test_value_reversion_missing_daily_baseline_stays_preheat() -> None:
+    candidate = _run_value_reversion_intraday(
+        quote_time=datetime(2026, 6, 30, 10, 30),
+        price="10.55",
+        high="10.60",
+        low="10.00",
+        amount="350000",
+        include_feature=False,
+    )
+
+    assert candidate["startup_stage"] == "preheat"
+    assert candidate["startup_next_conditions"] == ["等待日线平台与成交额基准"]
+
+
+def test_value_reversion_break_below_platform_invalidates() -> None:
+    candidate = _run_value_reversion_intraday(
+        quote_time=datetime(2026, 6, 30, 10, 30),
+        price="9.70",
+        high="10.10",
+        low="9.65",
+        amount="300000",
+    )
+
+    assert candidate["startup_stage"] == "invalidated"
+    assert "跌破近3日平台低点" in candidate["startup_invalidation_reasons"]
+
+
+def test_value_reversion_excess_amount_with_weak_price_invalidates() -> None:
+    candidate = _run_value_reversion_intraday(
+        quote_time=datetime(2026, 6, 30, 10, 30),
+        price="10.15",
+        high="10.60",
+        low="10.00",
+        amount="700000",
+    )
+
+    assert candidate["startup_stage"] == "invalidated"
+    assert "成交额过快放大且价格承接偏弱" in candidate[
+        "startup_invalidation_reasons"
+    ]
+    assert "volume_expansion_on_weakness" in candidate["risk_flags"]
+
+
+def test_value_reversion_risk_off_keeps_confirmation_as_watch() -> None:
+    candidate = _run_value_reversion_intraday(
+        quote_time=datetime(2026, 6, 30, 10, 30),
+        price="10.55",
+        high="10.60",
+        low="10.00",
+        amount="350000",
+        market_stress={
+            "trade_date": "2026-06-30",
+            "stress_status": "risk_off",
+            "stress_label": "压力大",
+            "stress_reasons": ["市场宽度不足"],
+            "recovery_stage": "blocked",
+        },
+    )
+
+    assert candidate["startup_stage"] == "confirmed"
+    assert candidate["selection_tier"] == "watch"
+    assert "market_risk_off" in candidate["risk_flags"]
 
 
 def test_discover_intraday_candidates_uses_latest_candidate_feature_date_only() -> None:

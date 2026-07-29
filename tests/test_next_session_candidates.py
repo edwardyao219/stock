@@ -310,15 +310,17 @@ def test_value_reversion_contracted_setup_enters_observation(monkeypatch) -> Non
     assert candidate["selection_mode"] == "observation"
     assert any("价值回归蓄势" in reason for reason in candidate["reasons"])
     assert "rule:R009" in items[0]["tags"]
+    assert "candidate_pool:value_reversion_setup" in items[0]["tags"]
 
 
 def test_value_reversion_volume_launch_enters_formal_pool(monkeypatch) -> None:
-    result, _items = _run_value_reversion_discovery(monkeypatch, "range", launch=True)
+    result, items = _run_value_reversion_discovery(monkeypatch, "range", launch=True)
 
     candidate = next(item for item in result["candidates"] if item["symbol"] == "600415")
     assert candidate["selected_rule_id"] == "R009"
     assert candidate["selection_mode"] == "formal_strategy"
     assert any("价值回归启动" in reason for reason in candidate["reasons"])
+    assert "candidate_pool:value_reversion_setup" not in items[0]["tags"]
 
 
 @pytest.mark.parametrize("regime", ["panic", "weak_trend", "rebound_unconfirmed", "unknown"])

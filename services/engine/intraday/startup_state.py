@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 
-
 STARTUP_LABELS = {
     "preheat": "启动预热",
     "probing": "启动试探",
@@ -23,6 +22,9 @@ class StartupEvidence:
     formal_eligible: bool
     market_risk_off: bool
     hard_risk_reasons: tuple[str, ...] = ()
+    confirmation_path: str = "sector_startup"
+    confirmation_ready: bool = False
+    pending_conditions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -40,17 +42,26 @@ def resolve_startup_state(
     evidence: StartupEvidence,
 ) -> StartupDecision:
     prior = prior_state if prior_state in STARTUP_LABELS else "preheat"
+    is_value_reversion = evidence.confirmation_path == "value_reversion"
     invalidation_reasons: tuple[str, ...] = ()
 
     if prior == "invalidated":
         state = "invalidated"
         invalidation_reasons = evidence.hard_risk_reasons
-    elif evidence.market_risk_off or evidence.hard_risk_reasons:
+    elif evidence.hard_risk_reasons or (evidence.market_risk_off and not is_value_reversion):
         state = "invalidated"
         invalidation_reasons = evidence.hard_risk_reasons or ("市场风险阀门关闭",)
     elif prior == "confirmed":
         state = "confirmed"
     elif (
+        is_value_reversion
+        and evidence.as_of.time() >= time(10, 30)
+        and evidence.confirmation_ready
+    ):
+        state = "confirmed"
+    elif (
+        not is_value_reversion
+        and
         evidence.as_of.time() >= time(10, 30)
         and evidence.sector_sustained
         and evidence.individual_supportive
@@ -61,22 +72,31 @@ def resolve_startup_state(
     else:
         state = "probing" if prior == "probing" or evidence.individual_supportive else "preheat"
 
-    confirmation_evidence = (
-        ("板块持续扩散", "个股量价承接", "市场风险阀门允许")
-        if state == "confirmed"
-        else ()
-    )
+    if state == "confirmed" and is_value_reversion:
+        confirmation_evidence = (
+            "突破近3日平台",
+            "成交额温和放大",
+            "日内价格位置偏强",
+        )
+    elif state == "confirmed":
+        confirmation_evidence = ("板块持续扩散", "个股量价承接", "市场风险阀门允许")
+    else:
+        confirmation_evidence = ()
     next_conditions: list[str] = []
     if state not in {"confirmed", "invalidated"}:
-        if evidence.as_of.time() < time(10, 30):
+        if is_value_reversion:
+            next_conditions.extend(evidence.pending_conditions)
+        elif evidence.as_of.time() < time(10, 30):
             next_conditions.append("等待10:30板块持续扩散确认")
         elif not evidence.sector_sustained:
             next_conditions.append("等待板块持续扩散")
-        if not evidence.individual_supportive:
+        if not is_value_reversion and not evidence.individual_supportive:
             next_conditions.append("等待个股价格承接")
-        if not (evidence.volume_confirmed or evidence.sector_strength_holding):
+        if not is_value_reversion and not (
+            evidence.volume_confirmed or evidence.sector_strength_holding
+        ):
             next_conditions.append("等待量能或板块强度确认")
-        if not evidence.formal_eligible:
+        if not is_value_reversion and not evidence.formal_eligible:
             next_conditions.append("等待盘中风险条件解除")
 
     return StartupDecision(
@@ -87,4 +107,3 @@ def resolve_startup_state(
         next_conditions=tuple(next_conditions),
         transitioned=state != prior,
     )
-

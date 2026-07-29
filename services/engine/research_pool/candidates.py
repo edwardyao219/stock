@@ -3467,6 +3467,11 @@ def discover_next_session_candidates(
             tags.append(f"rule_name:{item.selected_rule_name}")
         if item.selected_strategy_type:
             tags.append(f"strategy:{item.selected_strategy_type}")
+        if (
+            item.selected_rule_id == "R009"
+            and not _is_value_reversion_launch(context_by_symbol[item.symbol])
+        ):
+            tags.append("candidate_pool:value_reversion_setup")
         tags.append(f"style:{item.sector_style}")
         tags.append(f"style_horizon:{item.suggested_horizon_days}d")
         hold_style = context_by_symbol[item.symbol].get("holding_style")
