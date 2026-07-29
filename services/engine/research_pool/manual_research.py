@@ -13,7 +13,7 @@ from services.engine.features.sync import (
     compute_and_store_sector_features,
     compute_and_store_stock_features,
 )
-from services.engine.fundamental.sync import sync_fundamentals_from_akshare
+from services.engine.fundamental.sync import sync_fundamentals
 from services.engine.plans.sync import generate_and_store_trade_plans
 from services.engine.plans.watchlist import generate_watchlist_observation_plans
 from services.shared.database import SessionLocal
@@ -106,10 +106,7 @@ def refresh_manual_stock_research(
         end_date=latest_bar_date,
     )
 
-    fundamental_result = sync_fundamentals_from_akshare(
-        symbols=[symbol],
-        include_valuation=True,
-    )
+    fundamental_result = sync_fundamentals(symbols=[symbol])
     for item in fundamental_result["results"]:
         if item["status"] != "ok":
             warnings.append(f"基本面同步失败：{item['message']}")

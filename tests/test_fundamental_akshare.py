@@ -8,8 +8,10 @@ from services.engine.fundamental.akshare_client import (
     apply_dividend_yield_to_valuation_rows,
     dividend_events_from_rows,
     market_symbol,
+    merge_financial_statement_rows,
     snapshot_from_indicator_row,
     snapshot_from_valuation_row,
+    statement_market_symbol,
 )
 from services.engine.fundamental.repository import (
     load_fundamental_context,
@@ -19,12 +21,37 @@ from services.engine.fundamental.repository import (
     upsert_valuation_snapshots,
 )
 from services.shared.database import Base
+from services.shared.models import FundamentalSnapshot
 
 
 def test_market_symbol_for_akshare_financial_indicator() -> None:
     assert market_symbol("600519") == "600519.SH"
     assert market_symbol("000001") == "000001.SZ"
     assert market_symbol("300750") == "300750.SZ"
+
+
+def test_akshare_statement_rows_merge_by_report_date_and_map_quality_fields() -> None:
+    assert statement_market_symbol("002558") == "SZ002558"
+    rows = merge_financial_statement_rows(
+        [{"REPORT_DATE": "2026-03-31", "TOTALOPERATEREVETZ": "5.2"}],
+        [
+            {
+                "REPORT_DATE": "2026-03-31",
+                "TOTAL_OPERATE_INCOME": "1000",
+                "PARENT_NETPROFIT": "300",
+                "DEDUCT_PARENT_NETPROFIT": "270",
+            }
+        ],
+        [{"REPORT_DATE": "2026-03-31", "NETCASH_OPERATE": "330"}],
+    )
+
+    snapshot = snapshot_from_indicator_row("002558", rows[0])
+
+    assert snapshot is not None
+    assert snapshot["operating_revenue"] == Decimal("1000")
+    assert snapshot["parent_net_profit"] == Decimal("300")
+    assert snapshot["deducted_parent_net_profit"] == Decimal("270")
+    assert snapshot["operating_cash_flow"] == Decimal("330")
 
 
 def test_snapshot_from_indicator_row_maps_announcement_timing_and_bank_fields() -> None:
@@ -179,3 +206,53 @@ def test_load_fundamental_context_merges_latest_financials_with_valuation() -> N
     assert context["pb"] == 0.62
     assert context["pe_ttm"] == 5.2
     assert context["dividend_yield"] == 0.055
+
+
+def test_financial_upsert_clears_colliding_valuation_and_keeps_quality_fields() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        upsert_valuation_snapshots(
+            db,
+            [
+                {
+                    "symbol": "002558",
+                    "report_date": "2026-03-31",
+                    "available_date": "2026-03-31",
+                    "pe_ttm": 33.8,
+                    "pb": 3.67,
+                    "dividend_yield": 0.01,
+                    "extra_json": {"source": "akshare.stock_value_em"},
+                }
+            ],
+        )
+        upsert_fundamental_snapshots(
+            db,
+            [
+                {
+                    "symbol": "002558",
+                    "report_date": "2026-03-31",
+                    "available_date": "2026-04-25",
+                    "revenue_growth": 2.217,
+                    "profit_growth": 2.105,
+                    "operating_revenue": 1000,
+                    "parent_net_profit": 300,
+                    "deducted_parent_net_profit": 270,
+                    "operating_cash_flow": 330,
+                    "extra_json": {"source": "tushare_proxy"},
+                }
+            ],
+        )
+        db.commit()
+        row = db.query(FundamentalSnapshot).one()
+
+    assert row.available_date == date(2026, 4, 25)
+    assert row.operating_revenue == Decimal("1000.0000")
+    assert row.parent_net_profit == Decimal("300.0000")
+    assert row.deducted_parent_net_profit == Decimal("270.0000")
+    assert row.operating_cash_flow == Decimal("330.0000")
+    assert row.pe_ttm is None
+    assert row.pb is None
+    assert row.dividend_yield is None
+    assert row.extra_json == {"source": "tushare_proxy"}

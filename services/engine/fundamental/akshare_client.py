@@ -27,6 +27,13 @@ VALUATION_FIELDS = {
     "市净率": "pb",
 }
 
+ABSOLUTE_FIELDS = {
+    "operating_revenue": ("TOTAL_OPERATE_INCOME", "TOTALOPERATEREVE"),
+    "parent_net_profit": ("PARENT_NETPROFIT", "PARENTNETPROFIT"),
+    "deducted_parent_net_profit": ("DEDUCT_PARENT_NETPROFIT", "KCFJCXSYJLR"),
+    "operating_cash_flow": ("NETCASH_OPERATE",),
+}
+
 
 def market_symbol(symbol: str) -> str:
     code = str(symbol).strip()
@@ -39,6 +46,11 @@ def market_symbol(symbol: str) -> str:
     if code.startswith(("4", "8")):
         return f"{code}.BJ"
     return code
+
+
+def statement_market_symbol(symbol: str) -> str:
+    code, exchange = market_symbol(symbol).split(".")
+    return f"{exchange}{code}"
 
 
 def _akshare() -> Any:
@@ -104,6 +116,12 @@ def snapshot_from_indicator_row(symbol: str, raw: dict[str, Any]) -> dict[str, A
     for source_field, target_field in PERCENT_FIELDS.items():
         row[target_field] = _percent(raw.get(source_field))
 
+    for target_field, source_fields in ABSOLUTE_FIELDS.items():
+        row[target_field] = next(
+            (value for field in source_fields if (value := _decimal(raw.get(field))) is not None),
+            None,
+        )
+
     roe_kcj = _percent(raw.get("ROEKCJQ"))
     if row.get("roe") is None and roe_kcj is not None:
         row["roe"] = roe_kcj
@@ -117,6 +135,24 @@ def snapshot_from_indicator_row(symbol: str, raw: dict[str, Any]) -> dict[str, A
             row["extra_json"][target_field] = str(value)
 
     return row
+
+
+def merge_financial_statement_rows(
+    indicators: list[dict[str, Any]],
+    profits: list[dict[str, Any]],
+    cashflows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged = {
+        str(row["REPORT_DATE"])[:10]: dict(row)
+        for row in indicators
+        if row.get("REPORT_DATE")
+    }
+    for statement_rows in (profits, cashflows):
+        for row in statement_rows:
+            report_date = str(row.get("REPORT_DATE") or "")[:10]
+            if report_date in merged:
+                merged[report_date].update(row)
+    return [merged[key] for key in sorted(merged, reverse=True)]
 
 
 def snapshot_from_valuation_row(symbol: str, raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -193,12 +229,30 @@ def apply_dividend_yield_to_valuation_rows(
 
 def fetch_financial_indicator_snapshots(symbol: str) -> list[dict[str, Any]]:
     ak = _akshare()
-    df = ak.stock_financial_analysis_indicator_em(
+    indicator_df = ak.stock_financial_analysis_indicator_em(
         symbol=market_symbol(symbol),
         indicator="按报告期",
     )
+    statement_symbol = statement_market_symbol(symbol)
+    try:
+        profit_rows = ak.stock_profit_sheet_by_report_em(
+            symbol=statement_symbol
+        ).to_dict("records")
+    except Exception:
+        profit_rows = []
+    try:
+        cashflow_rows = ak.stock_cash_flow_sheet_by_report_em(
+            symbol=statement_symbol
+        ).to_dict("records")
+    except Exception:
+        cashflow_rows = []
+    merged_rows = merge_financial_statement_rows(
+        indicator_df.to_dict("records"),
+        profit_rows,
+        cashflow_rows,
+    )
     rows: list[dict[str, Any]] = []
-    for raw in df.to_dict("records"):
+    for raw in merged_rows:
         snapshot = snapshot_from_indicator_row(symbol, raw)
         if snapshot is not None:
             rows.append(snapshot)

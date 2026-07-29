@@ -557,6 +557,10 @@ class FundamentalSnapshot(Base):
     gross_margin: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
     net_margin: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
     debt_ratio: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6))
+    operating_revenue: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    parent_net_profit: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    deducted_parent_net_profit: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
+    operating_cash_flow: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 4))
     extra_json: Mapped[dict[str, Any]] = mapped_column(PortableJSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 

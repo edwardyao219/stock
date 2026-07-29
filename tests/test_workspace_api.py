@@ -606,7 +606,7 @@ def test_add_manual_stock_uses_local_security_when_remote_security_sync_fails(mo
     )
     monkeypatch.setattr(
         manual_research,
-        "sync_fundamentals_from_akshare",
+        "sync_fundamentals",
         lambda **_kwargs: {"ok": 0, "results": []},
     )
     monkeypatch.setattr(

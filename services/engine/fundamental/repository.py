@@ -21,6 +21,10 @@ FUNDAMENTAL_FIELDS = [
     "gross_margin",
     "net_margin",
     "debt_ratio",
+    "operating_revenue",
+    "parent_net_profit",
+    "deducted_parent_net_profit",
+    "operating_cash_flow",
 ]
 VALUATION_FIELDS = ["pe_ttm", "pb", "dividend_yield"]
 
@@ -52,6 +56,7 @@ def upsert_fundamental_snapshots(db: Session, rows: list[dict[str, Any]]) -> int
         payload,
         update_columns=["available_date", *FUNDAMENTAL_FIELDS, "extra_json"],
         constraint="uq_fundamental_symbol_report",
+        index_elements=[FundamentalSnapshot.symbol, FundamentalSnapshot.report_date],
     )
 
 
@@ -76,6 +81,7 @@ def upsert_valuation_snapshots(db: Session, rows: list[dict[str, Any]]) -> int:
         payload,
         update_columns=["available_date", *VALUATION_FIELDS, "extra_json"],
         constraint="uq_fundamental_symbol_report",
+        index_elements=[FundamentalSnapshot.symbol, FundamentalSnapshot.report_date],
     )
 
 

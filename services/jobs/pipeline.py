@@ -296,9 +296,9 @@ def _sync_sector_moneyflow_step(
 
 
 def _sync_fundamentals_step(pool_name: str) -> PipelineStepResult:
-    from services.engine.fundamental.sync import sync_fundamentals_from_akshare
+    from services.engine.fundamental.sync import sync_fundamentals
 
-    result = sync_fundamentals_from_akshare(pool_name=pool_name, include_valuation=True)
+    result = sync_fundamentals(pool_name=pool_name)
     details = [
         (
             f"{item['symbol']}: {item['status']}, "

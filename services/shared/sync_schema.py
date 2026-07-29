@@ -1,9 +1,63 @@
 from __future__ import annotations
 
-from sqlalchemy import inspect, text
+from datetime import date
+
+from sqlalchemy import Text, cast, inspect, select, text
+from sqlalchemy.orm import Session
 
 from services.shared import models  # noqa: F401
 from services.shared.database import Base, engine
+
+FINANCIAL_PRESENCE_FIELDS = (
+    "revenue_growth",
+    "profit_growth",
+    "roe",
+    "gross_margin",
+    "net_margin",
+    "debt_ratio",
+    "operating_revenue",
+    "parent_net_profit",
+    "deducted_parent_net_profit",
+    "operating_cash_flow",
+)
+
+
+def _conservative_financial_available_date(report_date: date) -> date:
+    return {
+        3: date(report_date.year, 4, 30),
+        6: date(report_date.year, 8, 31),
+        9: date(report_date.year, 10, 31),
+        12: date(report_date.year + 1, 4, 30),
+    }[report_date.month]
+
+
+def _cleanup_legacy_mixed_fundamental_snapshots(db: Session) -> int:
+    rows = db.execute(
+        select(models.FundamentalSnapshot).where(
+            cast(models.FundamentalSnapshot.extra_json, Text).like(
+                "%akshare.stock_value_em%"
+            )
+        )
+    ).scalars()
+    changed = 0
+    for row in rows:
+        if (row.extra_json or {}).get("source") != "akshare.stock_value_em":
+            continue
+        if not any(getattr(row, field) is not None for field in FINANCIAL_PRESENCE_FIELDS):
+            continue
+        try:
+            row.available_date = _conservative_financial_available_date(row.report_date)
+        except KeyError:
+            continue
+        row.pe_ttm = None
+        row.pb = None
+        row.dividend_yield = None
+        row.extra_json = {
+            "source": "legacy_mixed_snapshot",
+            "availability_quality": "legacy_conservative_date",
+        }
+        changed += 1
+    return changed
 
 
 def _add_mysql_column_if_missing(table: str, column: str, ddl: str) -> None:
@@ -54,6 +108,20 @@ def main() -> None:
         _add_mysql_column_if_missing("risk_profiles", "strategy_type", "VARCHAR(32) NULL")
         _add_mysql_column_if_missing("risk_profiles", "priority", "INTEGER NOT NULL DEFAULT 0")
         _add_mysql_column_if_missing("fundamental_snapshots", "available_date", "DATE NULL")
+        _add_mysql_column_if_missing(
+            "fundamental_snapshots", "operating_revenue", "NUMERIC(24, 4) NULL"
+        )
+        _add_mysql_column_if_missing(
+            "fundamental_snapshots", "parent_net_profit", "NUMERIC(24, 4) NULL"
+        )
+        _add_mysql_column_if_missing(
+            "fundamental_snapshots",
+            "deducted_parent_net_profit",
+            "NUMERIC(24, 4) NULL",
+        )
+        _add_mysql_column_if_missing(
+            "fundamental_snapshots", "operating_cash_flow", "NUMERIC(24, 4) NULL"
+        )
         _add_mysql_column_if_missing("research_pool_items", "tags_json", "TEXT NULL")
         _drop_mysql_index_if_exists(
             "paper_positions",
@@ -74,6 +142,9 @@ def main() -> None:
             "SET available_date = report_date "
             "WHERE available_date IS NULL"
         )
+        with Session(engine) as db:
+            _cleanup_legacy_mixed_fundamental_snapshots(db)
+            db.commit()
         _execute_mysql(
             "ALTER TABLE candidate_discovery_snapshots "
             "MODIFY COLUMN discovery_json LONGTEXT NOT NULL"
