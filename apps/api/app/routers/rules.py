@@ -42,7 +42,7 @@ _TACTICAL_POLICY_SCOPES = {"potential_watch", "startup_preheat", "startup_confir
 _DEFENSIVE_POLICY_SCOPES = {"sector_watch"}
 DEFAULT_REPLAY_START_DATE = "2024-01-01"
 DEFAULT_INTERACTIVE_REPLAY_MONTHS = 3
-CANDIDATE_REPLAY_EFFECT_CACHE_VERSION = "candidate-replay-effect-v4"
+CANDIDATE_REPLAY_EFFECT_CACHE_VERSION = "candidate-replay-effect-v5"
 CANDIDATE_REPLAY_EFFECT_CACHE_DIR = Path(".tmp/candidate-replay-effect-cache")
 CANDIDATE_REPLAY_EFFECT_HORIZONS = (1, 5, 10, 20)
 LOW_DIMENSIONAL_REPLAY_HORIZONS = (5, 10, 20)
@@ -61,6 +61,8 @@ _CANDIDATE_REPLAY_NUMERIC_KEY_MAPS = {
     "monthly_horizons",
     "portfolio_horizons",
     "monthly_portfolio_horizons",
+    "rule_horizons",
+    "monthly_rule_horizons",
     "startup_signal_style_horizons",
     "metrics_by_horizon",
 }
@@ -326,16 +328,17 @@ def _merge_category_horizons(
                 for summary in summaries
             ]
             row = _merge_metric_pair(category_items)
-            label = next(
-                (
-                    item.get("label")
-                    for item in category_items
-                    if isinstance(item, dict) and item.get("label")
-                ),
-                None,
-            )
-            if label:
-                row["label"] = label
+            for label_key in ("label", "rule_name"):
+                label = next(
+                    (
+                        item.get(label_key)
+                        for item in category_items
+                        if isinstance(item, dict) and item.get(label_key)
+                    ),
+                    None,
+                )
+                if label:
+                    row[label_key] = label
             merged[horizon][category] = row
     return merged
 
@@ -491,6 +494,7 @@ def _merge_candidate_replay_scope_summaries(
             "selection_mode_counts",
             "selection_mode",
         ),
+        "rule_counts": _merge_count_rows(summaries, "rule_counts", "rule_id"),
         "startup_signal_counts": _merge_count_rows(
             summaries,
             "startup_signal_counts",
@@ -502,6 +506,11 @@ def _merge_candidate_replay_scope_summaries(
         "selection_mode_horizons": _merge_category_horizons(
             summaries,
             "selection_mode_horizons",
+            horizons=horizons,
+        ),
+        "rule_horizons": _merge_category_horizons(
+            summaries,
+            "rule_horizons",
             horizons=horizons,
         ),
         "startup_signal_horizons": _merge_category_horizons(
@@ -533,6 +542,11 @@ def _merge_candidate_replay_scope_summaries(
         "monthly_selection_mode_horizons": _merge_monthly_horizons(
             summaries,
             "monthly_selection_mode_horizons",
+            horizons=horizons,
+        ),
+        "monthly_rule_horizons": _merge_monthly_horizons(
+            summaries,
+            "monthly_rule_horizons",
             horizons=horizons,
         ),
         "monthly_startup_signal_horizons": _merge_monthly_horizons(

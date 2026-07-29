@@ -68,6 +68,13 @@ def _candidate_scope_summary(
         "top_sectors": [{"sector": sector, "count": sample_count}],
         "style_counts": [{"style": "growth_cycle", "count": sample_count}],
         "selection_mode_counts": [{"selection_mode": "action", "count": sample_count}],
+        "rule_counts": [
+            {
+                "rule_id": "R009",
+                "rule_name": "[均值回归] 价值蓄势",
+                "count": sample_count,
+            }
+        ],
         "startup_signal_counts": [],
         "horizons": {
             horizon: {"raw": metric, "guarded": guarded_metric}
@@ -88,6 +95,16 @@ def _candidate_scope_summary(
         },
         "selection_mode_horizons": {
             horizon: {"action": {"raw": metric, "guarded": guarded_metric}}
+            for horizon in (1, 5, 10, 20)
+        },
+        "rule_horizons": {
+            horizon: {
+                "R009": {
+                    "rule_name": "[均值回归] 价值蓄势",
+                    "raw": metric,
+                    "guarded": guarded_metric,
+                }
+            }
             for horizon in (1, 5, 10, 20)
         },
         "startup_signal_horizons": {horizon: {} for horizon in (1, 5, 10, 20)},
@@ -115,8 +132,39 @@ def _candidate_scope_summary(
             horizon: {month: {"action": {"raw": metric, "guarded": guarded_metric}}}
             for horizon in (1, 5, 10, 20)
         },
+        "monthly_rule_horizons": {
+            horizon: {
+                month: {
+                    "R009": {
+                        "rule_name": "[均值回归] 价值蓄势",
+                        "raw": metric,
+                        "guarded": guarded_metric,
+                    }
+                }
+            }
+            for horizon in (1, 5, 10, 20)
+        },
         "monthly_startup_signal_horizons": {horizon: {} for horizon in (1, 5, 10, 20)},
     }
+
+
+def test_candidate_replay_effect_cache_version_includes_rule_attribution() -> None:
+    assert rules.CANDIDATE_REPLAY_EFFECT_CACHE_VERSION == "candidate-replay-effect-v5"
+
+
+def test_candidate_replay_effect_cache_restores_rule_horizon_key_types(tmp_path) -> None:
+    path = tmp_path / "rule-attribution.json"
+    payload = {
+        "rule_horizons": {5: {"R009": {"rule_name": "[均值回归] 价值蓄势"}}},
+        "monthly_rule_horizons": {5: {"2026-06": {"R009": {}}}},
+    }
+
+    rules._store_candidate_replay_effect_cache(path, cache_key="rule-test", payload=payload)
+    loaded = rules._load_candidate_replay_effect_cache(path, cache_key="rule-test")
+
+    assert loaded is not None
+    assert 5 in loaded["rule_horizons"]
+    assert 5 in loaded["monthly_rule_horizons"]
 
 
 def test_core_promotion_gate_requires_independent_months_even_with_positive_return() -> None:
@@ -1166,6 +1214,12 @@ def test_candidate_replay_monthly_merge_uses_simple_sum_without_compounding() ->
         {"sector": "消费电子", "count": 3},
         {"sector": "半导体", "count": 2},
     ]
+    scope = merged["scopes"]["action_long"]
+    assert scope["rule_counts"] == [
+        {"rule_id": "R009", "rule_name": "[均值回归] 价值蓄势", "count": 5}
+    ]
+    assert scope["rule_horizons"][20]["R009"]["guarded"]["total_return"] == 0.2
+    assert sorted(scope["monthly_rule_horizons"][20]) == ["2026-05", "2026-06"]
 
 
 def test_candidate_replay_effect_builds_range_from_monthly_shards(monkeypatch, tmp_path) -> None:

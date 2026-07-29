@@ -648,7 +648,7 @@ def test_historical_signal_replay_uses_only_exact_canonical_snapshots() -> None:
                 _bar("600001", trade_dates[2], "12"),
                 _bar("600001", trade_dates[3], "13"),
                 CandidateDiscoverySnapshot(
-                    cache_version="candidate-v5-startup-signal",
+                    cache_version="candidate-v6-rule-attribution",
                     signal_date=trade_dates[0],
                     next_trade_date=trade_dates[1],
                     candidate_limit=15,
@@ -676,7 +676,7 @@ def test_historical_signal_replay_uses_only_exact_canonical_snapshots() -> None:
                     },
                 ),
                 CandidateDiscoverySnapshot(
-                    cache_version="candidate-v5-startup-signal",
+                    cache_version="candidate-v6-rule-attribution",
                     signal_date=trade_dates[1],
                     next_trade_date=trade_dates[2],
                     candidate_limit=15,
@@ -687,7 +687,7 @@ def test_historical_signal_replay_uses_only_exact_canonical_snapshots() -> None:
                     },
                 ),
                 CandidateDiscoverySnapshot(
-                    cache_version="candidate-v5-startup-signal",
+                    cache_version="candidate-v6-rule-attribution",
                     signal_date=trade_dates[2],
                     next_trade_date=trade_dates[3],
                     candidate_limit=15,
@@ -699,7 +699,7 @@ def test_historical_signal_replay_uses_only_exact_canonical_snapshots() -> None:
                     },
                 ),
                 CandidateDiscoverySnapshot(
-                    cache_version="candidate-v5-startup-signal",
+                    cache_version="candidate-v6-rule-attribution",
                     signal_date=trade_dates[0],
                     next_trade_date=trade_dates[2],
                     candidate_limit=15,
@@ -771,7 +771,7 @@ def test_historical_signal_replay_classifies_unclosed_suspended_and_missing_pric
                 _bar("600001", signal_date, "10"),
                 _bar("600001", next_date, "11", suspended=True),
                 CandidateDiscoverySnapshot(
-                    cache_version="candidate-v5-startup-signal",
+                    cache_version="candidate-v6-rule-attribution",
                     signal_date=signal_date,
                     next_trade_date=next_date,
                     candidate_limit=15,
@@ -814,7 +814,7 @@ def test_historical_signal_replay_rejects_an_isolated_non_next_trade_date() -> N
         db.add_all([TradingCalendar(trade_date=item, is_open=True) for item in trade_dates])
         db.add(
             CandidateDiscoverySnapshot(
-                cache_version="candidate-v5-startup-signal",
+                cache_version="candidate-v6-rule-attribution",
                 signal_date=trade_dates[0],
                 next_trade_date=trade_dates[2],
                 candidate_limit=15,
@@ -855,7 +855,7 @@ def test_historical_signal_replay_never_marks_mature_samples_policy_eligible() -
         )
         db.add(
             CandidateDiscoverySnapshot(
-                cache_version="candidate-v5-startup-signal",
+                cache_version="candidate-v6-rule-attribution",
                 signal_date=trade_dates[0],
                 next_trade_date=trade_dates[1],
                 candidate_limit=15,

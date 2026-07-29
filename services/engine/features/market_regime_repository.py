@@ -80,7 +80,7 @@ def backfill_market_regime_daily_from_candidate_snapshots(
     *,
     start_date: str,
     end_date: str,
-    cache_version: str = "candidate-v5-startup-signal",
+    cache_version: str = "candidate-v6-rule-attribution",
 ) -> int:
     rows = db.execute(
         select(CandidateDiscoverySnapshot.signal_date, CandidateDiscoverySnapshot.discovery_json)

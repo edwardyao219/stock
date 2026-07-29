@@ -3286,6 +3286,7 @@ def test_discover_next_session_candidates_step_blocks_growth_core_on_market_stre
         return []
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,
@@ -4091,6 +4092,7 @@ def test_discover_next_session_candidates_step_caps_limit_to_fifteen(monkeypatch
         return {"written": 1}
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,
@@ -4151,6 +4153,7 @@ def test_discover_next_session_candidates_step_skips_dingtalk_when_feature_date_
 
     monkeypatch.setattr(pipeline, "SessionLocal", lambda: _Session())
     monkeypatch.setattr(pipeline, "_load_star_symbols", lambda db: [])
+    monkeypatch.setattr(pipeline, "_load_candidate_gate_policies", lambda trade_date: {})
     monkeypatch.setattr(
         "services.engine.research_pool.candidates.discover_next_session_candidates",
         fake_discovery,

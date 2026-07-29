@@ -1130,6 +1130,8 @@ def test_candidate_walk_forward_replay_carries_sector_strength_context(
                     "sector": "半导体",
                     "selection_mode": "formal_strategy",
                     "score": 84,
+                    "selected_rule_id": "R009",
+                    "selected_rule_name": "[均值回归] 价值蓄势",
                     "sector_strength_score": 72,
                     "sector_avg_return_20d": 0.11,
                     "reasons": ["低维主线：板块趋势和个股强度共振"],
@@ -1151,6 +1153,8 @@ def test_candidate_walk_forward_replay_carries_sector_strength_context(
     summary = summarize_walk_forward_replay(result, horizons=(1,))
 
     candidate = result.days[0].candidates[0]
+    assert candidate.selected_rule_id == "R009"
+    assert candidate.selected_rule_name == "[均值回归] 价值蓄势"
     assert candidate.sector_strength_score == 72
     assert candidate.sector_return_20d == 0.11
     monthly = summary["monthly_horizons"][1]["2026-01"]
@@ -1167,6 +1171,7 @@ def test_candidate_discovery_snapshot_uses_large_mysql_json_storage() -> None:
 
 
 def test_candidate_discovery_cache_version_fits_database_column() -> None:
+    assert walk_forward.CANDIDATE_DISCOVERY_CACHE_VERSION == "candidate-v6-rule-attribution"
     assert len(walk_forward.CANDIDATE_DISCOVERY_CACHE_VERSION) <= 32
 
 
@@ -2639,6 +2644,113 @@ def test_summarize_walk_forward_replay_groups_selection_modes() -> None:
     assert summary["monthly_selection_mode_horizons"][5]["2026-02"]["observation"][
         "guarded"
     ]["total_return"] == 0.10
+
+
+def test_summarize_walk_forward_replay_groups_selected_rules_and_unmatched() -> None:
+    def candidate(
+        symbol: str,
+        entry_date: str,
+        raw_return: float,
+        guarded_return: float,
+        *,
+        rule_id: str | None = None,
+        rule_name: str | None = None,
+    ) -> WalkForwardCandidate:
+        return WalkForwardCandidate(
+            symbol=symbol,
+            name=symbol,
+            sector="测试板块",
+            selection_mode="formal_strategy" if rule_id else "potential_watch",
+            score=80,
+            entry_date=entry_date,
+            forward_returns={5: raw_return},
+            guarded_forward_returns={5: guarded_return},
+            selected_rule_id=rule_id,
+            selected_rule_name=rule_name,
+        )
+
+    result = WalkForwardReplayResult(
+        start_date="2026-01-01",
+        end_date="2026-02-28",
+        processed_days=2,
+        days=[
+            WalkForwardDay(
+                signal_date="2026-01-02",
+                next_trade_date="2026-01-05",
+                universe_size=3,
+                feature_rows=3,
+                active_symbols=3,
+                feature_coverage_ratio=1.0,
+                candidates=[
+                    candidate(
+                        "600001",
+                        "2026-01-05",
+                        0.06,
+                        0.04,
+                        rule_id="R008",
+                        rule_name="[均值回归] 超跌修复",
+                    ),
+                    candidate(
+                        "600002",
+                        "2026-01-05",
+                        -0.02,
+                        -0.03,
+                        rule_id="R009",
+                    ),
+                    candidate("600003", "2026-01-05", 0.01, 0.0),
+                ],
+            ),
+            WalkForwardDay(
+                signal_date="2026-02-02",
+                next_trade_date="2026-02-03",
+                universe_size=2,
+                feature_rows=2,
+                active_symbols=2,
+                feature_coverage_ratio=1.0,
+                candidates=[
+                    candidate(
+                        "600004",
+                        "2026-02-03",
+                        0.10,
+                        0.08,
+                        rule_id="R009",
+                        rule_name="[均值回归] 价值蓄势",
+                    ),
+                    candidate(
+                        "600005",
+                        "2026-02-03",
+                        0.05,
+                        0.03,
+                        rule_id="R002",
+                        rule_name="主升浪回踩",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    summary = summarize_walk_forward_replay(result, horizons=(5,))
+
+    assert summary["rule_counts"] == [
+        {"rule_id": "R002", "rule_name": "主升浪回踩", "count": 1},
+        {"rule_id": "R008", "rule_name": "[均值回归] 超跌修复", "count": 1},
+        {"rule_id": "R009", "rule_name": "[均值回归] 价值蓄势", "count": 2},
+        {"rule_id": "unmatched", "rule_name": "未匹配策略", "count": 1},
+    ]
+    assert summary["rule_horizons"][5]["R009"]["raw"] == {
+        "sample_count": 2,
+        "avg_return": 0.04,
+        "win_rate": 0.5,
+        "total_return": 0.08,
+    }
+    assert summary["rule_horizons"][5]["R009"]["guarded"]["total_return"] == 0.05
+    assert summary["rule_horizons"][5]["unmatched"]["raw"]["sample_count"] == 1
+    assert summary["monthly_rule_horizons"][5]["2026-01"]["R009"]["raw"][
+        "total_return"
+    ] == -0.02
+    assert summary["monthly_rule_horizons"][5]["2026-02"]["R009"]["raw"][
+        "total_return"
+    ] == 0.10
 
 
 def test_summarize_walk_forward_replay_groups_by_startup_signal_bucket() -> None:

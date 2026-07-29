@@ -17,7 +17,7 @@
 - Modify: `services/engine/backtest/walk_forward.py:2768-2808`
 - Test: `tests/test_walk_forward_replay.py`
 
-- [ ] **Step 1: Add a failing identity-transfer assertion**
+- [x] **Step 1: Add a failing identity-transfer assertion**
 
 In `test_candidate_walk_forward_replay_carries_sector_strength_context`, add
 these fields to the fake discovery item and assert them on the replay candidate:
@@ -30,7 +30,7 @@ assert candidate.selected_rule_id == "R009"
 assert candidate.selected_rule_name == "[均值回归] 价值蓄势"
 ```
 
-- [ ] **Step 2: Verify the test fails**
+- [x] **Step 2: Verify the test fails**
 
 Run:
 
@@ -40,7 +40,7 @@ Run:
 
 Expected: FAIL because `WalkForwardCandidate` has no selected-rule fields.
 
-- [ ] **Step 3: Add optional fields and transfer them**
+- [x] **Step 3: Add optional fields and transfer them**
 
 Add after the existing optional list fields:
 
@@ -62,7 +62,7 @@ selected_rule_name=(
 ),
 ```
 
-- [ ] **Step 4: Verify the test passes**
+- [x] **Step 4: Verify the test passes**
 
 Run the Step 2 command again. Expected: PASS.
 
@@ -72,7 +72,7 @@ Run the Step 2 command again. Expected: PASS.
 - Modify: `services/engine/backtest/walk_forward.py`
 - Test: `tests/test_walk_forward_replay.py`
 
-- [ ] **Step 1: Add a failing rule-summary test**
+- [x] **Step 1: Add a failing rule-summary test**
 
 Create `test_summarize_walk_forward_replay_groups_selected_rules_and_unmatched`.
 Build two `WalkForwardDay` values containing candidates for R002, R008, two
@@ -106,7 +106,7 @@ Use R009 raw returns `-0.02` and `0.10`, guarded returns `-0.03` and
 `0.08`; use raw/guarded pairs `0.05/0.03` for R002, `0.06/0.04` for R008,
 and `0.01/0.0` for the unmatched candidate.
 
-- [ ] **Step 2: Verify the summary test fails**
+- [x] **Step 2: Verify the summary test fails**
 
 Run:
 
@@ -116,7 +116,7 @@ Run:
 
 Expected: FAIL with missing `rule_counts`.
 
-- [ ] **Step 3: Add rule normalization and grouped summaries**
+- [x] **Step 3: Add rule normalization and grouped summaries**
 
 Add beside the selection-mode summary helpers:
 
@@ -185,7 +185,7 @@ def _monthly_rule_return_summaries(
     }
 ```
 
-- [ ] **Step 4: Expose counts, horizons, and monthly horizons**
+- [x] **Step 4: Expose counts, horizons, and monthly horizons**
 
 In `summarize_walk_forward_replay`, derive names and counts from the existing
 post-noise-filter `candidates`, populate `_rule_return_summaries` inside the
@@ -203,7 +203,7 @@ horizon loop, and return:
 },
 ```
 
-- [ ] **Step 5: Run summary regressions**
+- [x] **Step 5: Run summary regressions**
 
 Run:
 
@@ -220,7 +220,7 @@ Expected: PASS.
 - Modify: `apps/api/app/routers/rules.py:453-539`
 - Test: `tests/test_strategy_fit_api.py`
 
-- [ ] **Step 1: Extend the shard fixture and failing assertions**
+- [x] **Step 1: Extend the shard fixture and failing assertions**
 
 Add `rule_counts`, `rule_horizons`, and `monthly_rule_horizons` to
 `_candidate_scope_summary`, using R009 and the fixture's existing `metric` and
@@ -236,7 +236,7 @@ assert scope["rule_horizons"][20]["R009"]["guarded"]["total_return"] == 0.2
 assert sorted(scope["monthly_rule_horizons"][20]) == ["2026-05", "2026-06"]
 ```
 
-- [ ] **Step 2: Verify the shard test fails**
+- [x] **Step 2: Verify the shard test fails**
 
 Run:
 
@@ -246,7 +246,7 @@ Run:
 
 Expected: FAIL with missing merged `rule_counts`.
 
-- [ ] **Step 3: Preserve `rule_name` in category merging**
+- [x] **Step 3: Preserve `rule_name` in category merging**
 
 Replace the single-label copy in `_merge_category_horizons` with:
 
@@ -264,7 +264,7 @@ for label_key in ("label", "rule_name"):
         row[label_key] = label
 ```
 
-- [ ] **Step 4: Merge the three new fields**
+- [x] **Step 4: Merge the three new fields**
 
 Add to `_merge_candidate_replay_scope_summaries`:
 
@@ -278,7 +278,7 @@ Add to `_merge_candidate_replay_scope_summaries`:
 ),
 ```
 
-- [ ] **Step 5: Run merger regressions**
+- [x] **Step 5: Run merger regressions**
 
 Run:
 
@@ -293,10 +293,14 @@ Expected: PASS.
 **Files:**
 - Modify: `services/engine/backtest/walk_forward.py:40`
 - Modify: `apps/api/app/routers/rules.py:45`
+- Modify: `services/engine/features/market_regime_repository.py:83`
+- Modify: `services/engine/research_signal_ledger.py:25`
 - Test: `tests/test_walk_forward_replay.py`
 - Test: `tests/test_strategy_fit_api.py`
+- Test: `tests/test_market_regime.py`
+- Test: `tests/test_research_signal_ledger.py`
 
-- [ ] **Step 1: Add failing version assertions**
+- [x] **Step 1: Add failing version assertions**
 
 Extend `test_candidate_discovery_cache_version_fits_database_column` and add an
 API cache test:
@@ -309,7 +313,7 @@ def test_candidate_replay_effect_cache_version_includes_rule_attribution() -> No
     assert rules.CANDIDATE_REPLAY_EFFECT_CACHE_VERSION == "candidate-replay-effect-v5"
 ```
 
-- [ ] **Step 2: Verify both tests fail**
+- [x] **Step 2: Verify both tests fail**
 
 Run:
 
@@ -319,14 +323,20 @@ Run:
 
 Expected: FAIL on both old constants.
 
-- [ ] **Step 3: Update exact-match cache versions**
+- [x] **Step 3: Update exact-match cache versions**
 
 ```python
 CANDIDATE_DISCOVERY_CACHE_VERSION = "candidate-v6-rule-attribution"
 CANDIDATE_REPLAY_EFFECT_CACHE_VERSION = "candidate-replay-effect-v5"
+HISTORICAL_REPLAY_CACHE_VERSION = "candidate-v6-rule-attribution"
 ```
 
-- [ ] **Step 4: Run cache regressions**
+Also change the default `cache_version` in
+`backfill_market_regime_daily_from_candidate_snapshots` to
+`candidate-v6-rule-attribution`. Its explicit parameter still permits reading
+an older cache generation when required.
+
+- [x] **Step 4: Run cache regressions**
 
 Run:
 
@@ -341,8 +351,13 @@ Expected: PASS. Old cache files and rows remain untouched but no longer match.
 
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-29-candidate-strategy-attribution.md`
+- Modify: `tests/test_jobs_pipeline.py`
+- Modify: `services/engine/features/market_regime_repository.py`
+- Modify: `services/engine/research_signal_ledger.py`
+- Modify: `tests/test_market_regime.py`
+- Modify: `tests/test_research_signal_ledger.py`
 
-- [ ] **Step 1: Run focused cross-module tests**
+- [x] **Step 1: Run focused cross-module tests**
 
 ```bash
 .venv/bin/pytest tests/test_walk_forward_replay.py tests/test_strategy_fit_api.py tests/test_jobs_pipeline.py -q
@@ -350,7 +365,7 @@ Expected: PASS. Old cache files and rows remain untouched but no longer match.
 
 Expected: PASS.
 
-- [ ] **Step 2: Run the complete suite**
+- [x] **Step 2: Run the complete suite**
 
 ```bash
 .venv/bin/pytest -q
@@ -359,7 +374,7 @@ Expected: PASS.
 Expected: all tests pass; the existing SQLAlchemy `LargePortableJSON.cache_ok`
 warning may remain.
 
-- [ ] **Step 3: Run static and diff checks**
+- [x] **Step 3: Run static and diff checks**
 
 ```bash
 .venv/bin/ruff check --ignore E501 services/engine/backtest/walk_forward.py apps/api/app/routers/rules.py tests/test_walk_forward_replay.py tests/test_strategy_fit_api.py
@@ -369,10 +384,10 @@ git status --short
 
 Expected: no new lint or whitespace errors and only planned files changed.
 
-- [ ] **Step 4: Mark the plan complete, commit, and push main**
+- [x] **Step 4: Mark the plan complete, commit, and push main**
 
 ```bash
-git add docs/superpowers/plans/2026-07-29-candidate-strategy-attribution.md services/engine/backtest/walk_forward.py apps/api/app/routers/rules.py tests/test_walk_forward_replay.py tests/test_strategy_fit_api.py
+git add docs/superpowers/plans/2026-07-29-candidate-strategy-attribution.md services/engine/backtest/walk_forward.py apps/api/app/routers/rules.py services/engine/features/market_regime_repository.py services/engine/research_signal_ledger.py tests/test_walk_forward_replay.py tests/test_strategy_fit_api.py tests/test_jobs_pipeline.py tests/test_market_regime.py tests/test_research_signal_ledger.py
 git commit -m "feat: attribute candidate replay outcomes by strategy"
 git push origin main
 ```

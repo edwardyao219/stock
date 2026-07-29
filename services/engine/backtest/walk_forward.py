@@ -37,7 +37,7 @@ MAINLINE_RETURN_20D_MAX = 0.18
 OVEREXTENDED_RETURN_20D_MIN = 0.24
 OVEREXTENDED_POSITIVE_20D_MIN = 85.0
 LONG_HORIZON_STRENGTH_REASON = "中期强者：相对强度或板块扩散足够强"
-CANDIDATE_DISCOVERY_CACHE_VERSION = "candidate-v5-startup-signal"
+CANDIDATE_DISCOVERY_CACHE_VERSION = "candidate-v6-rule-attribution"
 DEFAULT_CANDIDATE_DISCOVERY_CACHE_DIR = Path(".tmp/candidate-replay-discovery-cache")
 NOISE_WALK_FORWARD_SYMBOLS = {"000001"}
 PORTFOLIO_SUMMARY_MAX_POSITIONS = 3
@@ -134,6 +134,8 @@ class WalkForwardCandidate:
     guard_exit_reasons: dict[int, str | None] = field(default_factory=dict)
     reasons: list[str] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
+    selected_rule_id: str | None = None
+    selected_rule_name: str | None = None
     sector_strength_score: float | None = None
     sector_return_20d: float | None = None
     sector_style: str | None = None
@@ -429,6 +431,74 @@ def _selection_mode_return_summaries(
             "guarded": _return_summary(guarded_values),
         }
     return summaries
+
+
+UNMATCHED_RULE_ID = "unmatched"
+UNMATCHED_RULE_NAME = "未匹配策略"
+
+
+def _candidate_rule_id(candidate: WalkForwardCandidate) -> str:
+    return str(candidate.selected_rule_id or "").strip() or UNMATCHED_RULE_ID
+
+
+def _candidate_rule_names(candidates: list[WalkForwardCandidate]) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for candidate in candidates:
+        rule_id = _candidate_rule_id(candidate)
+        if rule_id == UNMATCHED_RULE_ID:
+            names.setdefault(rule_id, UNMATCHED_RULE_NAME)
+            continue
+        rule_name = str(candidate.selected_rule_name or "").strip()
+        if rule_name and names.get(rule_id, rule_id) == rule_id:
+            names[rule_id] = rule_name
+        else:
+            names.setdefault(rule_id, rule_id)
+    return names
+
+
+def _rule_return_summaries(
+    candidates: list[WalkForwardCandidate],
+    *,
+    horizon: int,
+) -> dict[str, dict[str, Any]]:
+    names = _candidate_rule_names(candidates)
+    summaries: dict[str, dict[str, Any]] = {}
+    for rule_id in sorted(names):
+        selected = [
+            item for item in candidates if _candidate_rule_id(item) == rule_id
+        ]
+        summaries[rule_id] = {
+            "rule_name": names[rule_id],
+            "raw": _return_summary(
+                [
+                    value
+                    for item in selected
+                    if (value := item.forward_returns.get(horizon)) is not None
+                ]
+            ),
+            "guarded": _return_summary(
+                [
+                    value
+                    for item in selected
+                    if (value := item.guarded_forward_returns.get(horizon)) is not None
+                ]
+            ),
+        }
+    return summaries
+
+
+def _monthly_rule_return_summaries(
+    candidates: list[WalkForwardCandidate],
+    *,
+    horizon: int,
+) -> dict[str, dict[str, Any]]:
+    return {
+        month: _rule_return_summaries(
+            [item for item in candidates if _month_key(item.entry_date) == month],
+            horizon=horizon,
+        )
+        for month in sorted({_month_key(item.entry_date) for item in candidates})
+    }
 
 
 STARTUP_SIGNAL_BUCKET_LABELS = {
@@ -918,12 +988,15 @@ def summarize_walk_forward_replay(
     selection_mode_counts = Counter(
         str(candidate.selection_mode or "unknown") for candidate in candidates
     )
+    rule_names = _candidate_rule_names(candidates)
+    rule_counts = Counter(_candidate_rule_id(candidate) for candidate in candidates)
     startup_signal_counts = Counter(
         bucket for candidate in candidates if (bucket := _startup_signal_bucket(candidate))
     )
     horizon_summaries: dict[int, dict[str, Any]] = {}
     style_horizon_summaries: dict[int, dict[str, Any]] = {}
     selection_mode_horizon_summaries: dict[int, dict[str, Any]] = {}
+    rule_horizon_summaries: dict[int, dict[str, Any]] = {}
     startup_signal_horizon_summaries: dict[int, dict[str, Any]] = {}
     startup_signal_style_horizon_summaries: dict[int, dict[str, Any]] = {}
     for horizon in horizons:
@@ -957,6 +1030,10 @@ def summarize_walk_forward_replay(
             candidates,
             horizon=horizon,
         )
+        rule_horizon_summaries[horizon] = _rule_return_summaries(
+            candidates,
+            horizon=horizon,
+        )
         startup_signal_horizon_summaries[horizon] = _startup_signal_return_summaries(
             candidates,
             horizon=horizon,
@@ -986,6 +1063,14 @@ def summarize_walk_forward_replay(
             {"selection_mode": mode, "count": count}
             for mode, count in sorted(selection_mode_counts.items())
         ],
+        "rule_counts": [
+            {
+                "rule_id": rule_id,
+                "rule_name": rule_names[rule_id],
+                "count": rule_counts[rule_id],
+            }
+            for rule_id in sorted(rule_counts)
+        ],
         "startup_signal_counts": [
             {
                 "bucket": bucket,
@@ -1006,6 +1091,7 @@ def summarize_walk_forward_replay(
         },
         "style_horizons": style_horizon_summaries,
         "selection_mode_horizons": selection_mode_horizon_summaries,
+        "rule_horizons": rule_horizon_summaries,
         "startup_signal_horizons": startup_signal_horizon_summaries,
         "startup_signal_style_horizons": startup_signal_style_horizon_summaries,
         "style_horizon_preferences": _style_horizon_preferences(
@@ -1025,6 +1111,10 @@ def summarize_walk_forward_replay(
         },
         "monthly_selection_mode_horizons": {
             horizon: _monthly_selection_mode_return_summaries(candidates, horizon=horizon)
+            for horizon in horizons
+        },
+        "monthly_rule_horizons": {
+            horizon: _monthly_rule_return_summaries(candidates, horizon=horizon)
             for horizon in horizons
         },
         "monthly_startup_signal_horizons": {
@@ -2783,6 +2873,16 @@ def run_candidate_walk_forward_replay(
                             guard_exit_reasons=guard_exit_reasons,
                             reasons=[str(reason) for reason in item.get("reasons") or []],
                             risk_flags=[str(flag) for flag in item.get("risk_flags") or []],
+                            selected_rule_id=(
+                                str(item.get("selected_rule_id"))
+                                if item.get("selected_rule_id")
+                                else None
+                            ),
+                            selected_rule_name=(
+                                str(item.get("selected_rule_name"))
+                                if item.get("selected_rule_name")
+                                else None
+                            ),
                             sector_strength_score=_optional_float(
                                 item,
                                 "sector_strength_score",
