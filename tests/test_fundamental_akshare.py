@@ -166,7 +166,7 @@ def test_load_latest_fundamental_snapshot_uses_available_date_to_avoid_leakage()
     assert snapshot_to_context(after_notice)["fundamental_available_date"] == "2026-04-24"
 
 
-def test_load_fundamental_context_merges_latest_financials_with_valuation() -> None:
+def test_load_fundamental_context_ignores_legacy_valuation_snapshots() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
 
@@ -202,10 +202,10 @@ def test_load_fundamental_context_merges_latest_financials_with_valuation() -> N
 
     assert context["fundamental_report_date"] == "2026-03-31"
     assert context["roe"] == 0.0283
-    assert context["valuation_date"] == "2026-06-23"
-    assert context["pb"] == 0.62
-    assert context["pe_ttm"] == 5.2
-    assert context["dividend_yield"] == 0.055
+    assert "valuation_date" not in context
+    assert "pb" not in context
+    assert "pe_ttm" not in context
+    assert "dividend_yield" not in context
 
 
 def test_financial_upsert_clears_colliding_valuation_and_keeps_quality_fields() -> None:

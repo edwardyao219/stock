@@ -412,6 +412,7 @@ def test_load_feature_contexts_batches_optional_context_sources_without_future_r
                 _bar("600001", signal_date),
                 _bar("600002", signal_date),
                 _bar("002156", signal_date),
+                _daily_basic("002156.SZ", signal_date, volume_ratio="1.2"),
                 TushareMoneyflow(
                     ts_code="002156.SZ",
                     trade_date=signal_date,
@@ -508,7 +509,12 @@ def test_load_feature_contexts_batches_optional_context_sources_without_future_r
     assert context_by_symbol["600001"]["holding_style"] == "monthly_trend"
     assert context_by_symbol["600001"]["sector_key_drivers"] == ["国产替代"]
     assert context_by_symbol["002156"]["revenue_growth"] == 12.5
-    assert context_by_symbol["002156"]["pe_ttm"] == 35.5
+    assert context_by_symbol["002156"]["pe_ttm"] == 8.76
+    assert len(context_by_symbol["002156"]["fundamental_history"]) == 1
+    assert (
+        context_by_symbol["002156"]["fundamental_history"][0]["report_date"]
+        == "2026-03-31"
+    )
     assert statements_by_table == {
         "tushare_moneyflow": 1,
         "tushare_moneyflow_ind_dc": 1,

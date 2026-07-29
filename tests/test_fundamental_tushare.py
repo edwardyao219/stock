@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import create_engine
@@ -5,9 +6,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from services.collector import tushare_proxy_client as client
 from services.engine.fundamental import sync as fundamental_sync
+from services.engine.fundamental.repository import (
+    load_fundamental_history_map,
+    load_valuation_pe_history_map,
+)
 from services.engine.fundamental.sync import merge_financial_sources
 from services.shared.database import Base
-from services.shared.models import FundamentalSnapshot
+from services.shared.models import FundamentalSnapshot, TushareDailyBasic
 
 
 def test_fetch_tushare_financial_snapshots_merges_three_statements(monkeypatch) -> None:
@@ -233,3 +238,97 @@ def test_sync_fundamentals_falls_back_when_tushare_fails(monkeypatch) -> None:
     assert result["ok"] == 1
     assert row.operating_cash_flow == Decimal("330.0000")
     assert row.extra_json["source"] == "akshare"
+
+
+def test_load_fundamental_history_map_limits_visible_financial_reports() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    report_dates = [
+        date(2023, 12, 31),
+        date(2024, 3, 31),
+        date(2024, 6, 30),
+        date(2024, 9, 30),
+        date(2024, 12, 31),
+        date(2025, 3, 31),
+        date(2025, 6, 30),
+        date(2025, 9, 30),
+        date(2025, 12, 31),
+    ]
+    with Session(engine) as db:
+        db.add_all(
+            [
+                FundamentalSnapshot(
+                    symbol="002558",
+                    report_date=report_date,
+                    available_date=date(2026, 4, index + 1),
+                    parent_net_profit=Decimal(index + 1),
+                    extra_json={"source": "tushare_proxy"},
+                )
+                for index, report_date in enumerate(report_dates)
+            ]
+            + [
+                FundamentalSnapshot(
+                    symbol="002558",
+                    report_date=date(2026, 3, 31),
+                    available_date=date(2026, 4, 25),
+                    parent_net_profit=Decimal("99"),
+                    extra_json={"source": "tushare_proxy"},
+                ),
+                FundamentalSnapshot(
+                    symbol="600415",
+                    report_date=date(2026, 3, 31),
+                    available_date=date(2026, 4, 25),
+                    pe_ttm=Decimal("12"),
+                    extra_json={"source": "akshare.stock_value_em"},
+                ),
+            ]
+        )
+        db.commit()
+
+        history = load_fundamental_history_map(
+            db, ["002558", "600415"], date(2026, 4, 20), limit=8
+        )
+
+    assert len(history["002558"]) == 8
+    assert all(item["available_date"] <= "2026-04-20" for item in history["002558"])
+    assert history["002558"][0]["report_date"] == "2025-12-31"
+    assert "600415" not in history
+
+
+def test_load_valuation_pe_history_map_uses_only_positive_visible_tushare_rows() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add_all(
+            [
+                TushareDailyBasic(
+                    ts_code="002558.SZ", trade_date=date(2023, 7, 18), pe_ttm=Decimal("99")
+                ),
+                TushareDailyBasic(
+                    ts_code="002558.SZ", trade_date=date(2024, 7, 18), pe_ttm=Decimal("10")
+                ),
+                TushareDailyBasic(
+                    ts_code="002558.SZ", trade_date=date(2025, 7, 18), pe_ttm=Decimal("-5")
+                ),
+                TushareDailyBasic(
+                    ts_code="002558.SZ", trade_date=date(2026, 7, 18), pe_ttm=Decimal("12")
+                ),
+                TushareDailyBasic(
+                    ts_code="002558.SZ", trade_date=date(2026, 7, 30), pe_ttm=Decimal("999")
+                ),
+                FundamentalSnapshot(
+                    symbol="002558",
+                    report_date=date(2026, 7, 18),
+                    available_date=date(2026, 7, 18),
+                    pe_ttm=Decimal("88"),
+                    extra_json={"source": "akshare.stock_value_em"},
+                ),
+            ]
+        )
+        db.commit()
+
+        history = load_valuation_pe_history_map(
+            db, ["002558"], date(2026, 7, 29), years=3
+        )
+
+    assert history == {"002558": [10.0, 12.0]}
