@@ -605,6 +605,14 @@ export interface WorkspaceStock {
   startup_signal_score: number | null;
   startup_signal_label: string | null;
   startup_signal_reasons: string[];
+  earnings_sustainability_score: number | null;
+  earnings_sustainability_grade: string | null;
+  earnings_sustainability_reasons: string[];
+  fair_value_low: number | null;
+  fair_value_high: number | null;
+  valuation_upside_low: number | null;
+  valuation_upside_high: number | null;
+  valuation_space_label: string | null;
   feature_date: string | null;
   latest_trade_date: string | null;
   latest_close: number | null;
@@ -762,6 +770,14 @@ export interface IntradayCandidate {
   selection_reason: string;
   selected_rule_id: string | null;
   selected_rule_name: string | null;
+  earnings_sustainability_score: number | null;
+  earnings_sustainability_grade: string | null;
+  earnings_sustainability_reasons: string[];
+  fair_value_low: number | null;
+  fair_value_high: number | null;
+  valuation_upside_low: number | null;
+  valuation_upside_high: number | null;
+  valuation_space_label: string | null;
   summary: string;
   theme_signal_label: string | null;
   theme_signal_reason: string | null;
@@ -1719,6 +1735,14 @@ function normalizeWorkspaceStock(item: WorkspaceStock): WorkspaceStock {
     startup_signal_score: item.startup_signal_score ?? null,
     startup_signal_label: item.startup_signal_label ?? null,
     startup_signal_reasons: item.startup_signal_reasons ?? [],
+    earnings_sustainability_score: item.earnings_sustainability_score ?? null,
+    earnings_sustainability_grade: item.earnings_sustainability_grade ?? null,
+    earnings_sustainability_reasons: item.earnings_sustainability_reasons ?? [],
+    fair_value_low: item.fair_value_low ?? null,
+    fair_value_high: item.fair_value_high ?? null,
+    valuation_upside_low: item.valuation_upside_low ?? null,
+    valuation_upside_high: item.valuation_upside_high ?? null,
+    valuation_space_label: item.valuation_space_label ?? null,
     feature_date: item.feature_date ?? null,
     trend_score: item.trend_score ?? null,
     relative_strength_score: item.relative_strength_score ?? null,

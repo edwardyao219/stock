@@ -1,5 +1,7 @@
 // @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
 import { buildCandleTrendPath, buildStockTrackingProfile, sortStockTrackingProfiles } from "./stockTracking.ts";
+// @ts-ignore Node's experimental TypeScript runner needs the explicit extension.
+import { earningsSustainabilityLabel, valuationSpaceLabel } from "./stockLabels.ts";
 import type { Candle, TrackingSignalItem, WorkspaceStock } from "./api.ts";
 
 function assert(condition: boolean, message: string) {
@@ -23,6 +25,14 @@ function stock(overrides: Partial<WorkspaceStock>): WorkspaceStock {
     startup_signal_score: 78,
     startup_signal_label: "启动观察",
     startup_signal_reasons: ["量价开始共振"],
+    earnings_sustainability_score: null,
+    earnings_sustainability_grade: null,
+    earnings_sustainability_reasons: [],
+    fair_value_low: null,
+    fair_value_high: null,
+    valuation_upside_low: null,
+    valuation_upside_high: null,
+    valuation_space_label: null,
     feature_date: "2026-07-09",
     latest_trade_date: "2026-07-10",
     latest_close: 12,
@@ -84,6 +94,29 @@ const holding = stock({
   ],
 });
 const holdingProfile = buildStockTrackingProfile(holding);
+
+const sustainableValueStock = stock({
+  earnings_sustainability_grade: "sustainable",
+  earnings_sustainability_score: 82,
+  valuation_space_label: "near_double_valuation_space",
+  valuation_upside_low: 0.85,
+});
+assert(
+  earningsSustainabilityLabel(sustainableValueStock)?.label === "盈利可持续",
+  "可持续财报需要显眼中文标签",
+);
+assert(
+  earningsSustainabilityLabel(sustainableValueStock)?.detail === "评分 82.0",
+  "财报标签需要显示评分",
+);
+assert(
+  valuationSpaceLabel(sustainableValueStock)?.label === "接近翻倍估值空间",
+  "保守空间超过 80% 需要单独标签",
+);
+assert(
+  valuationSpaceLabel(sustainableValueStock)?.detail === "保守空间 +85.0%",
+  "估值标签需要显示保守空间",
+);
 
 assert(holdingProfile.stageLabel === "趋势持有", "强趋势模拟持仓要进入趋势持有");
 assert(holdingProfile.score >= 75, "强趋势模拟持仓的追踪分不能太低");

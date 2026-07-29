@@ -22,9 +22,9 @@ from services.engine.research_pool.repository import (
     filter_latest_candidate_batch_items,
     manual_focus_tags,
 )
-from services.engine.rules.seed_rules import MVP_RULES
 from services.engine.rules.evaluator import evaluate_condition, evaluate_group
 from services.engine.rules.models import Condition, ConditionGroup
+from services.engine.rules.seed_rules import MVP_RULES
 from services.shared.models import (
     DailyBar,
     IntradayMarketTurnSnapshot,
@@ -153,6 +153,14 @@ class WorkspaceItem:
     startup_signal_score: float | None
     startup_signal_label: str | None
     startup_signal_reasons: list[str]
+    earnings_sustainability_score: float | None
+    earnings_sustainability_grade: str | None
+    earnings_sustainability_reasons: list[str]
+    fair_value_low: float | None
+    fair_value_high: float | None
+    valuation_upside_low: float | None
+    valuation_upside_high: float | None
+    valuation_space_label: str | None
     feature_date: str | None
     latest_trade_date: str | None
     latest_close: float | None
@@ -1016,6 +1024,20 @@ def _build_workspace_item(
         startup_signal_score=_tag_number(manual_tags, "startup_signal_score:", float),
         startup_signal_label=_tag_text(manual_tags, "startup_signal_label:"),
         startup_signal_reasons=_tag_texts(manual_tags, "startup_signal_reason:"),
+        earnings_sustainability_score=_tag_number(
+            manual_tags, "earnings_score:", float
+        ),
+        earnings_sustainability_grade=_tag_text(manual_tags, "earnings_grade:"),
+        earnings_sustainability_reasons=_tag_texts(manual_tags, "earnings_reason:"),
+        fair_value_low=_tag_number(manual_tags, "fair_value_low:", float),
+        fair_value_high=_tag_number(manual_tags, "fair_value_high:", float),
+        valuation_upside_low=_tag_number(
+            manual_tags, "valuation_upside_low:", float
+        ),
+        valuation_upside_high=_tag_number(
+            manual_tags, "valuation_upside_high:", float
+        ),
+        valuation_space_label=_tag_text(manual_tags, "valuation_space:"),
         feature_date=feature_date,
         latest_trade_date=latest_bar.trade_date.isoformat() if latest_bar else None,
         latest_close=_float(latest_bar.close) if latest_bar else None,

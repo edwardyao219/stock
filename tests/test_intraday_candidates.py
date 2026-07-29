@@ -94,6 +94,18 @@ def _value_reversion_candidate(symbol: str = "600415") -> ResearchPoolItem:
         rule_name="[均值回归] 价值蓄势",
     )
     item.tags_json["tags"].append("candidate_pool:value_reversion_setup")
+    item.tags_json["tags"].extend(
+        [
+            "earnings_grade:sustainable",
+            "earnings_score:82.0",
+            "earnings_reason:扣非利润覆盖稳定",
+            "fair_value_low:20.5000",
+            "fair_value_high:24.0000",
+            "valuation_upside_low:0.850000",
+            "valuation_upside_high:1.100000",
+            "valuation_space:near_double_valuation_space",
+        ]
+    )
     return item
 
 
@@ -292,6 +304,11 @@ def test_value_reversion_setup_is_probing_near_platform_before_1030() -> None:
 
     assert candidate["startup_tracked"] is True
     assert candidate["startup_stage"] == "probing"
+    assert candidate["earnings_sustainability_grade"] == "sustainable"
+    assert candidate["earnings_sustainability_score"] == 82.0
+    assert candidate["earnings_sustainability_reasons"] == ["扣非利润覆盖稳定"]
+    assert candidate["valuation_space_label"] == "near_double_valuation_space"
+    assert candidate["valuation_upside_low"] == 0.85
     assert "等待10:30后确认" in candidate["startup_next_conditions"]
 
 

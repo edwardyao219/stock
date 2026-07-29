@@ -67,6 +67,14 @@ class IntradayCandidate:
     summary: str
     selected_rule_id: str | None = None
     selected_rule_name: str | None = None
+    earnings_sustainability_score: float | None = None
+    earnings_sustainability_grade: str | None = None
+    earnings_sustainability_reasons: list[str] = field(default_factory=list)
+    fair_value_low: float | None = None
+    fair_value_high: float | None = None
+    valuation_upside_low: float | None = None
+    valuation_upside_high: float | None = None
+    valuation_space_label: str | None = None
     startup_tracked: bool = False
     startup_prior_state: str | None = None
     startup_confirmation_evidence: list[str] = field(default_factory=list)
@@ -187,6 +195,10 @@ def _tag_number(tags: list[str], prefix: str, cast):
 
 def _tag_text(tags: list[str], prefix: str) -> str | None:
     return next((tag.removeprefix(prefix) for tag in tags if tag.startswith(prefix)), None)
+
+
+def _tag_texts(tags: list[str], prefix: str) -> list[str]:
+    return [tag.removeprefix(prefix) for tag in tags if tag.startswith(prefix)]
 
 
 def _candidate_items_source(
@@ -1769,6 +1781,20 @@ def discover_intraday_candidates(
                 selection_reason=selection_reason,
                 selected_rule_id=_tag_text(tags, "rule:"),
                 selected_rule_name=_tag_text(tags, "rule_name:"),
+                earnings_sustainability_score=_tag_number(
+                    tags, "earnings_score:", float
+                ),
+                earnings_sustainability_grade=_tag_text(tags, "earnings_grade:"),
+                earnings_sustainability_reasons=_tag_texts(tags, "earnings_reason:"),
+                fair_value_low=_tag_number(tags, "fair_value_low:", float),
+                fair_value_high=_tag_number(tags, "fair_value_high:", float),
+                valuation_upside_low=_tag_number(
+                    tags, "valuation_upside_low:", float
+                ),
+                valuation_upside_high=_tag_number(
+                    tags, "valuation_upside_high:", float
+                ),
+                valuation_space_label=_tag_text(tags, "valuation_space:"),
                 summary=_summary(
                     quote,
                     state,

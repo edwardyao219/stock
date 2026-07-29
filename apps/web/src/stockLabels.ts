@@ -3,6 +3,22 @@ export interface StockPoolLabelInput {
   manual_tags: string[];
 }
 
+interface EarningsLabelInput {
+  earnings_sustainability_grade?: string | null;
+  earnings_sustainability_score?: number | null;
+}
+
+interface ValuationLabelInput {
+  valuation_space_label?: string | null;
+  valuation_upside_low?: number | null;
+}
+
+export interface CandidateQualityLabel {
+  label: string;
+  detail: string | null;
+  tone: "positive" | "warning" | "neutral" | "negative";
+}
+
 function isStarMarketSymbol(symbol: string) {
   return symbol.trim().startsWith("688");
 }
@@ -76,6 +92,51 @@ export function meanReversionLabel(
   ruleName?: string | null,
 ) {
   return ruleId === "R008" || ruleName?.startsWith("[均值回归]") ? "均值回归" : null;
+}
+
+export function earningsSustainabilityLabel(
+  item: EarningsLabelInput,
+): CandidateQualityLabel | null {
+  const grade = item.earnings_sustainability_grade;
+  if (!grade) return null;
+  const meta = {
+    sustainable: ["盈利可持续", "positive"],
+    general: ["盈利持续性一般", "warning"],
+    pending: ["财报持续性待确认", "neutral"],
+    unsustainable: ["盈利不可持续", "negative"],
+  }[grade] as [string, CandidateQualityLabel["tone"]] | undefined;
+  if (!meta) return null;
+  const score = item.earnings_sustainability_score;
+  return {
+    label: meta[0],
+    detail:
+      score !== null && score !== undefined && Number.isFinite(score)
+        ? `评分 ${score.toFixed(1)}`
+        : null,
+    tone: meta[1],
+  };
+}
+
+export function valuationSpaceLabel(
+  item: ValuationLabelInput,
+): CandidateQualityLabel | null {
+  const value = item.valuation_space_label;
+  if (!value) return null;
+  const meta = {
+    near_double_valuation_space: ["接近翻倍估值空间", "positive"],
+    valuation_reversion_space: ["存在估值回归空间", "warning"],
+    pending: ["估值空间待确认", "neutral"],
+  }[value] as [string, CandidateQualityLabel["tone"]] | undefined;
+  if (!meta) return null;
+  const upside = item.valuation_upside_low;
+  return {
+    label: meta[0],
+    detail:
+      upside !== null && upside !== undefined && Number.isFinite(upside)
+        ? `保守空间 ${upside >= 0 ? "+" : ""}${(upside * 100).toFixed(1)}%`
+        : null,
+    tone: meta[1],
+  };
 }
 
 function readableDateTime(value: string) {
@@ -196,6 +257,24 @@ export function manualTagTextForStock(value: string, stock: StockPoolLabelInput)
   if (value.startsWith("startup_signal_reason:")) {
     return cleanDisplayText(value.slice("startup_signal_reason:".length));
   }
+  if (value.startsWith("earnings_grade:")) {
+    return earningsSustainabilityLabel({
+      earnings_sustainability_grade: value.slice("earnings_grade:".length),
+    })?.label ?? "财报持续性待确认";
+  }
+  if (value.startsWith("earnings_score:")) {
+    return `财报评分：${value.slice("earnings_score:".length)}`;
+  }
+  if (value.startsWith("earnings_reason:")) {
+    return cleanDisplayText(value.slice("earnings_reason:".length));
+  }
+  if (value.startsWith("valuation_space:")) {
+    return valuationSpaceLabel({
+      valuation_space_label: value.slice("valuation_space:".length),
+    })?.label ?? "估值空间待确认";
+  }
+  if (value.startsWith("fair_value_")) return "估值区间已计算";
+  if (value.startsWith("valuation_upside_")) return "估值回归空间已计算";
   if (value.startsWith("batch:")) return `批次：${readableDateTime(value.slice("batch:".length))}`;
   if (value.startsWith("hold_until:")) return `观察到：${value.slice("hold_until:".length)}`;
   if (value.startsWith("dropped:")) return `降级日：${value.slice("dropped:".length)}`;

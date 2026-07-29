@@ -46,6 +46,33 @@ def _startup_event(state: str) -> dict:
     }
 
 
+def test_candidate_notification_displays_earnings_and_value_space() -> None:
+    candidate = {
+        "symbol": "002558",
+        "name": "巨人网络",
+        "sector": "互联网",
+        "selection_mode": "formal_strategy",
+        "selected_strategy_type": "swing",
+        "selected_rule_id": "R009",
+        "selected_rule_name": "[均值回归] 价值蓄势",
+        "score": 82.0,
+        "reasons": ["价值回归启动", "板块20日主线扩散较好"],
+        "risk_flags": [],
+        "earnings_sustainability_grade": "sustainable",
+        "earnings_sustainability_score": 82.0,
+        "valuation_space_label": "near_double_valuation_space",
+        "valuation_upside_low": 0.85,
+    }
+
+    text = format_candidate_screening_text(
+        {"candidates": [candidate]},
+        max_items=15,
+    )
+
+    assert "财报：盈利可持续 / 评分 82.0" in text
+    assert "估值：接近翻倍估值空间 / 保守空间 +85.0%" in text
+
+
 def test_format_startup_state_event_text_includes_only_actionable_transitions() -> None:
     text = format_startup_state_event_text(
         [_startup_event(state) for state in ("preheat", "probing", "confirmed", "invalidated")]

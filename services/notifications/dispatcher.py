@@ -1430,6 +1430,37 @@ def _format_candidate_group(
                 f"{item.get('selected_rule_name') or ''}"
             ).strip()
         )
+        grade = str(item.get("earnings_sustainability_grade") or "")
+        if grade:
+            grade_label = {
+                "sustainable": "盈利可持续",
+                "general": "盈利持续性一般",
+                "pending": "财报持续性待确认",
+                "unsustainable": "盈利不可持续",
+            }.get(grade, "财报持续性待确认")
+            grade_score = item.get("earnings_sustainability_score")
+            lines.append(
+                f"财报：{grade_label}"
+                + (
+                    f" / 评分 {float(grade_score):.1f}"
+                    if grade_score is not None
+                    else ""
+                )
+            )
+        valuation_label = str(item.get("valuation_space_label") or "")
+        if valuation_label:
+            label = {
+                "near_double_valuation_space": "接近翻倍估值空间",
+                "valuation_reversion_space": "存在估值回归空间",
+                "pending": "估值空间待确认",
+            }.get(valuation_label, "估值空间待确认")
+            upside = item.get("valuation_upside_low")
+            lines.append(
+                f"估值：{label}"
+                + (
+                    f" / 保守空间 {float(upside):+.1%}" if upside is not None else ""
+                )
+            )
         matched_rule_ids = [
             rule_id
             for rule_id in item.get("matched_rule_ids") or []

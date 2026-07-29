@@ -1978,6 +1978,14 @@ def test_list_workspace_stocks_returns_candidate_tier_metadata() -> None:
                         "startup_signal_label:启动观察",
                         "startup_signal_reason:板块修复：板块扩散和韧性转暖",
                         "startup_signal_reason:量价修复：T-1温和放量并靠近MA20",
+                        "earnings_grade:sustainable",
+                        "earnings_score:82.0",
+                        "earnings_reason:扣非利润覆盖稳定",
+                        "fair_value_low:20.5000",
+                        "fair_value_high:24.0000",
+                        "valuation_upside_low:0.850000",
+                        "valuation_upside_high:1.100000",
+                        "valuation_space:near_double_valuation_space",
                     ]
                 },
                 status="active",
@@ -2000,6 +2008,14 @@ def test_list_workspace_stocks_returns_candidate_tier_metadata() -> None:
         "板块修复：板块扩散和韧性转暖",
         "量价修复：T-1温和放量并靠近MA20",
     ]
+    assert payload[0].earnings_sustainability_grade == "sustainable"
+    assert payload[0].earnings_sustainability_score == 82.0
+    assert payload[0].earnings_sustainability_reasons == ["扣非利润覆盖稳定"]
+    assert payload[0].fair_value_low == 20.5
+    assert payload[0].fair_value_high == 24.0
+    assert payload[0].valuation_upside_low == 0.85
+    assert payload[0].valuation_upside_high == 1.1
+    assert payload[0].valuation_space_label == "near_double_valuation_space"
 
 
 def test_list_workspace_stocks_hides_stale_auto_candidate_batches() -> None:

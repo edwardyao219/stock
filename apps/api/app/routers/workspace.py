@@ -173,6 +173,14 @@ class IntradayCandidateResponse(BaseModel):
     summary: str
     selected_rule_id: str | None = None
     selected_rule_name: str | None = None
+    earnings_sustainability_score: float | None = None
+    earnings_sustainability_grade: str | None = None
+    earnings_sustainability_reasons: list[str] = Field(default_factory=list)
+    fair_value_low: float | None = None
+    fair_value_high: float | None = None
+    valuation_upside_low: float | None = None
+    valuation_upside_high: float | None = None
+    valuation_space_label: str | None = None
     theme_signal_label: str | None = None
     theme_signal_reason: str | None = None
     caution_reasons: list[str]
@@ -543,6 +551,14 @@ class WorkspaceStockResponse(BaseModel):
     startup_signal_score: float | None = None
     startup_signal_label: str | None = None
     startup_signal_reasons: list[str] = Field(default_factory=list)
+    earnings_sustainability_score: float | None = None
+    earnings_sustainability_grade: str | None = None
+    earnings_sustainability_reasons: list[str] = Field(default_factory=list)
+    fair_value_low: float | None = None
+    fair_value_high: float | None = None
+    valuation_upside_low: float | None = None
+    valuation_upside_high: float | None = None
+    valuation_space_label: str | None = None
     feature_date: str | None
     latest_trade_date: str | None
     latest_close: float | None
@@ -711,6 +727,14 @@ def _to_response(
         startup_signal_score=item.startup_signal_score,
         startup_signal_label=item.startup_signal_label,
         startup_signal_reasons=item.startup_signal_reasons,
+        earnings_sustainability_score=item.earnings_sustainability_score,
+        earnings_sustainability_grade=item.earnings_sustainability_grade,
+        earnings_sustainability_reasons=item.earnings_sustainability_reasons,
+        fair_value_low=item.fair_value_low,
+        fair_value_high=item.fair_value_high,
+        valuation_upside_low=item.valuation_upside_low,
+        valuation_upside_high=item.valuation_upside_high,
+        valuation_space_label=item.valuation_space_label,
         feature_date=item.feature_date,
         latest_trade_date=item.latest_trade_date,
         latest_close=item.latest_close,

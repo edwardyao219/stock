@@ -104,9 +104,11 @@ import {
   candidatePoolTextForStock,
   candidateRuleName,
   cleanDisplayText,
+  earningsSustainabilityLabel,
   manualTagTextForStock,
   meanReversionLabel,
   styleLabelForValue,
+  valuationSpaceLabel,
 } from "./stockLabels";
 import {
   buildCandleTrendPath,
@@ -2260,6 +2262,16 @@ export function App() {
           {candidateMeanReversionLabel(item) ? (
             <i className="strategy-pill mean-reversion">均值回归</i>
           ) : null}
+          {earningsSustainabilityLabel(item) ? (
+            <i className={`strategy-pill earnings-${earningsSustainabilityLabel(item)?.tone}`}>
+              {earningsSustainabilityLabel(item)?.label}
+            </i>
+          ) : null}
+          {valuationSpaceLabel(item) ? (
+            <i className={`strategy-pill valuation-${valuationSpaceLabel(item)?.tone}`}>
+              {valuationSpaceLabel(item)?.label}
+            </i>
+          ) : null}
           {tierMeta ? (
             <span className={`source-pill tier-${tierMeta.tier.replace("_", "-")}`}>
               {tierMeta.label}
@@ -2624,6 +2636,16 @@ export function App() {
                           </i>
                           {meanReversionLabel(item.selected_rule_id, item.selected_rule_name) ? (
                             <i className="strategy-pill mean-reversion">均值回归</i>
+                          ) : null}
+                          {earningsSustainabilityLabel(item) ? (
+                            <i className={`strategy-pill earnings-${earningsSustainabilityLabel(item)?.tone}`}>
+                              {earningsSustainabilityLabel(item)?.label}
+                            </i>
+                          ) : null}
+                          {valuationSpaceLabel(item) ? (
+                            <i className={`strategy-pill valuation-${valuationSpaceLabel(item)?.tone}`}>
+                              {valuationSpaceLabel(item)?.label}
+                            </i>
                           ) : null}
                         </strong>
                         <small>{item.name ?? "-"} / {item.sector ?? "-"}</small>
@@ -3064,6 +3086,26 @@ export function App() {
                   {selected.manual_note ? <p>{uiText(selected.manual_note)}</p> : null}
                   {candidatePoolText(selected) ? <p>{candidatePoolText(selected)}</p> : null}
                   {candidateStrategyText(selected) ? <p>{candidateStrategyText(selected)}</p> : null}
+                  {earningsSustainabilityLabel(selected) || valuationSpaceLabel(selected) ? (
+                    <div className="tag-row valuation-labels">
+                      {earningsSustainabilityLabel(selected) ? (
+                        <span className={`strategy-pill earnings-${earningsSustainabilityLabel(selected)?.tone}`}>
+                          {earningsSustainabilityLabel(selected)?.label}
+                          {earningsSustainabilityLabel(selected)?.detail
+                            ? ` / ${earningsSustainabilityLabel(selected)?.detail}`
+                            : ""}
+                        </span>
+                      ) : null}
+                      {valuationSpaceLabel(selected) ? (
+                        <span className={`strategy-pill valuation-${valuationSpaceLabel(selected)?.tone}`}>
+                          {valuationSpaceLabel(selected)?.label}
+                          {valuationSpaceLabel(selected)?.detail
+                            ? ` / ${valuationSpaceLabel(selected)?.detail}`
+                            : ""}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {candidateHorizonText(selected) ? <p>{candidateHorizonText(selected)}</p> : null}
                   {selected.candidate_retire_reason ? <p>淘汰原因：{uiText(selected.candidate_retire_reason)}</p> : null}
                   {startupSignalText(selected) ? <p>{startupSignalText(selected)}</p> : null}

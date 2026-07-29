@@ -970,6 +970,44 @@ button {
   color: #9f2f2a;
 }
 
+.strategy-pill.earnings-positive,
+.strategy-pill.valuation-positive {
+  background: #eaf7ef;
+  border-color: #77b78c;
+  color: #17653a;
+}
+
+.strategy-pill.earnings-warning,
+.strategy-pill.valuation-warning {
+  background: #fff8e6;
+  border-color: #d8b966;
+  color: #7b5410;
+}
+
+.strategy-pill.earnings-neutral,
+.strategy-pill.valuation-neutral {
+  background: #f3f5f7;
+  border-color: #b8c0c8;
+  color: #4b5661;
+}
+
+.strategy-pill.earnings-negative {
+  background: #fff0ed;
+  border-color: #df9b90;
+  color: #962f26;
+}
+
+.valuation-labels {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.valuation-labels .strategy-pill {
+  margin-left: 0;
+}
+
 .intraday-watch-main em {
   color: #8a4b12;
   display: -webkit-box;
