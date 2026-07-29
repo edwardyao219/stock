@@ -16,10 +16,13 @@ from services.engine.backtest.walk_forward import (
     run_trend_factor_walk_forward_replay,
     summarize_walk_forward_replay,
 )
+from services.engine.fundamental.repository import load_fundamental_history_map
+from services.engine.fundamental.sustainability import assess_earnings_sustainability
 from services.shared.database import Base
 from services.shared.models import (
     CandidateDiscoverySnapshot,
     DailyBar,
+    FundamentalSnapshot,
     LowDimensionalFeatureSnapshot,
     SectorFeatureDaily,
     Security,
@@ -1171,8 +1174,87 @@ def test_candidate_discovery_snapshot_uses_large_mysql_json_storage() -> None:
 
 
 def test_candidate_discovery_cache_version_fits_database_column() -> None:
-    assert walk_forward.CANDIDATE_DISCOVERY_CACHE_VERSION == "candidate-v6-rule-attribution"
+    assert walk_forward.CANDIDATE_DISCOVERY_CACHE_VERSION == "candidate-v7-earnings-quality"
     assert len(walk_forward.CANDIDATE_DISCOVERY_CACHE_VERSION) <= 32
+
+
+def test_candidate_walk_forward_uses_only_reports_visible_on_signal_date(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    signal_date = date(2026, 1, 2)
+    next_date = date(2026, 1, 5)
+
+    with Session(engine) as db:
+        db.add(_security("600001", "财报时间点样本", "互联网"))
+        db.add_all(
+            [
+                _bar("600001", signal_date, "10"),
+                _bar("600001", next_date, "11", "10", open_price="10"),
+                _feature("600001", signal_date),
+                FundamentalSnapshot(
+                    symbol="600001",
+                    report_date=date(2025, 9, 30),
+                    available_date=date(2025, 10, 31),
+                    revenue_growth=Decimal("0.10"),
+                    profit_growth=Decimal("0.12"),
+                    parent_net_profit=Decimal("100"),
+                    deducted_parent_net_profit=Decimal("90"),
+                    operating_cash_flow=Decimal("110"),
+                    extra_json={"source": "visible"},
+                ),
+                FundamentalSnapshot(
+                    symbol="600001",
+                    report_date=date(2025, 12, 31),
+                    available_date=date(2026, 4, 30),
+                    revenue_growth=Decimal("-0.50"),
+                    profit_growth=Decimal("-0.80"),
+                    parent_net_profit=Decimal("100"),
+                    deducted_parent_net_profit=Decimal("-10"),
+                    operating_cash_flow=Decimal("-50"),
+                    extra_json={"source": "future"},
+                ),
+            ]
+        )
+        db.commit()
+
+    def fake_discover(db, **kwargs):
+        as_of_date = date.fromisoformat(kwargs["feature_date"])
+        history = load_fundamental_history_map(db, ["600001"], as_of_date)["600001"]
+        assessment = assess_earnings_sustainability(history)
+        return {
+            "feature_date": as_of_date.isoformat(),
+            "universe_size": 1,
+            "candidates": [
+                {
+                    "symbol": "600001",
+                    "name": "财报时间点样本",
+                    "sector": "互联网",
+                    "selection_mode": "formal_strategy",
+                    "score": 80,
+                    "reasons": [
+                        f"grade:{assessment.grade}",
+                        *[f"report:{item['report_date']}" for item in history],
+                    ],
+                    "risk_flags": [],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(walk_forward, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(walk_forward, "discover_next_session_candidates", fake_discover)
+
+    result = walk_forward.run_candidate_walk_forward_replay(
+        start_date=signal_date.isoformat(),
+        end_date=next_date.isoformat(),
+        limit=3,
+        horizons=(1,),
+        discovery_cache_dir=None,
+    )
+
+    assert result.days[0].candidates[0].reasons == [
+        "grade:pending",
+        "report:2025-09-30",
+    ]
 
 
 def test_store_candidate_discovery_db_cache_updates_after_unique_key_race() -> None:

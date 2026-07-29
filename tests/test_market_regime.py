@@ -59,7 +59,7 @@ def test_backfill_market_regime_daily_accepts_only_exact_consistent_snapshots() 
         db.add_all(
             [
                 CandidateDiscoverySnapshot(
-                    cache_version="candidate-v6-rule-attribution",
+                    cache_version="candidate-v7-earnings-quality",
                     signal_date=date(2026, 1, 2),
                     next_trade_date=date(2026, 1, 5),
                     candidate_limit=15,
@@ -77,7 +77,7 @@ def test_backfill_market_regime_daily_accepts_only_exact_consistent_snapshots() 
                     },
                 ),
                 CandidateDiscoverySnapshot(
-                    cache_version="candidate-v6-rule-attribution",
+                    cache_version="candidate-v7-earnings-quality",
                     signal_date=date(2026, 1, 2),
                     next_trade_date=date(2026, 1, 5),
                     candidate_limit=20,
@@ -89,7 +89,7 @@ def test_backfill_market_regime_daily_accepts_only_exact_consistent_snapshots() 
                     },
                 ),
                 CandidateDiscoverySnapshot(
-                    cache_version="candidate-v6-rule-attribution",
+                    cache_version="candidate-v7-earnings-quality",
                     signal_date=date(2026, 1, 5),
                     next_trade_date=date(2026, 1, 6),
                     candidate_limit=15,
@@ -97,7 +97,7 @@ def test_backfill_market_regime_daily_accepts_only_exact_consistent_snapshots() 
                     discovery_json={"feature_date": "2026-01-02", "market_regime": "range"},
                 ),
                 CandidateDiscoverySnapshot(
-                    cache_version="candidate-v6-rule-attribution",
+                    cache_version="candidate-v7-earnings-quality",
                     signal_date=date(2026, 1, 6),
                     next_trade_date=date(2026, 1, 7),
                     candidate_limit=15,
@@ -105,7 +105,7 @@ def test_backfill_market_regime_daily_accepts_only_exact_consistent_snapshots() 
                     discovery_json={"feature_date": "2026-01-06", "market_regime": "range"},
                 ),
                 CandidateDiscoverySnapshot(
-                    cache_version="candidate-v6-rule-attribution",
+                    cache_version="candidate-v7-earnings-quality",
                     signal_date=date(2026, 1, 6),
                     next_trade_date=date(2026, 1, 7),
                     candidate_limit=20,

@@ -149,7 +149,7 @@ def _candidate_scope_summary(
 
 
 def test_candidate_replay_effect_cache_version_includes_rule_attribution() -> None:
-    assert rules.CANDIDATE_REPLAY_EFFECT_CACHE_VERSION == "candidate-replay-effect-v5"
+    assert rules.CANDIDATE_REPLAY_EFFECT_CACHE_VERSION == "candidate-replay-effect-v6"
 
 
 def test_candidate_replay_effect_cache_restores_rule_horizon_key_types(tmp_path) -> None:
