@@ -152,8 +152,11 @@ def test_format_candidate_screening_text_contains_reasons() -> None:
             },
             "retired": 1,
             "candidate_diagnostics": {
-                "summary": "候选偏少：弱市收缩，只保留少数观察票。",
-                "reasons": ["市场弱趋势，候选上限收缩到3只。", "候选集中在半导体，板块宽度不足。"],
+                "summary": "候选偏少：弱市继续筛选，执行从严。",
+                "reasons": [
+                    "市场弱趋势，技术信号持续筛选，执行从严。",
+                    "候选集中在半导体，板块宽度不足。",
+                ],
             },
             "selection_funnel": {
                 "hard_safety_rejected": 12,
@@ -163,6 +166,7 @@ def test_format_candidate_screening_text_contains_reasons() -> None:
                 "potential_qualified": 2,
                 "exploration_qualified": 5,
                 "selected": 5,
+                "market_guard_selected": 3,
             },
             "sector_focus": [
                 {
@@ -200,9 +204,10 @@ def test_format_candidate_screening_text_contains_reasons() -> None:
     assert "请求日 2026-06-24" in text
     assert "特征日 2026-06-24" in text
     assert "覆盖 95.8%" in text
-    assert "候选诊断：候选偏少：弱市收缩，只保留少数观察票。" in text
-    assert "市场弱趋势，候选上限收缩到3只。" in text
+    assert "候选诊断：候选偏少：弱市继续筛选，执行从严。" in text
+    assert "市场弱趋势，技术信号持续筛选，执行从严。" in text
     assert "筛选漏斗：硬风控淘汰 12，策略命中 8" in text
+    assert "市场风控观察 3" in text
     assert "市场阶段：弱趋势 / 风险高" in text
     assert "情绪阀门：risk_off | 仓位系数 0.0" not in text
     assert "603083 剑桥科技 通信设备 正式策略命中 第82.5分" in text

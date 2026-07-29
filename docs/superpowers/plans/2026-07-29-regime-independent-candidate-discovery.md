@@ -17,7 +17,7 @@
 - Modify: `tests/test_next_session_candidates.py`
 - Modify: `tests/test_market_regime.py`
 
-- [ ] **Step 1: Add a failing cross-regime general-strategy test**
+- [x] **Step 1: Add a failing cross-regime general-strategy test**
 
 Add a helper that forces the market snapshot while using an R002 context whose
 trend score passes R002 and the formal quality threshold but not the current
@@ -98,7 +98,7 @@ def test_strategy_signal_remains_formal_in_every_market_regime(
     assert candidate["plan_availability"]["status"] == expected_plan_status
 ```
 
-- [ ] **Step 2: Change the existing R008 and R009 weak-regime expectations**
+- [x] **Step 2: Change the existing R008 and R009 weak-regime expectations**
 
 Replace the observation assertions with technical-state assertions. Panic,
 weak trend, and unconfirmed rebound must be formal but market-blocked; unknown
@@ -143,7 +143,7 @@ def test_value_reversion_launch_keeps_technical_state_across_regimes(
 
 Keep `test_value_reversion_contracted_setup_enters_observation` unchanged.
 
-- [ ] **Step 3: Verify the new technical-state tests fail**
+- [x] **Step 3: Verify the new technical-state tests fail**
 
 Run:
 
@@ -154,7 +154,7 @@ Run:
 Expected: FAIL because weak and panic regimes currently downgrade or replace
 the formal strategy candidates.
 
-- [ ] **Step 4: Remove regime permission from candidate eligibility**
+- [x] **Step 4: Remove regime permission from candidate eligibility**
 
 In `services/engine/research_pool/candidates.py`:
 
@@ -187,7 +187,7 @@ def _passes_formal_candidate_selection(
 Update `_regime_note` so weak, panic, unconfirmed-rebound, and unknown copy says
 screening continues while execution remains conservative.
 
-- [ ] **Step 5: Verify technical-state tests pass**
+- [x] **Step 5: Verify technical-state tests pass**
 
 Run:
 
@@ -203,7 +203,7 @@ Expected: PASS; R009 setups remain observation-only and hard safety remains unch
 - Modify: `services/engine/research_pool/candidates.py`
 - Modify: `tests/test_next_session_candidates.py`
 
-- [ ] **Step 1: Add a failing panic-market capacity test**
+- [x] **Step 1: Add a failing panic-market capacity test**
 
 Create 18 technically qualified R002 stocks, force a panic snapshot, and assert:
 
@@ -223,7 +223,7 @@ context with `trend_score=86`, `relative_strength_score=75`,
 `sector_strength_score=75`, `volume_confirmation_score=66`, `risk_score=24`,
 and the existing safe defaults.
 
-- [ ] **Step 2: Verify the capacity test fails**
+- [x] **Step 2: Verify the capacity test fails**
 
 Run:
 
@@ -234,7 +234,7 @@ Run:
 Expected: FAIL because the current panic cap is three and the funnel has no
 `market_guard_selected` field.
 
-- [ ] **Step 3: Remove the regime-derived discovery capacity**
+- [x] **Step 3: Remove the regime-derived discovery capacity**
 
 Delete `_regime_candidate_limit` and its direct test/import. In
 `discover_next_session_candidates`, replace the regime-derived call with:
@@ -254,7 +254,7 @@ selection_funnel["market_guard_selected"] = sum(
 )
 ```
 
-- [ ] **Step 4: Verify capacity, hard-safety, and quota behavior**
+- [x] **Step 4: Verify capacity, hard-safety, and quota behavior**
 
 Run:
 
@@ -272,7 +272,7 @@ Expected: PASS with a final maximum of 15 and no sixth R009 candidate.
 - Modify: `tests/test_jobs_pipeline.py`
 - Modify: `tests/test_notifications.py`
 
-- [ ] **Step 1: Add failing funnel rendering assertions**
+- [x] **Step 1: Add failing funnel rendering assertions**
 
 Add `"market_guard_selected": 3` to the existing funnel fixtures in
 `test_discover_next_session_candidates_step_dispatches_screening_summary` and
@@ -285,7 +285,7 @@ assert "市场风控观察 3" in text
 Keep the existing `test_discover_next_session_candidates_step_does_not_plan_blocked_core`
 assertions that `core_action == []` and generated plan symbols are empty.
 
-- [ ] **Step 2: Verify renderer tests fail**
+- [x] **Step 2: Verify renderer tests fail**
 
 Run:
 
@@ -296,7 +296,7 @@ Run:
 Expected: FAIL only on the missing market-guard count; the existing plan-block
 test remains green.
 
-- [ ] **Step 3: Append the guard count to both funnel renderers**
+- [x] **Step 3: Append the guard count to both funnel renderers**
 
 In `_candidate_funnel_detail` and `_append_candidate_selection_funnel`, render:
 
@@ -307,7 +307,7 @@ f"市场风控观察 {int(funnel.get('market_guard_selected') or 0)}。"
 
 The `.get(..., 0)` compatibility keeps older stored payloads readable.
 
-- [ ] **Step 4: Verify funnel rendering and plan blocking**
+- [x] **Step 4: Verify funnel rendering and plan blocking**
 
 Run:
 
@@ -323,7 +323,7 @@ plans when no core action is permitted.
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-29-regime-independent-candidate-discovery.md`
 
-- [ ] **Step 1: Run focused cross-module regressions**
+- [x] **Step 1: Run focused cross-module regressions**
 
 Run:
 
@@ -333,7 +333,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 2: Run the complete suite**
+- [x] **Step 2: Run the complete suite**
 
 Run:
 
@@ -343,7 +343,7 @@ Run:
 
 Expected: all tests pass; the existing SQLAlchemy `cache_ok` warning may remain.
 
-- [ ] **Step 3: Run static and diff checks**
+- [x] **Step 3: Run static and diff checks**
 
 Run:
 
@@ -356,7 +356,7 @@ git status --short
 Expected: no new lint or whitespace errors. Full Ruff without `--ignore E501`
 may still report the pre-existing long line in `candidates.py`.
 
-- [ ] **Step 4: Mark this plan complete, commit, and push main**
+- [x] **Step 4: Mark this plan complete, commit, and push main**
 
 Change completed checkboxes to `[x]`, then run:
 

@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from services.engine.features.market_regime import MarketRegimeSnapshot
 from services.engine.research_pool import candidates as candidate_module
 from services.engine.research_pool.candidates import (
-    _regime_candidate_limit,
     _technical_factor_delta,
     discover_next_session_candidates,
 )
@@ -153,6 +152,81 @@ def _run_mean_reversion_discovery(monkeypatch, regime: str, *, rsi_14: float = 3
     return result, items
 
 
+def _run_forced_regime_strategy_discovery(monkeypatch, regime: str):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(
+        candidate_module,
+        "_candidate_data_evidence_risk",
+        lambda db, feature_date: {"status": "ok", "reasons": []},
+    )
+    monkeypatch.setattr(
+        candidate_module,
+        "_market_regime_snapshot",
+        lambda contexts, feature_date: MarketRegimeSnapshot(
+            trade_date=feature_date.isoformat(),
+            regime=regime,
+            trend_score=50.0,
+            breadth_score=50.0,
+            emotion_score=50.0,
+            volatility_score=50.0,
+            risk_level="high" if regime in {"panic", "weak_trend"} else "medium",
+        ),
+    )
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Security(
+                    symbol="000001",
+                    name="跨市场技术信号",
+                    exchange="SZ",
+                    industry="PCB",
+                    is_active=True,
+                ),
+                _bar("000001"),
+                _feature(
+                    "000001",
+                    trend_score=70,
+                    relative_strength_score=65,
+                    sector_strength_score=70,
+                    volume_confirmation_score=60,
+                    risk_score=28,
+                ),
+            ]
+        )
+        db.commit()
+        return discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            limit=15,
+        )
+
+
+@pytest.mark.parametrize(
+    ("regime", "expected_plan_status"),
+    [
+        ("strong_trend", "planned"),
+        ("range", "planned"),
+        ("weak_trend", "market_guard"),
+        ("panic", "market_guard"),
+        ("rebound_unconfirmed", "market_guard"),
+        ("unknown", "planned"),
+    ],
+)
+def test_strategy_signal_remains_formal_in_every_market_regime(
+    monkeypatch, regime, expected_plan_status
+) -> None:
+    result = _run_forced_regime_strategy_discovery(monkeypatch, regime)
+    candidate = next(item for item in result["candidates"] if item["symbol"] == "000001")
+
+    assert candidate["selected_rule_id"] == "R002"
+    assert candidate["selection_mode"] == "formal_strategy"
+    assert candidate["plan_availability"]["status"] == expected_plan_status
+
+
 def test_mean_reversion_candidate_can_join_formal_pool_in_range_market(monkeypatch) -> None:
     result, items = _run_mean_reversion_discovery(monkeypatch, "range")
 
@@ -184,9 +258,17 @@ def test_mean_reversion_candidate_cannot_bypass_rule_conditions(monkeypatch) -> 
     )
 
 
-@pytest.mark.parametrize("regime", ["panic", "weak_trend", "rebound_unconfirmed", "unknown"])
-def test_mean_reversion_candidate_remains_observable_in_unsafe_regimes(
-    monkeypatch, regime
+@pytest.mark.parametrize(
+    ("regime", "expected_plan_status"),
+    [
+        ("panic", "market_guard"),
+        ("weak_trend", "market_guard"),
+        ("rebound_unconfirmed", "market_guard"),
+        ("unknown", "planned"),
+    ],
+)
+def test_mean_reversion_candidate_keeps_technical_state_across_regimes(
+    monkeypatch, regime, expected_plan_status
 ) -> None:
     result, items = _run_mean_reversion_discovery(monkeypatch, regime)
 
@@ -194,8 +276,8 @@ def test_mean_reversion_candidate_remains_observable_in_unsafe_regimes(
         item for item in result["candidates"] if item["selected_rule_id"] == "R008"
     )
     assert candidate["selected_rule_name"] == "[均值回归] 超跌修复"
-    assert candidate["selection_mode"] == "observation"
-    assert candidate["plan_availability"]["status"] == "watch_only"
+    assert candidate["selection_mode"] == "formal_strategy"
+    assert candidate["plan_availability"]["status"] == expected_plan_status
     assert "rule:R008" in items[0]["tags"]
     assert "rule_name:[均值回归] 超跌修复" in items[0]["tags"]
 
@@ -519,16 +601,24 @@ def test_value_reversion_volume_launch_enters_formal_pool(monkeypatch) -> None:
     assert "candidate_pool:value_reversion_setup" not in items[0]["tags"]
 
 
-@pytest.mark.parametrize("regime", ["panic", "weak_trend", "rebound_unconfirmed", "unknown"])
-def test_value_reversion_launch_remains_observable_in_unsafe_regimes(
-    monkeypatch, regime
+@pytest.mark.parametrize(
+    ("regime", "expected_plan_status"),
+    [
+        ("panic", "market_guard"),
+        ("weak_trend", "market_guard"),
+        ("rebound_unconfirmed", "market_guard"),
+        ("unknown", "planned"),
+    ],
+)
+def test_value_reversion_launch_keeps_technical_state_across_regimes(
+    monkeypatch, regime, expected_plan_status
 ) -> None:
     result, _items = _run_value_reversion_discovery(monkeypatch, regime, launch=True)
 
     candidate = next(item for item in result["candidates"] if item["symbol"] == "600415")
     assert candidate["selected_rule_id"] == "R009"
-    assert candidate["selection_mode"] == "observation"
-    assert candidate["plan_availability"]["status"] == "watch_only"
+    assert candidate["selection_mode"] == "formal_strategy"
+    assert candidate["plan_availability"]["status"] == expected_plan_status
 
 
 @pytest.mark.parametrize("pb", [2.72, 5.82])
@@ -869,9 +959,16 @@ def test_discover_next_session_candidates_reports_emotion_gate_without_changing_
     assert result["market_regime_snapshot"]["emotion_gate"] == "risk_off"
 
 
-def test_discover_next_session_candidates_downgrades_unconfirmed_rebound_to_observation() -> None:
+def test_discover_next_session_candidates_keeps_unconfirmed_rebound_signal_market_guarded(
+    monkeypatch,
+) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
+    monkeypatch.setattr(
+        candidate_module,
+        "_candidate_data_evidence_risk",
+        lambda db, feature_date: {"status": "ok", "reasons": []},
+    )
 
     with Session(engine) as db:
         db.add_all(
@@ -935,8 +1032,8 @@ def test_discover_next_session_candidates_downgrades_unconfirmed_rebound_to_obse
     assert result["market_regime"] == "rebound_unconfirmed"
     assert result["emotion_gate"]["state"] == "caution"
     assert result["market_turn"]["key"] == "watch_repair"
-    assert selected["selection_mode"] == "observation"
-    assert all(item["selection_mode"] != "formal_strategy" for item in result["candidates"])
+    assert selected["selection_mode"] == "formal_strategy"
+    assert selected["plan_availability"]["status"] == "market_guard"
 
 
 def test_discover_next_session_candidates_rejects_strong_stock_without_sector_mainline() -> None:
@@ -2730,6 +2827,71 @@ def test_discover_next_session_candidates_reduces_candidates_in_weak_market() ->
     assert any("弱趋势" in reason for reason in result["candidates"][0]["reasons"])
 
 
+def test_panic_market_uses_full_discovery_limit(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(
+        candidate_module,
+        "_candidate_data_evidence_risk",
+        lambda db, feature_date: {"status": "ok", "reasons": []},
+    )
+    monkeypatch.setattr(
+        candidate_module,
+        "_market_regime_snapshot",
+        lambda contexts, feature_date: MarketRegimeSnapshot(
+            trade_date=feature_date.isoformat(),
+            regime="panic",
+            trend_score=20.0,
+            breadth_score=20.0,
+            emotion_score=20.0,
+            volatility_score=80.0,
+            risk_level="high",
+        ),
+    )
+
+    with Session(engine) as db:
+        for idx in range(18):
+            symbol = f"600{idx:03d}"
+            db.add(
+                Security(
+                    symbol=symbol,
+                    name=f"恐慌市场技术信号{idx}",
+                    exchange="SH",
+                    industry="PCB",
+                    is_active=True,
+                )
+            )
+            db.add(_bar(symbol))
+            db.add(
+                _feature(
+                    symbol,
+                    trend_score=86,
+                    relative_strength_score=75,
+                    sector_strength_score=75,
+                    volume_confirmation_score=66,
+                    risk_score=24,
+                )
+            )
+        db.commit()
+
+        result = discover_next_session_candidates(
+            db,
+            feature_date="2026-06-24",
+            next_trade_date="2026-06-25",
+            pool_name="experiment",
+            limit=99,
+        )
+
+    assert len(result["candidates"]) == 15
+    assert result["effective_limit"] == 15
+    assert result["selection_funnel"]["market_guard_selected"] == 15
+    assert all(
+        item["selection_mode"] == "formal_strategy"
+        and item["plan_availability"]["status"] == "market_guard"
+        for item in result["candidates"]
+    )
+
+
 def test_discover_next_session_candidates_caps_daily_list_to_fifteen() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -3560,8 +3722,10 @@ def test_candidate_discovery_diagnostics_explains_weak_concentrated_pool() -> No
     assert diagnostics["candidate_count"] == 3
     assert diagnostics["top_sector"] == "半导体"
     assert any("弱趋势" in reason for reason in diagnostics["reasons"])
+    assert any("技术信号持续筛选，执行从严" in reason for reason in diagnostics["reasons"])
     assert any("候选集中在半导体" in reason for reason in diagnostics["reasons"])
-    assert any("候选上限" in reason for reason in diagnostics["reasons"])
+    assert any("系统候选上限" in reason for reason in diagnostics["reasons"])
+    assert not any("市场状态把候选上限" in reason for reason in diagnostics["reasons"])
 
 
 def test_discover_next_session_candidates_surfaces_fresh_potential_after_crowded_sector() -> None:
@@ -3655,25 +3819,6 @@ def test_discover_next_session_candidates_surfaces_fresh_potential_after_crowded
     symbols = [item["symbol"] for item in result["candidates"]]
     assert symbols.index("600673") < symbols.index("601002")
     assert result["candidates"][symbols.index("600673")]["selection_mode"] == "potential_watch"
-
-
-def test_discover_next_session_candidates_keeps_observation_candidates_in_weaker_market() -> None:
-    assert (
-        _regime_candidate_limit(
-            15,
-            regime="weak_trend",
-            quality_snapshot={
-                "strong_trend_rate": 9.0,
-                "up_signal_rate": 9.0,
-                "weak_structure_rate": 80.0,
-            },
-            participation_snapshot={
-                "participation_score": 30.0,
-                "liquidity_score": 25.0,
-            },
-        )
-        == 3
-    )
 
 
 def test_discover_next_session_candidates_excludes_growth_board_by_default() -> None:

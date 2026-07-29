@@ -2811,7 +2811,7 @@ def test_discover_next_session_candidates_step_dispatches_screening_summary(monk
             "universe_warning": "",
             "candidate_diagnostics": {
                 "summary": "候选偏少：3只，先解释原因再考虑调参。",
-                "reasons": ["市场状态把候选上限从15只收缩到3只。"],
+                "reasons": ["技术质量过滤后只有3只。"],
             },
             "selection_funnel": {
                 "universe": 100,
@@ -2827,6 +2827,7 @@ def test_discover_next_session_candidates_step_dispatches_screening_summary(monk
                 "potential_ranked_out": 0,
                 "exploration_ranked_out": 2,
                 "selected": 5,
+                "market_guard_selected": 3,
             },
             "sector_focus": [
                 {
@@ -2890,6 +2891,7 @@ def test_discover_next_session_candidates_step_dispatches_screening_summary(monk
     assert result.details[0] == "钉钉提醒：dingtalk:ok"
     assert any("候选诊断：候选偏少" in item for item in result.details)
     assert any("筛选漏斗：硬风控淘汰 12" in item for item in result.details)
+    assert any("市场风控观察 3" in item for item in result.details)
     assert result.metrics == {
         "candidate_written": 2,
         "candidate_retired": 0,

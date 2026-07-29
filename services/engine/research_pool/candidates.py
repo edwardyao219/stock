@@ -802,96 +802,13 @@ def _regime_note(regime: str) -> str:
     mapping = {
         "strong_trend": "市场环境：强趋势，允许正常跟随上升信号",
         "rebound": "市场环境：反弹，优先选择趋势已确认的票",
-        "rebound_unconfirmed": "市场环境：反弹修复未确认，只观察高质量趋势票，不追高扩仓",
+        "rebound_unconfirmed": "市场环境：反弹修复未确认，继续筛选修复信号，执行等待确认",
         "range": "市场环境：震荡，只看趋势和板块都较强的票",
-        "weak_trend": "市场环境：弱趋势，做减法，只保留少数强趋势候选",
-        "panic": "市场环境：恐慌，原则上不新开仓，只观察极少数逆势强票",
-        "unknown": "市场环境：未知，按保守模式筛选",
+        "weak_trend": "市场环境：弱趋势，继续筛选高质量信号，执行从严",
+        "panic": "市场环境：恐慌，保留技术信号观察，原则上不新开仓",
+        "unknown": "市场环境：未知，保守排序但不停止筛选",
     }
     return mapping.get(regime, mapping["unknown"])
-
-
-def _passes_market_regime_gate(
-    context: dict[str, Any],
-    *,
-    regime: str,
-    selection_mode: str,
-) -> bool:
-    if regime in {"strong_trend", "rebound", "unknown"}:
-        return True
-    trend = _float(context, "trend_score", 50.0)
-    relative = _float(context, "relative_strength_score", 50.0)
-    sector = _float(context, "sector_strength_score", 50.0)
-    volume = _float(context, "volume_confirmation_score", _float(context, "volume_score", 50.0))
-    risk = _float(context, "risk_score", 50.0)
-    overheat = _float(context, "overheat_score", 50.0)
-    if regime == "rebound_unconfirmed":
-        return (
-            selection_mode == "observation"
-            and trend >= 76
-            and relative >= 66
-            and sector >= 64
-            and volume >= 50
-            and risk <= 50
-            and overheat <= 60
-        )
-    if regime == "range":
-        if selection_mode == "potential_watch":
-            if _is_startup_preheat_context(context):
-                return risk <= 58 and overheat <= 56 and volume >= 60.0
-            return (
-                trend >= CANDIDATE_POTENTIAL_TREND_MIN
-                and volume >= 45.0
-                and risk <= CANDIDATE_POTENTIAL_RISK_MAX
-                and overheat <= CANDIDATE_POTENTIAL_OVERHEAT_MAX
-            )
-        if selection_mode == "observation":
-            return trend >= 62 and relative >= 58 and sector >= 58
-        return trend >= 64 and relative >= 58 and sector >= 58
-    if regime == "weak_trend":
-        if selection_mode == "potential_watch":
-            if _is_startup_preheat_context(context):
-                return (
-                    trend >= 82
-                    and relative >= 64
-                    and volume >= 64
-                    and risk <= 52
-                    and overheat <= 52
-                )
-            return (
-                trend >= 92
-                and relative >= CANDIDATE_POTENTIAL_RELATIVE_MIN
-                and volume >= CANDIDATE_POTENTIAL_VOLUME_MIN
-                and risk <= 58
-                and overheat <= CANDIDATE_POTENTIAL_OVERHEAT_MAX
-            )
-        if selection_mode == "observation":
-            return (
-                trend >= CANDIDATE_OBSERVATION_TREND_MIN
-                and relative >= CANDIDATE_OBSERVATION_RELATIVE_MIN
-                and sector >= CANDIDATE_OBSERVATION_SECTOR_MIN
-                and volume >= CANDIDATE_OBSERVATION_VOLUME_MIN
-                and risk <= CANDIDATE_OBSERVATION_RISK_MAX
-            )
-        return (
-            selection_mode == "formal_strategy"
-            and trend >= 76
-            and relative >= 66
-            and sector >= 64
-            and volume >= 45
-            and risk <= 55
-        )
-    if regime == "panic":
-        return (
-            selection_mode == "formal_strategy"
-            and trend >= 84
-            and relative >= 72
-            and sector >= 70
-            and volume >= 55
-            and risk <= 42
-            and overheat <= 70
-        )
-    return selection_mode == "formal_strategy"
 
 
 def _market_quality_snapshot(contexts: list[dict[str, Any]]) -> dict[str, float]:
@@ -1145,54 +1062,6 @@ def _verified_market_turn_snapshot(
         }
     )
     return snapshot
-
-
-def _regime_candidate_limit(
-    requested_limit: int,
-    *,
-    regime: str,
-    quality_snapshot: dict[str, float],
-    participation_snapshot: dict[str, float],
-) -> int:
-    base_limit = max(1, requested_limit)
-    if regime in {"strong_trend", "rebound"}:
-        cap = base_limit
-    elif regime == "rebound_unconfirmed":
-        cap = min(base_limit, 8)
-    elif regime == "range":
-        cap = min(base_limit, 20)
-    elif regime == "weak_trend":
-        cap = min(base_limit, 15)
-    elif regime == "panic":
-        cap = min(base_limit, 3)
-    else:
-        cap = min(base_limit, 8)
-
-    up_signal_rate = quality_snapshot.get("up_signal_rate", 0.0)
-    strong_trend_rate = quality_snapshot.get("strong_trend_rate", 0.0)
-    participation_score = participation_snapshot.get("participation_score", 50.0)
-    liquidity_score = participation_snapshot.get("liquidity_score", 50.0)
-
-    if regime in {"weak_trend", "rebound_unconfirmed"}:
-        if up_signal_rate >= 8.0 and strong_trend_rate >= 6.0 and participation_score >= 60.0:
-            cap = min(cap, 15)
-        elif up_signal_rate >= 5.0 and participation_score >= 55.0:
-            cap = min(cap, 12)
-        elif up_signal_rate >= 2.0:
-            cap = min(cap, 8)
-        else:
-            cap = min(cap, 3)
-    elif up_signal_rate < 2.0:
-        cap = min(cap, 3)
-    elif up_signal_rate < 5.0:
-        cap = min(cap, 5)
-    if participation_score < 40.0 or liquidity_score < 45.0:
-        cap = min(cap, 3)
-    elif participation_score < 55.0 or liquidity_score < 55.0:
-        cap = min(cap, 5)
-    if regime in {"weak_trend", "rebound_unconfirmed"} and liquidity_score < 48.0:
-        cap = min(cap, 10)
-    return max(1, cap)
 
 
 def _sector_focus_groups(
@@ -1986,34 +1855,17 @@ def _value_reversion_setup_quality(
     return valuation + compactness + contraction + drawdown + stability + ma_proximity
 
 
-def _passes_mean_reversion_candidate_filters(
-    context: dict[str, Any], *, regime: str
-) -> bool:
-    return regime in {"strong_trend", "rebound", "range"} and _passes_hard_safety_filters(
-        context
-    )
-
-
 def _passes_formal_candidate_selection(
     context: dict[str, Any],
     matches: list[CandidateStrategyMatch],
     *,
-    regime: str,
     score_delta: float,
 ) -> bool:
     if _is_mean_reversion_match(matches):
-        return _passes_mean_reversion_candidate_filters(context, regime=regime)
+        return _passes_hard_safety_filters(context)
     if _is_value_reversion_match(matches):
-        return (
-            regime in {"strong_trend", "rebound", "range"}
-            and _passes_hard_safety_filters(context)
-            and _is_value_reversion_launch(context)
-        )
-    return _passes_market_regime_gate(
-        context,
-        regime=regime,
-        selection_mode="formal_strategy",
-    ) and _passes_candidate_filters(context, score_delta=score_delta)
+        return _passes_hard_safety_filters(context) and _is_value_reversion_launch(context)
+    return _passes_candidate_filters(context, score_delta=score_delta)
 
 
 def _passes_pullback_candidate_filters(
@@ -2778,14 +2630,17 @@ def _candidate_discovery_diagnostics(
     if universe_size < min_universe_size:
         reasons.append(f"本地特征宇宙只有{universe_size}只，样本覆盖不足。")
     if effective_limit < requested_limit:
-        reasons.append(f"市场状态把候选上限从{requested_limit}只收缩到{effective_limit}只。")
+        reasons.append(f"系统候选上限将请求从{requested_limit}只限制为{effective_limit}只。")
     if market_regime in {"weak_trend", "panic", "rebound_unconfirmed"} or gate_state == "risk_off":
         label = {
             "panic": "恐慌",
             "weak_trend": "弱趋势",
             "rebound_unconfirmed": "反弹修复未确认",
         }.get(market_regime, "谨慎")
-        reasons.append(f"市场处于{label}，情绪阀门{gate_state or 'neutral'}，先保留少数观察票。")
+        reasons.append(
+            f"市场处于{label}，情绪阀门{gate_state or 'neutral'}，"
+            "技术信号持续筛选，执行从严。"
+        )
     if participation_score < 45.0 or liquidity_score < 48.0:
         reasons.append(f"资金参与偏弱，参与{participation_score:.1f}/流动性{liquidity_score:.1f}。")
     if candidate_count and top_sector and (
@@ -3146,12 +3001,7 @@ def discover_next_session_candidates(
     )
     rank_score_fn = _regime_rank_score_fn(market_regime.regime, participation_snapshot)
     requested_limit = max(1, min(limit, CANDIDATE_DEFAULT_LIMIT))
-    effective_limit = _regime_candidate_limit(
-        requested_limit,
-        regime=market_regime.regime,
-        quality_snapshot=quality_snapshot,
-        participation_snapshot=participation_snapshot,
-    )
+    effective_limit = requested_limit
     universe_size = len(contexts)
     context_by_symbol = {str(context["symbol"]): context for context in contexts}
     formal_candidates: list[NextSessionCandidate] = []
@@ -3179,12 +3029,13 @@ def discover_next_session_candidates(
         matches = _matching_rules(context)
         if matches:
             selection_funnel["strategy_matched"] += 1
-        score_delta = _regime_score_delta(
+        regime_score_delta = _regime_score_delta(
             context,
             market_regime.regime,
             participation_snapshot,
         )
-        score_delta += _sector_leadership_delta(context)
+        qualification_score_delta = _sector_leadership_delta(context)
+        score_delta = regime_score_delta + qualification_score_delta
         learning_notes: list[str] = []
         formal_upgrade_blocked = False
         if matches:
@@ -3199,6 +3050,7 @@ def discover_next_session_candidates(
             formal_upgrade_blocked = formal_block_reason is not None
             if formal_block_reason:
                 style_gate_reasons_by_symbol[str(context["symbol"])] = formal_block_reason
+            qualification_score_delta += learning_score_delta
             score_delta += learning_score_delta
             long_horizon_learning_notes = _candidate_long_horizon_learning(
                 context,
@@ -3218,8 +3070,7 @@ def discover_next_session_candidates(
             and _passes_formal_candidate_selection(
                 context,
                 matches,
-                regime=market_regime.regime,
-                score_delta=score_delta,
+                score_delta=qualification_score_delta,
             )
         ):
             selection_funnel["formal_qualified"] += 1
@@ -3257,15 +3108,10 @@ def discover_next_session_candidates(
         if (
             matches
             and not formal_upgrade_blocked
-            and _passes_market_regime_gate(
-                context,
-                regime=market_regime.regime,
-                selection_mode="formal_strategy",
-            )
             and _is_long_horizon_context(context)
             and _passes_pullback_candidate_filters(
                 context,
-                score_delta=score_delta,
+                score_delta=qualification_score_delta,
             )
         ):
             selection_funnel["formal_qualified"] += 1
@@ -3283,11 +3129,10 @@ def discover_next_session_candidates(
                 )
             )
             continue
-        if _passes_market_regime_gate(
+        if _passes_observation_filters(
             context,
-            regime=market_regime.regime,
-            selection_mode="observation",
-        ) and _passes_observation_filters(context, score_delta=score_delta):
+            score_delta=qualification_score_delta,
+        ):
             selection_funnel["observation_qualified"] += 1
             observation_candidates.append(
                 _build_candidate(
@@ -3304,11 +3149,10 @@ def discover_next_session_candidates(
                 )
             )
             continue
-        if _passes_market_regime_gate(
+        if _passes_potential_watch_filters(
             context,
-            regime=market_regime.regime,
-            selection_mode="potential_watch",
-        ) and _passes_potential_watch_filters(context, score_delta=score_delta):
+            score_delta=qualification_score_delta,
+        ):
             selection_funnel["potential_qualified"] += 1
             potential_score_delta = _potential_watch_score_delta(context, score_delta)
             potential_candidates.append(
@@ -3326,7 +3170,10 @@ def discover_next_session_candidates(
                 )
             )
             continue
-        if _passes_exploration_filters(context, score_delta=score_delta):
+        if _passes_exploration_filters(
+            context,
+            score_delta=qualification_score_delta,
+        ):
             selection_funnel["exploration_qualified"] += 1
             exploration_candidates.append(
                 _build_candidate(
@@ -3507,6 +3354,9 @@ def discover_next_session_candidates(
         )
         for item in selected
     ]
+    selection_funnel["market_guard_selected"] = sum(
+        item.plan_availability.get("status") == "market_guard" for item in selected
+    )
     sector_groups = _candidate_sector_groups(selected)
     sector_focus = _sector_focus_groups(contexts)
     external_challengers = build_external_challengers(

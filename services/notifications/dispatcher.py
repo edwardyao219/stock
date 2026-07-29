@@ -296,7 +296,8 @@ def _append_candidate_selection_funnel(lines: list[str], discovery: dict[str, An
         f"{int(funnel.get('observation_qualified') or 0)}/"
         f"{int(funnel.get('potential_qualified') or 0)}/"
         f"{int(funnel.get('exploration_qualified') or 0)}，"
-        f"最终入池 {int(funnel.get('selected') or 0)}。"
+        f"最终入池 {int(funnel.get('selected') or 0)}，"
+        f"市场风控观察 {int(funnel.get('market_guard_selected') or 0)}。"
     )
 
 
