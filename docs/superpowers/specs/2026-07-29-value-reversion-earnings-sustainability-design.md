@@ -19,8 +19,10 @@ discovery, and 10-general-plus-5-R009 quota.
 
 This change includes:
 
-- correcting the storage collision between quarterly financial reports and
-  daily valuations;
+- making Tushare structured statements the primary financial source and
+  AkShare the field-level fallback;
+- removing daily valuation ownership from the financial snapshot path so a
+  quarter-end valuation cannot overwrite a report;
 - retaining the latest eight reports that were public as of the selection date;
 - ingesting the minimum additional earnings-quality evidence;
 - producing an explainable sustainability score and grade;
@@ -35,7 +37,7 @@ industry-relative valuation, promise that any stock will double, or
 automatically run financial sync, selection, replay, or notification jobs
 during deployment.
 
-## Snapshot Separation
+## Financial And Valuation Ownership
 
 `FundamentalSnapshot` currently uses `(symbol, report_date)` as its unique key.
 That allows a daily valuation written on a quarter-end date to collide with a
@@ -43,16 +45,22 @@ financial report for the same date. The valuation upsert can then replace the
 financial `available_date` and `extra_json`, making an unpublished report look
 available at quarter end and introducing look-ahead bias.
 
-Add `snapshot_kind` with values `financial` and `valuation`, and change the
-unique key to `(symbol, report_date, snapshot_kind)`.
+Keep `FundamentalSnapshot` as the canonical quarterly financial table and stop
+writing AkShare daily valuations into it. Tushare `daily_basic`, already stored
+in `TushareDailyBasic`, is the canonical source for current and historical PE,
+PB, market capitalization, and turnover context.
 
 - Financial rows use the report's actual announcement date as
   `available_date`.
-- Valuation rows use the valuation trade date as `available_date`.
-- Financial and valuation upserts only update rows of their own kind.
-- Financial and valuation metadata remain independent.
-- Existing latest-context callers continue to receive one latest financial
-  context merged with one latest valuation context.
+- Strategy context receives current PE/PB from the existing exact-date
+  `TushareDailyBasic` loader.
+- Three-year valuation history reads positive PE observations directly from
+  `TushareDailyBasic`.
+- Legacy pure-valuation rows may remain physically present in
+  `fundamental_snapshots`, but financial loaders ignore rows without financial
+  evidence and no application path writes new valuation rows there.
+- Financial sync explicitly clears legacy PE/PB/dividend values on a report
+  row so a formerly mixed row becomes financial-only.
 
 Add these nullable numeric fields to financial snapshots:
 
@@ -61,42 +69,55 @@ Add these nullable numeric fields to financial snapshots:
 - `deducted_parent_net_profit`
 - `operating_cash_flow`
 
-The AkShare financial adapter maps these values when the source supplies them.
-Absent or invalid source values remain `None`; the adapter must not synthesize
-them from growth percentages.
+## Dual-Source Financial Ingestion
+
+Use the existing generic Tushare proxy client to request, by symbol:
+
+- `fina_indicator` for announcement date, deducted parent profit, YoY growth,
+  ROE, margins, and debt ratio;
+- `income` for operating revenue and parent net profit;
+- `cashflow` for operating cash flow.
+
+Tushare is the primary source for each canonical field. The existing AkShare
+financial-analysis endpoint plus AkShare profit and cash-flow statement
+endpoints fill only fields or report periods missing from Tushare. A fallback
+value must never replace a non-null Tushare value or an earlier trustworthy
+Tushare announcement date.
+
+Every stored row records `source=tushare_proxy`, `source=akshare`, or
+`source=merged`, plus field-level source names in `extra_json`. Absent or
+invalid source values remain `None`; neither adapter may synthesize absolute
+profit or cash values from growth percentages.
 
 ## Existing-Row Migration
 
-Schema synchronization performs a deterministic, idempotent migration. It
-first adds `snapshot_kind`, drops the old two-column unique key, classifies and
-splits rows, and only then installs the new three-column unique key:
+Schema synchronization performs a deterministic, idempotent cleanup:
 
-1. Rows containing only valuation evidence become `valuation`.
-2. Rows containing financial evidence become `financial`.
-3. A row containing both evidence types is split into one financial row and
-   one valuation row before the new unique key is installed.
-4. The valuation row retains PE, PB, dividend yield, valuation metadata, and
-   the report-date trade date as its availability date.
-5. The financial row retains financial fields and clears valuation-only fields.
-6. If a mixed legacy row has lost its real announcement date, the financial row
+1. Add the four new nullable financial columns.
+2. Leave pure legacy valuation rows unchanged; current code no longer reads or
+   writes them.
+3. A row containing both financial evidence and AkShare valuation metadata is
+   treated as a polluted financial row. Clear PE, PB, and dividend yield.
+4. If that mixed row has lost its real announcement date, the financial row
    uses the statutory disclosure deadline for that report period: April 30 for
    first-quarter reports, August 31 for half-year reports, October 31 for
    third-quarter reports, and April 30 of the following year for annual
    reports. It records `availability_quality=legacy_conservative_date`. This
    may make evidence available later than reality but must never make it
    available earlier.
-7. A later normal financial sync replaces the conservative date and metadata
-   with the source announcement date.
+5. A later normal Tushare or AkShare financial sync replaces the conservative
+   date and metadata with the source announcement date.
 
 The migration does not call AkShare or any other external service.
 
 ## Point-In-Time Financial History
 
 Add a batched repository loader that returns, for each requested symbol, at
-most the latest eight `financial` snapshots satisfying
+most the latest eight rows containing financial evidence and satisfying
 `available_date <= as_of_date`. Order reports newest first by `report_date`;
 availability controls whether a report may be seen, while report date controls
-financial sequence.
+financial sequence. Legacy valuation-only rows are excluded by the existing
+financial-presence predicate.
 
 Candidate context retains the existing latest financial keys and adds a compact
 `fundamental_history` list containing only the fields required by the
@@ -204,8 +225,8 @@ of candidates at the same technical stage.
 Calculate a value range only when current close, positive current PE, a usable
 deducted-profit ratio, and enough historical valuation observations exist.
 
-1. Load positive daily PE observations from the three years ending on the
-   selection date. Require at least 60 observations.
+1. Load positive `TushareDailyBasic.pe_ttm` observations from the three years
+   ending on the selection date. Require at least 60 observations.
 2. Remove non-positive values and trim the outer 5% on each side before taking
    the median and 75th percentile.
 3. Derive reported TTM EPS as `current_close / current_pe`.
@@ -281,10 +302,13 @@ Do not run historical replay as part of implementation or deployment.
 
 Add focused tests proving:
 
-- financial parsing maps the four new values and the source announcement date;
-- same-date financial and valuation upserts retain two independent rows,
-  availability dates, and metadata objects;
-- the legacy mixed-row migration is idempotent and uses a conservative date;
+- Tushare financial parsing maps the three statement payloads, four new values,
+  and the source announcement date;
+- AkShare fills a missing field without replacing a non-null Tushare field;
+- current and historical valuation reads `TushareDailyBasic`, not legacy
+  valuation values in `FundamentalSnapshot`;
+- the legacy mixed-row cleanup is idempotent, clears valuation fields, and uses
+  a conservative date;
 - the batch loader returns at most eight reports and excludes reports not yet
   announced as of the requested date;
 - a Giant-Network-like history with sustained profit, strong deducted-profit
