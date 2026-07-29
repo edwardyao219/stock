@@ -16,7 +16,7 @@
 - Modify: `services/engine/research_pool/candidates.py`
 - Test: `tests/test_next_session_candidates.py`
 
-- [ ] **Step 1: Add failing setup-quality tests**
+- [x] **Step 1: Add failing setup-quality tests**
 
 Add direct tests for `_value_reversion_setup_quality`:
 
@@ -63,13 +63,13 @@ def test_value_reversion_launch_quality_uses_prior_setup_fields() -> None:
     assert candidate_module._value_reversion_setup_quality(context, launch=True) == 95.0
 ```
 
-- [ ] **Step 2: Verify the scorer tests fail**
+- [x] **Step 2: Verify the scorer tests fail**
 
 Run: `.venv/bin/pytest tests/test_next_session_candidates.py -k value_reversion_setup_quality -q`
 
 Expected: FAIL because `_value_reversion_setup_quality` does not exist.
 
-- [ ] **Step 3: Implement the exact 100-point bands**
+- [x] **Step 3: Implement the exact 100-point bands**
 
 Add `VALUE_REVERSION_RESERVED_LIMIT = 5` and implement:
 
@@ -108,7 +108,7 @@ def _value_reversion_setup_quality(
     return valuation + compactness + contraction + drawdown + stability + ma_proximity
 ```
 
-- [ ] **Step 4: Verify scorer tests pass**
+- [x] **Step 4: Verify scorer tests pass**
 
 Run: `.venv/bin/pytest tests/test_next_session_candidates.py -k 'value_reversion_setup_quality or value_reversion_launch_quality' -q`
 
@@ -120,7 +120,7 @@ Expected: PASS.
 - Modify: `services/engine/research_pool/candidates.py`
 - Test: `tests/test_next_session_candidates.py`
 
-- [ ] **Step 1: Add pure quota and ordering tests**
+- [x] **Step 1: Add pure quota and ordering tests**
 
 Add a test candidate helper that builds `NextSessionCandidate` objects with a
 specified rule, mode, score, and sector. Test these behaviors through
@@ -152,13 +152,13 @@ assert (general_count, r009_count, total_count) == (6, 5, 11)
 assert selected_r009[0].symbol == launch.symbol
 ```
 
-- [ ] **Step 2: Verify quota tests fail**
+- [x] **Step 2: Verify quota tests fail**
 
 Run: `.venv/bin/pytest tests/test_next_session_candidates.py -k value_reversion_quota -q`
 
 Expected: FAIL because `_apply_value_reversion_quota` does not exist.
 
-- [ ] **Step 3: Implement R009 ranking and quota selection**
+- [x] **Step 3: Implement R009 ranking and quota selection**
 
 Add `_rank_value_reversion_candidates` that greedily chooses by this tuple:
 
@@ -194,7 +194,7 @@ def _apply_value_reversion_quota(
 
 Do not fill unused general capacity with a sixth R009 candidate.
 
-- [ ] **Step 4: Verify pure selector tests pass**
+- [x] **Step 4: Verify pure selector tests pass**
 
 Run: `.venv/bin/pytest tests/test_next_session_candidates.py -k value_reversion_quota -q`
 
@@ -206,7 +206,7 @@ Expected: PASS.
 - Modify: `services/engine/research_pool/candidates.py`
 - Test: `tests/test_next_session_candidates.py`
 
-- [ ] **Step 1: Add an end-to-end 10+5 discovery test**
+- [x] **Step 1: Add an end-to-end 10+5 discovery test**
 
 Extend the existing 15-candidate cap fixture with seven R009 setup securities.
 Each setup receives positive PE/PB and the existing R009 setup fields. Assert:
@@ -225,14 +225,14 @@ assert "rank:15" in {
 }
 ```
 
-- [ ] **Step 2: Verify discovery still excludes R009 when general slots fill**
+- [x] **Step 2: Verify discovery still excludes R009 when general slots fill**
 
 Run: `.venv/bin/pytest tests/test_next_session_candidates.py -k caps_daily_list_to_fifteen -q`
 
 Expected: FAIL because current observation selection gives R009 no remaining
 slots.
 
-- [ ] **Step 3: Apply quota to complete qualified R009 sets**
+- [x] **Step 3: Apply quota to complete qualified R009 sets**
 
 After existing general mode selection and ordering:
 
@@ -284,7 +284,7 @@ selection_funnel.update(
 Use the clamped `requested_limit`, so caller limits below 15 remain honored and
 the default remains 15.
 
-- [ ] **Step 4: Verify quota integration and existing value tests pass**
+- [x] **Step 4: Verify quota integration and existing value tests pass**
 
 Run: `.venv/bin/pytest tests/test_next_session_candidates.py -k 'caps_daily_list_to_fifteen or value_reversion' -q`
 
@@ -295,19 +295,19 @@ Expected: PASS.
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-29-value-reversion-ranking-quota.md`
 
-- [ ] **Step 1: Run candidate and notification regressions**
+- [x] **Step 1: Run candidate and notification regressions**
 
 Run: `.venv/bin/pytest tests/test_next_session_candidates.py tests/test_notifications.py tests/test_jobs_pipeline.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 2: Run the complete suite**
+- [x] **Step 2: Run the complete suite**
 
 Run: `.venv/bin/pytest -q`
 
 Expected: all tests pass; the known SQLAlchemy warning may remain.
 
-- [ ] **Step 3: Run static and diff checks**
+- [x] **Step 3: Run static and diff checks**
 
 Run:
 
@@ -319,7 +319,7 @@ git status --short
 
 Expected: no new lint or whitespace errors and only planned files modified.
 
-- [ ] **Step 4: Mark the plan complete, commit, and push main**
+- [x] **Step 4: Mark the plan complete, commit, and push main**
 
 Change completed checkboxes to `[x]`, then run:
 

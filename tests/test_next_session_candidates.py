@@ -302,6 +302,202 @@ def _run_value_reversion_discovery(
     return result, items
 
 
+def test_value_reversion_setup_quality_prefers_tight_controlled_base() -> None:
+    preferred = {
+        "pe_ttm": 18.0,
+        "pb": 2.0,
+        "consolidation_range_3d": 0.055,
+        "amount_contraction_3d_vs_5d": 0.50,
+        "distance_to_60d_high": -0.20,
+        "return_3d": 0.02,
+        "distance_to_ma20": -0.04,
+    }
+    loose = {
+        "pe_ttm": 30.0,
+        "pb": 2.8,
+        "consolidation_range_3d": 0.11,
+        "amount_contraction_3d_vs_5d": 0.10,
+        "distance_to_60d_high": -0.09,
+        "return_3d": 0.05,
+        "distance_to_ma20": -0.14,
+    }
+
+    assert candidate_module._value_reversion_setup_quality(preferred) == 100.0
+    assert candidate_module._value_reversion_setup_quality(loose) == 50.0
+
+
+def test_value_reversion_launch_quality_uses_prior_setup_fields() -> None:
+    context = {
+        "pe_ttm": 18.0,
+        "pb": 2.0,
+        "prior_consolidation_range_3d": 0.055,
+        "prior_amount_contraction_3d_vs_5d": 0.50,
+        "distance_to_60d_high": -0.20,
+        "return_3d": 0.12,
+        "distance_to_ma20": 0.04,
+    }
+
+    assert candidate_module._value_reversion_setup_quality(context, launch=True) == 95.0
+
+
+def _quota_candidate(
+    symbol: str,
+    *,
+    rule_id: str,
+    mode: str = "observation",
+    score: float = 70.0,
+    sector: str = "普通行业",
+) -> candidate_module.NextSessionCandidate:
+    return candidate_module.NextSessionCandidate(
+        symbol=symbol,
+        name=None,
+        sector=sector,
+        sector_style="unknown",
+        suggested_horizon_days=10,
+        horizon_reason="",
+        day_change_pct=0.01,
+        score=score,
+        route_score=60.0,
+        route_label="观察路线",
+        route_reason="",
+        selection_mode=mode,
+        selected_rule_id=rule_id,
+        selected_rule_name="价值回归" if rule_id == "R009" else "通用候选",
+        selected_strategy_type="swing",
+        trend_score=60.0,
+        relative_strength_score=60.0,
+        sector_strength_score=60.0,
+        volume_confirmation_score=55.0,
+        price_volume_trend_score=55.0,
+        sector_avg_return_20d=0.03,
+        return_20d=0.08,
+        distance_to_ma20=0.02,
+        startup_signal_score=None,
+        startup_signal_label=None,
+        startup_signal_reasons=[],
+        reasons=[],
+        risk_flags=[],
+        matched_rules=[],
+    )
+
+
+def _value_reversion_setup_context() -> dict[str, float]:
+    return {
+        "pe_ttm": 18.0,
+        "pb": 2.0,
+        "consolidation_range_3d": 0.055,
+        "amount_contraction_3d_vs_5d": 0.50,
+        "distance_to_60d_high": -0.20,
+        "return_3d": 0.02,
+        "distance_to_ma20": -0.04,
+    }
+
+
+def test_value_reversion_quota_reserves_five_slots() -> None:
+    general_candidates = [
+        _quota_candidate(f"G{index:02d}", rule_id="R004") for index in range(12)
+    ]
+    value_candidates = [
+        _quota_candidate(f"V{index:02d}", rule_id="R009", sector=f"行业{index}")
+        for index in range(7)
+    ]
+    context_by_symbol = {
+        item.symbol: _value_reversion_setup_context() for item in value_candidates
+    }
+
+    selected, selected_r009 = candidate_module._apply_value_reversion_quota(
+        general_candidates=general_candidates,
+        value_reversion_candidates=value_candidates,
+        context_by_symbol=context_by_symbol,
+        limit=15,
+    )
+
+    assert len(selected) == 15
+    assert len(selected_r009) == 5
+    assert sum(item.selected_rule_id == "R009" for item in selected) == 5
+    assert sum(item.selected_rule_id != "R009" for item in selected) == 10
+
+
+def test_value_reversion_quota_backfills_unused_slots_with_general_candidates() -> None:
+    general_candidates = [
+        _quota_candidate(f"G{index:02d}", rule_id="R004") for index in range(13)
+    ]
+    value_candidates = [
+        _quota_candidate(f"V{index:02d}", rule_id="R009") for index in range(2)
+    ]
+
+    selected, selected_r009 = candidate_module._apply_value_reversion_quota(
+        general_candidates=general_candidates,
+        value_reversion_candidates=value_candidates,
+        context_by_symbol={
+            item.symbol: _value_reversion_setup_context() for item in value_candidates
+        },
+        limit=15,
+    )
+
+    assert len(selected) == 15
+    assert len(selected_r009) == 2
+    assert sum(item.selected_rule_id != "R009" for item in selected) == 13
+
+
+def test_value_reversion_quota_never_selects_a_sixth_r009() -> None:
+    general_candidates = [
+        _quota_candidate(f"G{index:02d}", rule_id="R004") for index in range(6)
+    ]
+    value_candidates = [
+        _quota_candidate(f"V{index:02d}", rule_id="R009", sector=f"行业{index}")
+        for index in range(8)
+    ]
+
+    selected, selected_r009 = candidate_module._apply_value_reversion_quota(
+        general_candidates=general_candidates,
+        value_reversion_candidates=value_candidates,
+        context_by_symbol={
+            item.symbol: _value_reversion_setup_context() for item in value_candidates
+        },
+        limit=15,
+    )
+
+    assert len(selected) == 11
+    assert len(selected_r009) == 5
+    assert sum(item.selected_rule_id != "R009" for item in selected) == 6
+
+
+def test_value_reversion_quota_ranks_launch_before_higher_generic_setup() -> None:
+    setup = _quota_candidate("V_SETUP", rule_id="R009", score=99.0)
+    launch = _quota_candidate(
+        "V_LAUNCH",
+        rule_id="R009",
+        mode="formal_strategy",
+        score=60.0,
+    )
+    launch_context = {
+        "pe_ttm": 18.0,
+        "pb": 2.0,
+        "prior_consolidation_range_3d": 0.055,
+        "prior_amount_contraction_3d_vs_5d": 0.50,
+        "distance_to_60d_high": -0.20,
+        "return_3d": 0.12,
+        "distance_to_ma20": 0.04,
+        "amount_ratio_5d": 1.4,
+        "return_1d": 0.04,
+        "close_position_in_range": 0.80,
+        "breakout_from_prior_3d_high": 0.01,
+    }
+
+    _, selected_r009 = candidate_module._apply_value_reversion_quota(
+        general_candidates=[],
+        value_reversion_candidates=[setup, launch],
+        context_by_symbol={
+            setup.symbol: _value_reversion_setup_context(),
+            launch.symbol: launch_context,
+        },
+        limit=15,
+    )
+
+    assert selected_r009[0].symbol == launch.symbol
+
+
 def test_value_reversion_contracted_setup_enters_observation(monkeypatch) -> None:
     result, items = _run_value_reversion_discovery(monkeypatch, "range", launch=False)
 
@@ -2601,6 +2797,47 @@ def test_discover_next_session_candidates_caps_daily_list_to_fifteen() -> None:
                     return_20d=0.02,
                 )
             )
+        for idx in range(7):
+            symbol = f"603{idx:03d}"
+            db.add(
+                Security(
+                    symbol=symbol,
+                    name=f"价值蓄势{idx}",
+                    exchange="SH",
+                    industry=f"价值行业{idx}",
+                    is_active=True,
+                )
+            )
+            db.add(_bar(symbol))
+            db.add(
+                _feature(
+                    symbol,
+                    trend_score=20,
+                    relative_strength_score=30,
+                    sector_strength_score=50,
+                    volume_confirmation_score=30,
+                    volume_score=30,
+                    risk_score=35,
+                    overheat_score=30,
+                    volume_trap_risk_score=30,
+                    return_1d=0.0,
+                    return_3d=0.01,
+                    return_20d=-0.10,
+                    distance_to_ma20=-0.04,
+                    distance_to_60d_high=-0.20,
+                    consolidation_range_3d=0.055,
+                    amount_contraction_3d_vs_5d=0.50,
+                    amount_ratio_5d=0.50,
+                )
+            )
+            db.add(
+                TushareDailyBasic(
+                    ts_code=f"{symbol}.SH",
+                    trade_date=date(2026, 6, 24),
+                    pe_ttm=Decimal("18"),
+                    pb=Decimal("2"),
+                )
+            )
         db.commit()
 
         result = discover_next_session_candidates(
@@ -2614,6 +2851,16 @@ def test_discover_next_session_candidates_caps_daily_list_to_fifteen() -> None:
         items = list_pool_items(db, pool_name="experiment")
 
     assert len(result["candidates"]) == 15
+    assert sum(
+        item["selected_rule_id"] == "R009" for item in result["candidates"]
+    ) == 5
+    assert sum(
+        item["selected_rule_id"] != "R009" for item in result["candidates"]
+    ) == 10
+    assert result["selection_funnel"]["value_reversion_qualified"] == 7
+    assert result["selection_funnel"]["value_reversion_selected"] == 5
+    assert result["selection_funnel"]["value_reversion_ranked_out"] == 2
+    assert result["selection_funnel"]["general_selected"] == 10
     assert result["requested_limit"] == 99
     assert result["effective_limit"] == 15
     assert result["written"] == 15

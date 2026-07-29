@@ -158,6 +158,7 @@ CANDIDATE_RULE_SCORE_BONUSES = {
     "R001": -3.0,
 }
 CANDIDATE_DEFAULT_LIMIT = 15
+VALUE_REVERSION_RESERVED_LIMIT = 5
 FEATURE_DATE_MIN_COVERAGE_RATIO = 0.80
 FEATURE_DATE_COUNTS_CACHE_KEY = "research_pool_feature_date_counts"
 CANDIDATE_SECTOR_SOFT_PENALTIES = (0.0, 2.4, 5.8, 9.5, 13.0)
@@ -1945,6 +1946,46 @@ def _is_value_reversion_launch(context: dict[str, Any]) -> bool:
     )
 
 
+def _value_reversion_setup_quality(
+    context: dict[str, Any], *, launch: bool = False
+) -> float:
+    pe = _float(context, "pe_ttm")
+    pb = _float(context, "pb")
+    valuation = 20.0 if 0 < pe <= 25 and 0 < pb <= 3 else 15.0
+    range_key = "prior_consolidation_range_3d" if launch else "consolidation_range_3d"
+    contraction_key = (
+        "prior_amount_contraction_3d_vs_5d"
+        if launch
+        else "amount_contraction_3d_vs_5d"
+    )
+    platform_range = _float(context, range_key, 1.0)
+    compactness = (
+        25.0 if platform_range <= 0.06 else 18.0 if platform_range <= 0.09 else 10.0
+    )
+    contraction_ratio = _float(context, contraction_key, 1.0)
+    contraction = (
+        25.0
+        if 0.35 <= contraction_ratio <= 0.60
+        else 18.0
+        if 0.20 <= contraction_ratio <= 0.75
+        else 10.0
+    )
+    drawdown = (
+        15.0 if -0.30 <= _float(context, "distance_to_60d_high") <= -0.12 else 8.0
+    )
+    return_3d = _optional_float(context, "return_3d")
+    stability = (
+        5.0 if launch or return_3d is None else 10.0 if abs(return_3d) <= 0.03 else 5.0
+    )
+    distance_to_ma20 = _optional_float(context, "distance_to_ma20")
+    ma_proximity = (
+        5.0
+        if distance_to_ma20 is not None and -0.10 <= distance_to_ma20 <= 0.08
+        else 2.0
+    )
+    return valuation + compactness + contraction + drawdown + stability + ma_proximity
+
+
 def _passes_mean_reversion_candidate_filters(
     context: dict[str, Any], *, regime: str
 ) -> bool:
@@ -2438,6 +2479,56 @@ def _action_rank_score(item: NextSessionCandidate) -> float:
         + _low_dimensional_mainline_rank_bonus(item)
         - _candidate_position_risk_penalty(item) * 0.8
     )
+
+
+def _rank_value_reversion_candidates(
+    candidates: list[NextSessionCandidate],
+    *,
+    context_by_symbol: dict[str, dict[str, Any]],
+    limit: int,
+) -> list[NextSessionCandidate]:
+    remaining = list(candidates)
+    selected: list[NextSessionCandidate] = []
+    selected_sectors: set[str] = set()
+
+    while remaining and len(selected) < limit:
+        best_index = max(
+            range(len(remaining)),
+            key=lambda index: (
+                _is_value_reversion_launch(
+                    context_by_symbol[remaining[index].symbol]
+                ),
+                _value_reversion_setup_quality(
+                    context_by_symbol[remaining[index].symbol],
+                    launch=_is_value_reversion_launch(
+                        context_by_symbol[remaining[index].symbol]
+                    ),
+                ),
+                _candidate_sector_key(remaining[index]) not in selected_sectors,
+                _action_rank_score(remaining[index]),
+            ),
+        )
+        chosen = remaining.pop(best_index)
+        selected.append(chosen)
+        selected_sectors.add(_candidate_sector_key(chosen))
+
+    return selected
+
+
+def _apply_value_reversion_quota(
+    *,
+    general_candidates: list[NextSessionCandidate],
+    value_reversion_candidates: list[NextSessionCandidate],
+    context_by_symbol: dict[str, dict[str, Any]],
+    limit: int,
+) -> tuple[list[NextSessionCandidate], list[NextSessionCandidate]]:
+    selected_r009 = _rank_value_reversion_candidates(
+        value_reversion_candidates,
+        context_by_symbol=context_by_symbol,
+        limit=min(VALUE_REVERSION_RESERVED_LIMIT, max(0, limit)),
+    )
+    selected_general = general_candidates[: max(0, limit - len(selected_r009))]
+    return [*selected_general, *selected_r009], selected_r009
 
 
 def _sector_first_priority(item: NextSessionCandidate) -> float:
@@ -3364,7 +3455,44 @@ def discover_next_session_candidates(
         reverse=True,
     )
     selected = _surface_fresh_potential_after_crowded_sector(selected)
-    selection_funnel["selected"] = len(selected)
+    value_reversion_candidates = list(
+        {
+            item.symbol: item
+            for item in [*formal_candidates, *observation_candidates]
+            if item.selected_rule_id == "R009"
+        }.values()
+    )
+    general_candidates = [item for item in selected if item.selected_rule_id != "R009"]
+    selected, selected_value_reversion = _apply_value_reversion_quota(
+        general_candidates=general_candidates,
+        value_reversion_candidates=value_reversion_candidates,
+        context_by_symbol=context_by_symbol,
+        limit=requested_limit,
+    )
+    selected = sorted(
+        selected,
+        key=lambda item: (
+            {
+                "formal_strategy": 3,
+                "observation": 2,
+                "potential_watch": 1,
+                "exploration": 0,
+            }.get(item.selection_mode, 0),
+            _sector_first_final_rank_score(item, final_score_fn),
+        ),
+        reverse=True,
+    )
+    selected = _surface_fresh_potential_after_crowded_sector(selected)
+    selection_funnel.update(
+        {
+            "value_reversion_qualified": len(value_reversion_candidates),
+            "value_reversion_selected": len(selected_value_reversion),
+            "value_reversion_ranked_out": len(value_reversion_candidates)
+            - len(selected_value_reversion),
+            "general_selected": len(selected) - len(selected_value_reversion),
+            "selected": len(selected),
+        }
+    )
     data_evidence_risk = _candidate_data_evidence_risk(db, effective_feature_date)
     selected = [
         replace(
